@@ -12,6 +12,7 @@ import {
 } from './data/initialData';
 import {
   CompanyProfile,
+  UF,
   Machine,
   Material,
   FixedCost,
@@ -107,11 +108,11 @@ export default function App() {
     if (companySettings) {
       setCompany(prev => ({
         ...prev,
-        name: companySettings.name || prev.name,
+        tradeName: companySettings.tradeName || prev.tradeName,
+        name: companySettings.tradeName || prev.name,
         cnpj: companySettings.cnpj || prev.cnpj,
         city: companySettings.city || prev.city,
-        uf: companySettings.uf || prev.uf,
-        taxRegime: companySettings.taxRegime || prev.taxRegime
+        uf: (companySettings.uf as UF) || prev.uf
       }));
     }
   }, [companySettings, setCompany]);
@@ -120,11 +121,10 @@ export default function App() {
   const handleUpdateCompany = (updated: CompanyProfile) => {
     setCompany(updated);
     syncCompanySettingsMutation({
-      name: updated.name,
+      tradeName: updated.tradeName || updated.name,
       cnpj: updated.cnpj,
       city: updated.city,
-      uf: updated.uf,
-      taxRegime: updated.taxRegime
+      uf: updated.uf
     });
   };
 

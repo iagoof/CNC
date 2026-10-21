@@ -63,17 +63,15 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting 
   const [generationSuccess, setGenerationSuccess] = useState<boolean>(false);
   const [currentDesignTitle, setCurrentDesignTitle] = useState<string>('Caixa Organizadora CNC com Encaixes Finger-Joint (MDF 3mm)');
   const [generatedSvgContent, setGeneratedSvgContent] = useState<string>('');
-  const [savedDesigns, setSavedDesigns] = useState<Array<{ id: string; title: string; material: string; parts: number; date: string }>>(() => {
-    try {
-      const saved = localStorage.getItem('cnc_saved_designs');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [
-      { id: '1', title: 'Caixa Organizadora Finger-Joint', material: 'MDF 3mm', parts: 7, date: '2026-10-20' },
-      { id: '2', title: 'Kit Porta-Copos Hexagonais', material: 'MDF 3mm', parts: 8, date: '2026-10-19' },
-      { id: '3', title: 'Troféu Cristal com Base MDF', material: 'Acrílico + MDF', parts: 5, date: '2026-10-18' }
-    ];
-  });
+  
+  // Firebase Cloud Integration
+  const { user, isAuthenticated, projects, syncProjectMutation, deleteProjectMutation } = useFirebase();
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   // Three.js refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -389,19 +387,53 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting 
     URL.revokeObjectURL(url);
   };
 
-  const handleSaveDesign = () => {
-    const newDesign = {
-      id: 'ds-' + Date.now(),
-      title: currentDesignTitle,
-      material: `${finish.toUpperCase()} ${aiThickness}mm`,
-      parts: selectedModel === 'caixa-fingerjoint' ? 7 : 4,
-      date: new Date().toISOString().split('T')[0]
-    };
-    const updated = [newDesign, ...savedDesigns];
-    setSavedDesigns(updated);
-    try {
-      localStorage.setItem('cnc_saved_designs', JSON.stringify(updated));
-    } catch {}
+  const handleSaveDesign = async () => {
+    const svgContent = getActiveSvgString();
+    const projId = 'proj-' + Date.now();
+    const title = currentDesignTitle || `Projeto CNC ${selectedModel}`;
+
+    if (isAuthenticated && user) {
+      try {
+        await syncProjectMutation({
+          id: projId,
+          name: title,
+          ownerId: user.uid,
+          svgContent,
+          widthMm: 400,
+          heightMm: 300,
+          cutLengthMm: 2450,
+          materialCategory: finish.includes('acrilico') ? 'Acrílico' : 'MDF',
+          recommendedThicknessMm: aiThickness,
+          source: 'parametric_box'
+        });
+        triggerToast(`Projeto "${title}" salvo na nuvem Firestore!`);
+      } catch (err) {
+        console.error('Erro ao salvar projeto no Firestore:', err);
+        triggerToast('Falha ao salvar projeto na nuvem.');
+      }
+    } else {
+      triggerToast('Conecte sua conta Google na barra lateral para salvar projetos na nuvem.');
+    }
+  };
+
+  const handleLoadCloudProject = (proj: FirestoreProject) => {
+    setGeneratedSvgContent(proj.svgContent);
+    setCurrentDesignTitle(proj.name);
+    if (proj.recommendedThicknessMm) {
+      setAiThickness(proj.recommendedThicknessMm);
+    }
+    setActiveTab('ai-vectorizer');
+    triggerToast(`Projeto "${proj.name}" carregado com sucesso!`);
+  };
+
+  const handleDownloadProjectSvg = (proj: FirestoreProject) => {
+    const blob = new Blob([proj.svgContent], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${proj.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -812,35 +844,100 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting 
         </div>
       )}
 
-      {/* My Designs Tab */}
+      {/* My Designs Tab - Conectada à Nuvem Firestore */}
       {activeTab === 'my-designs' && (
         <div className="flex-1 p-6 overflow-y-auto max-w-6xl mx-auto w-full space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-slate-900">Projetos CNC & Biblioteca de Vetores</h2>
-            <span className="text-xs text-slate-500 font-mono">{savedDesigns.length} Projetos Salvos</span>
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Cloud className="w-5 h-5 text-amber-500" />
+                Projetos Salvos na Nuvem Firestore
+              </h2>
+              <p className="text-xs text-slate-500">
+                Sincronização em tempo real vinculada à sua conta de usuário
+              </p>
+            </div>
+            <span className="text-xs text-slate-500 font-mono bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+              {projects.length} {projects.length === 1 ? 'Projeto' : 'Projetos'} na Nuvem
+            </span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {savedDesigns.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-                <h3 className="font-bold text-slate-900 text-sm">{item.title}</h3>
-                <p className="text-xs text-slate-500">Material: {item.material} • {item.parts} peças • {item.date}</p>
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                  <button
-                    onClick={() => setActiveTab('3d-assembly')}
-                    className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Eye className="w-3.5 h-3.5" /> Ver em 3D
-                  </button>
-                  <button
-                    onClick={handleDownloadSvg}
-                    className="text-xs font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3 h-3" /> Baixar
-                  </button>
-                </div>
+
+          {projects.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm space-y-4">
+              <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200/80">
+                <FolderOpen className="w-8 h-8" />
               </div>
-            ))}
-          </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Nenhum projeto salvo na nuvem ainda</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  {isAuthenticated
+                    ? 'Crie geometrias no Vetorizador IA ou Estúdio 3D e clique no botão "Salvar" acima para sincronizar no Firestore.'
+                    : 'Conecte sua conta Google na barra lateral para salvar e sincronizar seus projetos em tempo real com segurança.'}
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveTab('ai-vectorizer')}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-sm transition inline-flex items-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" /> Criar Primeiro Projeto
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {projects.map(proj => (
+                <div key={proj.id} className="bg-white border border-slate-200 hover:border-amber-400 rounded-2xl p-5 shadow-sm transition space-y-3 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-bold text-slate-900 text-sm truncate" title={proj.name}>
+                        {proj.name}
+                      </h3>
+                      <button
+                        onClick={() => deleteProjectMutation(proj.id)}
+                        className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition shrink-0 cursor-pointer"
+                        title="Excluir projeto da nuvem"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {proj.materialCategory || 'MDF'} {proj.recommendedThicknessMm ? `• ${proj.recommendedThicknessMm}mm` : ''} • {proj.widthMm}x{proj.heightMm} mm
+                    </p>
+                  </div>
+
+                  {/* SVG Thumbnail Preview */}
+                  <div className="h-32 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center p-2 overflow-hidden">
+                    <div
+                      className="w-full h-full flex items-center justify-center pointer-events-none"
+                      dangerouslySetInnerHTML={{ __html: proj.svgContent }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                    <button
+                      onClick={() => handleLoadCloudProject(proj)}
+                      className="font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Abrir no Vetorizador
+                    </button>
+                    <button
+                      onClick={() => handleDownloadProjectSvg(proj)}
+                      className="font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3 h-3" /> Baixar SVG
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl border border-slate-800 text-xs font-semibold flex items-center gap-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>
