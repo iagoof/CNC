@@ -424,7 +424,7 @@ export default function App() {
     production: { title: 'Chão de Fábrica & Kanban CNC', subtitle: 'Fluxo visual de ordens, bipagem de código de barras e tempos de máquina' },
     inventory: { title: 'Controle de Estoque por SKU', subtitle: 'Saldo Físico, Comprometido, Disponível e Ponto de Pedido' },
     catalog: { title: 'Catálogo & Loja Online', subtitle: 'Checkout simulado com Asaas Pix e sincronização de marketplaces' },
-    fiscal: { title: 'Fiscal & Expedição', subtitle: 'Emissão SEFAZ DANFE e etiquetas térmicas 10x15cm em ZPL' },
+    fiscal: { title: 'Documentos & Expedição', subtitle: 'Resumo dos pedidos e identificação interna em ZPL' },
     observability: { title: 'Centro de Observabilidade & SRE', subtitle: 'Telemetria ponta a ponta, Request ID, logs estruturados e rollback automático' },
     settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, custos fixos e CEMIG (MG)' }
   };
