@@ -37,11 +37,12 @@ import {
 } from 'lucide-react';
 
 interface DesignStudioProps {
+  initialModel?: string;
   onSendToNesting?: (part: { name: string; width: number; height: number; cutLength_mm: number }) => void;
   onSendToQuote?: (part: { description: string; cutLength_mm: number; materialCategory: string }) => void;
 }
 
-export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting }) => {
+export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting, initialModel }) => {
   const mountRef = useRef<HTMLDivElement>(null);
 
   // Studio UI State
@@ -49,6 +50,11 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting 
   const [selectedModel, setSelectedModel] = useState<
     'caixa-fingerjoint' | 'trofeu-acrilico' | 'suporte-notebook' | 'mandala-camadas' | 'luminaria-geometrica' | 'suporte-fone'
   >('caixa-fingerjoint');
+  useEffect(() => {
+    const models = ['caixa-fingerjoint', 'trofeu-acrilico', 'suporte-notebook', 'mandala-camadas', 'luminaria-geometrica', 'suporte-fone'] as const;
+    const model = models.find(m => m === initialModel);
+    if (model) setSelectedModel(model);
+  }, [initialModel]);
   const [finish, setFinish] = useState<LaserMaterialFinish>('mdf-cru');
   const [explodeSlider, setExplodeSlider] = useState<number>(0);
   const [showKerf, setShowKerf] = useState<boolean>(true);

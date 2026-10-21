@@ -23,7 +23,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
-import { ProductionOrder, Material, Quote, CompanyProfile } from '../../types';
+import { ProductionOrder, Material, Quote, CompanyProfile, UF } from '../../types';
 
 // Inicialização oficial do Firebase
 const app = initializeApp(firebaseConfig);
@@ -189,7 +189,8 @@ export function subscribeToOrders(
     },
     error => {
       if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
 }
@@ -205,6 +206,9 @@ export async function saveOrderToFirestore(order: ProductionOrder, userId: strin
         status: order.status,
         priority: order.priority,
         scannedQuantity: order.scannedQuantity,
+        dueDate: order.dueDate,
+        assignedTo: order.assignedTo ?? '',
+        notes: order.notes ?? '',
         productName: order.productName,
         quantityRequested: order.quantityRequested,
         quantityIdealCalculated: order.quantityIdealCalculated,
@@ -228,6 +232,9 @@ export async function saveOrderToFirestore(order: ProductionOrder, userId: strin
         materialName: order.materialName,
         laserTimeEstimatedMin: order.laserTimeEstimatedMin,
         scannedQuantity: order.scannedQuantity,
+        dueDate: order.dueDate,
+        assignedTo: order.assignedTo ?? '',
+        notes: order.notes ?? '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -270,16 +277,17 @@ export function subscribeToMaterials(
           sheetLength_mm: data.sheetLength_mm || 2750,
           unitCost: data.unitCost || 0,
           shippingCost: data.shippingCost || 0,
-          lossPercentage: data.lossPercentage || 5,
+          lossPercentage: data.lossPercentage ?? 5,
           density_kg_m3: data.density_kg_m3 || 750,
-          speedsByMachine: []
+          speedsByMachine: Array.isArray(data.speedsByMachine) ? data.speedsByMachine : []
         });
       });
       onData(materials);
     },
     error => {
       if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
 }
@@ -301,6 +309,7 @@ export async function saveMaterialToFirestore(material: Material, userId: string
         shippingCost: material.shippingCost,
         lossPercentage: material.lossPercentage,
         density_kg_m3: material.density_kg_m3,
+        speedsByMachine: material.speedsByMachine,
         updatedAt: serverTimestamp()
       });
     } else {
@@ -316,6 +325,7 @@ export async function saveMaterialToFirestore(material: Material, userId: string
         shippingCost: material.shippingCost,
         lossPercentage: material.lossPercentage,
         density_kg_m3: material.density_kg_m3,
+        speedsByMachine: material.speedsByMachine,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -356,12 +366,12 @@ export function subscribeToQuotes(
           customerPhone: data.customerPhone || '',
           customerEmail: data.customerEmail || '',
           customerDoc: data.customerDoc || '',
-          items: [],
+          items: Array.isArray(data.items) ? data.items : [],
           validUntil: data.validUntil || '',
           notes: data.notes || '',
-          desiredProfitMarginPct: 35,
-          extraTaxPct: 6,
-          fixedExtraFee: 0,
+          desiredProfitMarginPct: data.desiredProfitMarginPct ?? 35,
+          extraTaxPct: data.extraTaxPct ?? 0,
+          fixedExtraFee: data.fixedExtraFee ?? 0,
           createdAt: typeof data.createdAt?.toDate === 'function' ? data.createdAt.toDate().toISOString() : data.createdAt || new Date().toISOString(),
           status: data.status || 'Rascunho'
         });
@@ -370,7 +380,8 @@ export function subscribeToQuotes(
     },
     error => {
       if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
 }
@@ -390,6 +401,10 @@ export async function saveQuoteToFirestore(quote: Quote, userId: string): Promis
         status: quote.status,
         validUntil: quote.validUntil,
         notes: quote.notes,
+        items: quote.items.map(item => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined))),
+        desiredProfitMarginPct: quote.desiredProfitMarginPct,
+        extraTaxPct: quote.extraTaxPct,
+        fixedExtraFee: quote.fixedExtraFee,
         updatedAt: serverTimestamp()
       });
     } else {
@@ -404,6 +419,10 @@ export async function saveQuoteToFirestore(quote: Quote, userId: string): Promis
         status: quote.status,
         validUntil: quote.validUntil,
         notes: quote.notes,
+        items: quote.items.map(item => Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined))),
+        desiredProfitMarginPct: quote.desiredProfitMarginPct,
+        extraTaxPct: quote.extraTaxPct,
+        fixedExtraFee: quote.fixedExtraFee,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -458,7 +477,8 @@ export function subscribeToProjects(
     },
     error => {
       if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
 }
@@ -515,12 +535,18 @@ export async function deleteProjectFromFirestore(projectId: string): Promise<voi
 
 // Configurações da Empresa e Máquinas (CompanySettings)
 export interface FirestoreCompanySettings {
+  name?: string;
+  ie?: string;
+  address?: string;
+  cep?: string;
+  phone?: string;
+  email?: string;
   id: string;
   ownerId: string;
   tradeName: string;
   cnpj?: string;
   city?: string;
-  uf?: string;
+  uf?: UF;
   cemigRateKwh?: number;
   monthlyWorkHours?: number;
   createdAt?: any;
@@ -547,7 +573,8 @@ export function subscribeToCompanySettings(
     },
     error => {
       if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
 }
@@ -566,6 +593,9 @@ export async function saveCompanySettingsToFirestore(
       tradeName: settings.tradeName,
       updatedAt: serverTimestamp()
     };
+    for (const field of ['name', 'ie', 'address', 'cep', 'phone', 'email'] as const) {
+      if (settings[field] !== undefined) dataToSave[field] = settings[field];
+    }
     if (settings.cnpj !== undefined) dataToSave.cnpj = settings.cnpj;
     if (settings.city !== undefined) dataToSave.city = settings.city;
     if (settings.uf !== undefined) dataToSave.uf = settings.uf;

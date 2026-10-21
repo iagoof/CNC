@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   INITIAL_COMPANY,
   INITIAL_MACHINES,
@@ -44,6 +44,7 @@ import { initializeSreTelemetry } from './services/telemetry';
 import { useFirebase } from './services/firebase/FirebaseContext';
 import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes } from './services/firebase/firebase';
 import { Info } from 'lucide-react';
+import { convertQuote, entityId, documentNumber, money } from './utils/quoteEngine';
 import { TARIFA_ENERGIA_POR_UF } from './utils/calculations';
 
 // Inicialização imediata dos interceptores e manipuladores SRE
@@ -63,35 +64,41 @@ export default function App() {
     deleteMaterialMutation
   } = useFirebase();
 
-  // Global Domain State with LocalStorage Persistence
+  const storageKey = (key: string) => user ? `user:${user.uid}:${key}` : key;
+  // Account-scoped local recovery cache.
   const [activeTab, setActiveTab] = useState<string>('studio-ai');
-  const [company, setCompany] = useLocalStorageState<CompanyProfile>('cnc_company', INITIAL_COMPANY);
-  const [machines, setMachines] = useLocalStorageState<Machine[]>('cnc_machines', INITIAL_MACHINES);
-  const [materials, setMaterials] = useLocalStorageState<Material[]>('cnc_materials', INITIAL_MATERIALS);
-  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>('cnc_fixed_costs', INITIAL_FIXED_COSTS);
-  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>('cnc_revenue_target', 35000);
-  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>('cnc_taxes', INITIAL_TAXES);
-  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>('cnc_inventory', INITIAL_PRODUCTS);
-  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>('cnc_production_orders', INITIAL_PRODUCTION_ORDERS);
-  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>('cnc_sales_orders', INITIAL_SALES_ORDERS);
-  const [quotes, setQuotes] = useLocalStorageState<Quote[]>('cnc_quotes', INITIAL_QUOTES);
-  const [currentPlan, setCurrentPlan] = useLocalStorageState<PlanType>('cnc_current_plan', 'Crescer');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [newQuoteToken, setNewQuoteToken] = useState(0);
+  const conversionInProgress = useRef(new Set<string>());
+  const [camTransfer, setCamTransfer] = useState<CamTransferData | null>(null);
+  const [studioModel, setStudioModel] = useState<string>('caixa-fingerjoint');
+  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), INITIAL_COMPANY);
+  const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), INITIAL_MACHINES);
+  const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), INITIAL_MATERIALS);
+  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), INITIAL_FIXED_COSTS);
+  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 35000);
+  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), INITIAL_TAXES);
+  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), user ? [] : INITIAL_PRODUCTS);
+  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), user ? [] : INITIAL_PRODUCTION_ORDERS);
+  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), user ? [] : INITIAL_SALES_ORDERS);
+  const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), user ? [] : INITIAL_QUOTES);
+  const [currentPlan, setCurrentPlan] = useLocalStorageState<PlanType>(storageKey('cnc_current_plan'), 'Crescer');
 
   // Sincronização em tempo real com Firestore quando autenticado
   useEffect(() => {
     if (!user) return;
     const unsubOrders = subscribeToOrders(user.uid, remoteOrders => {
-      if (remoteOrders && remoteOrders.length > 0) {
+      if (remoteOrders) {
         setProductionOrders(remoteOrders);
       }
     });
     const unsubMaterials = subscribeToMaterials(user.uid, remoteMats => {
-      if (remoteMats && remoteMats.length > 0) {
+      if (remoteMats) {
         setMaterials(remoteMats);
       }
     });
     const unsubQuotes = subscribeToQuotes(user.uid, remoteQuotes => {
-      if (remoteQuotes && remoteQuotes.length > 0) {
+      if (remoteQuotes) {
         setQuotes(remoteQuotes);
       }
     });
@@ -120,7 +127,7 @@ export default function App() {
   // Handlers com persistência em nuvem Firestore
   const handleUpdateCompany = (updated: CompanyProfile) => {
     setCompany(updated);
-    syncCompanySettingsMutation({
+    void syncCompanySettingsMutation({
       tradeName: updated.tradeName || updated.name,
       cnpj: updated.cnpj,
       city: updated.city,
@@ -130,22 +137,24 @@ export default function App() {
 
   const handleUpdateMaterials = (newMaterials: Material[]) => {
     setMaterials(newMaterials);
-    newMaterials.forEach(m => syncMaterialMutation(m));
+    newMaterials.forEach(m => { void syncMaterialMutation(m).catch(() => {}); });
   };
 
   const handleRemoveMaterial = (materialId: string) => {
     setMaterials(prev => prev.filter(m => m.id !== materialId));
-    deleteMaterialMutation(materialId);
+    void deleteMaterialMutation(materialId).catch(() => {});
   };
 
   const handleDeleteOrder = (orderId: string) => {
+    const order = productionOrders.find(o => o.id === orderId);
+    if (order && order.status !== 'Pronto/Embalado') setInventory(prev => prev.map(i => i.sku === order.sku ? { ...i, inProductionStock: Math.max(0, i.inProductionStock - order.quantityRequested) } : i));
     setProductionOrders(prev => prev.filter(o => o.id !== orderId));
-    deleteOrderMutation(orderId);
+    void deleteOrderMutation(orderId).catch(() => {});
   };
 
   const handleDeleteQuote = (quoteId: string) => {
     setQuotes(prev => prev.filter(q => q.id !== quoteId));
-    deleteQuoteMutation(quoteId);
+    void deleteQuoteMutation(quoteId).catch(() => {});
   };
 
   // Stored part for transfer between Studio and Nesting
@@ -171,47 +180,35 @@ export default function App() {
 
   // Handlers for Production Orders (Kanban & Bipagem) com Sincronização Cloud
   const handleUpdateOrderStatus = (orderId: string, newStatus: ProductionOrder['status']) => {
-    setProductionOrders(prev =>
-      prev.map(order => {
-        if (order.id === orderId) {
-          // If advancing to Ready, update physical stock and decrement inProductionStock
-          if (newStatus === 'Pronto/Embalado' && order.status !== 'Pronto/Embalado') {
-            handleUpdateStock(order.sku, order.quantityRequested);
-            setInventory(invList =>
-              invList.map(inv =>
-                inv.sku === order.sku
-                  ? { ...inv, inProductionStock: Math.max(0, inv.inProductionStock - order.quantityRequested) }
-                  : inv
-              )
-            );
-          }
-          const updated = { ...order, status: newStatus };
-          syncOrderMutation(updated);
-          return updated;
-        }
-        return order;
-      })
-    );
+    const order = productionOrders.find(o => o.id === orderId);
+    if (!order || order.status === newStatus) return;
+    if (order.status === 'Pronto/Embalado') { setActionError('Ordens concluídas não podem voltar ao processo.'); return; }
+    const updated = { ...order, status: newStatus };
+    if (newStatus === 'Pronto/Embalado') {
+      setInventory(prev => prev.map(inv => inv.sku === order.sku ? {
+        ...inv, physicalStock: inv.physicalStock + order.quantityRequested,
+        inProductionStock: Math.max(0, inv.inProductionStock - order.quantityRequested)
+      } : inv));
+    }
+    setProductionOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+    void syncOrderMutation(updated).catch(() => {});
   };
 
   const handleUpdateScannedQty = (orderId: string, qty: number) => {
-    setProductionOrders(prev =>
-      prev.map(order => {
-        if (order.id === orderId) {
-          const updated = { ...order, scannedQuantity: qty };
-          syncOrderMutation(updated);
-          return updated;
-        }
-        return order;
-      })
-    );
+    const order = productionOrders.find(o => o.id === orderId);
+    if (!order || order.status === 'Pronto/Embalado' || !Number.isSafeInteger(qty) || qty < 0 || qty > order.quantityRequested) return;
+    const updated = { ...order, scannedQuantity: qty };
+    setProductionOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+    void syncOrderMutation(updated).catch(() => {});
   };
 
   const handleCreateProductionOrder = (orderData: Partial<ProductionOrder>) => {
-    const qty = orderData.quantityRequested || 10;
+    const qty = orderData.quantityRequested ?? 1;
+    if (!Number.isSafeInteger(qty) || qty <= 0) { setActionError('Informe uma quantidade inteira positiva.'); return; }
+    const orderId = entityId('op');
     const newOrder: ProductionOrder = {
-      id: 'op-' + Date.now(),
-      orderNumber: `OP-0${Math.floor(Math.random() * 800 + 100)}`,
+      id: orderId,
+      orderNumber: documentNumber('OP', orderId),
       sku: orderData.sku || 'SKU-CUSTOM',
       productName: orderData.productName || 'Ordem Customizada Laser',
       quantityRequested: qty,
@@ -220,7 +217,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
       dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
       priority: orderData.priority || 'Normal',
-      machineId: machines[0]?.id || 'mach-1',
+      machineId: orderData.machineId || machines[0]?.id || '',
       materialName: orderData.materialName || 'MDF Cru 3,0 mm',
       laserTimeEstimatedMin: orderData.laserTimeEstimatedMin || 45,
       scannedQuantity: 0,
@@ -238,29 +235,31 @@ export default function App() {
       );
     }
 
-    setProductionOrders([newOrder, ...productionOrders]);
-    syncOrderMutation(newOrder);
+    setProductionOrders(prev => [newOrder, ...prev]);
+    void syncOrderMutation(newOrder).catch(() => {});
     setActiveTab('production');
   };
 
   // Handlers for Sales Orders (Store & Marketplaces)
   const handlePlaceOrder = (orderData: Partial<SalesOrder>) => {
+    if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return; }
+    const items = orderData.items.map(i => ({ ...i, totalPrice: money(i.unitPrice * i.quantity) }));
+    const subtotal = money(items.reduce((sum, i) => sum + i.totalPrice, 0));
     const fullOrder: SalesOrder = {
-      id: 'ped-' + Date.now(),
+      id: entityId('ped'),
       orderNumber: orderData.orderNumber || `PED-2026-0${Math.floor(Math.random() * 900 + 100)}`,
       channel: orderData.channel || 'Loja Própria',
       customerName: orderData.customerName || 'Cliente Loja Online',
       customerDoc: orderData.customerDoc || '123.456.789-00',
       customerCity: orderData.customerCity || 'Juiz de Fora',
       customerUf: orderData.customerUf || 'MG',
-      items: orderData.items || [],
-      subtotal: orderData.subtotal || 0,
+      items,
+      subtotal,
       shippingCost: orderData.shippingCost || 0,
       discount: orderData.discount || 0,
-      total: orderData.total || 0,
+      total: money(subtotal + (orderData.shippingCost ?? 0) - (orderData.discount ?? 0)),
       paymentMethod: orderData.paymentMethod || 'Pix Asaas',
-      paymentStatus: 'Pago',
-      paidAt: new Date().toISOString(),
+      paymentStatus: 'Pendente',
       fulfillmentStatus: 'Em Produção',
       createdAt: new Date().toISOString()
     };
@@ -281,79 +280,35 @@ export default function App() {
       );
     });
 
-    setSalesOrders([fullOrder, ...salesOrders]);
+    setSalesOrders(prev => [fullOrder, ...prev]);
   };
 
   // Quotes handlers com Sincronização Cloud
-  const handleSaveQuote = (quote: Quote) => {
+  const handleSaveQuote = async (quote: Quote) => {
+    await syncQuoteMutation(quote);
     setQuotes(prev => {
       const exists = prev.some(q => q.id === quote.id);
       if (exists) return prev.map(q => (q.id === quote.id ? quote : q));
       return [quote, ...prev];
     });
-    syncQuoteMutation(quote);
   };
 
-  // Convert Approved Quote into a SalesOrder and Launch Production Orders
+  // The conversion is validated before any local or remote mutation.
   const handleConvertQuoteToOrder = (quote: Quote) => {
-    const newSalesOrder: SalesOrder = {
-      id: 'ped-' + Date.now(),
-      orderNumber: `PED-2026-0${Math.floor(Math.random() * 800 + 100)}`,
-      channel: 'Balcão/Direto',
-      customerName: quote.customerName || 'Cliente Balcão JF',
-      customerDoc: quote.customerDoc || '000.000.000-00',
-      customerCity: company.city || 'Juiz de Fora',
-      customerUf: company.uf || 'MG',
-      items: quote.items.map(i => ({
-        sku: `SKU-${i.id}`,
-        productName: i.description,
-        quantity: i.quantity,
-        unitPrice: 45,
-        totalPrice: 45 * i.quantity,
-        laserTimeSeconds: Math.round(i.cutLength_mm / 25)
-      })),
-      subtotal: 120,
-      shippingCost: 0,
-      discount: 0,
-      total: 120,
-      paymentMethod: 'Pix Asaas',
-      paymentStatus: 'Pago',
-      paidAt: new Date().toISOString(),
-      fulfillmentStatus: 'Em Produção',
-      createdAt: new Date().toISOString()
-    };
-
-    setSalesOrders([newSalesOrder, ...salesOrders]);
-
-    // Launch OP for each item
-    quote.items.forEach((item, idx) => {
-      const op: ProductionOrder = {
-        id: 'op-' + Date.now() + '-' + idx,
-        orderNumber: `OP-0${Math.floor(Math.random() * 800 + 100)}`,
-        sku: `SKU-${item.id}`,
-        productName: item.description,
-        quantityRequested: item.quantity,
-        quantityIdealCalculated: item.quantity,
-        status: 'Aguardando Corte',
-        createdAt: new Date().toISOString(),
-        dueDate: quote.validUntil || new Date(Date.now() + 86400000 * 3).toISOString(),
-        priority: 'Alta',
-        machineId: item.machineId || machines[0]?.id || 'mach-1',
-        materialName: materials.find(m => m.id === item.materialId)?.name || 'MDF Cru 3,0 mm',
-        laserTimeEstimatedMin: Math.max(5, Math.round(item.cutLength_mm / 1500)),
-        scannedQuantity: 0,
-        assignedTo: 'Carlos Operador',
-        notes: `Gerado a partir do Orçamento ${quote.quoteNumber}`
-      };
-      setProductionOrders(prevOps => [op, ...prevOps]);
-    });
-
-    // Update Quote status to Approved / Converted
-    setQuotes(prev =>
-      prev.map(q => (q.id === quote.id ? { ...q, status: 'Convertido em Pedido' } : q))
-    );
-
-    setActiveTab('production');
+    if (conversionInProgress.current.has(quote.id)) return;
+    try {
+      const converted = convertQuote(quote, { materials, machines, fixedCosts, monthlyRevenueTarget, taxes, company }, salesOrders);
+      conversionInProgress.current.add(quote.id);
+      setSalesOrders(prev => [converted.order, ...prev]);
+      setProductionOrders(prev => [...converted.productionOrders, ...prev]);
+      setQuotes(prev => [converted.quote, ...prev.filter(q => q.id !== quote.id)]);
+      void syncQuoteMutation(converted.quote).catch(() => {});
+      converted.productionOrders.forEach(op => { void syncOrderMutation(op).catch(() => {}); });
+      setActionError(null);
+      setActiveTab('production');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Não foi possível converter o orçamento.');
+    }
   };
 
   // Transfer from Design Studio to Nesting
@@ -363,6 +318,7 @@ export default function App() {
   };
 
   const handleCreateProduct = (newProduct: ProductInventory) => {
+    if (inventory.some(item => item.sku.toUpperCase() === newProduct.sku.toUpperCase())) { setActionError('Já existe um produto com este SKU.'); return; }
     setInventory(prev => [newProduct, ...prev]);
   };
 
@@ -381,6 +337,9 @@ export default function App() {
     observability: { title: 'Centro de Observabilidade & SRE', subtitle: 'Telemetria ponta a ponta, Request ID, logs estruturados e rollback automático' },
     settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, custos fixos e CEMIG (MG)' }
   };
+
+  const technicalReady = materials.length > 0 && machines.length > 0;
+  const requiresTechnicalSetup = ['studio-ai', 'cam-ai', 'nesting', 'pricing', 'quotes'].includes(activeTab);
 
   return (
     <ErrorBoundary>
@@ -423,7 +382,7 @@ export default function App() {
 
             {/* Quick Action button */}
             <button
-              onClick={() => setActiveTab('quotes')}
+              onClick={() => { setNewQuoteToken(n => n + 1); setActiveTab('quotes'); }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
             >
               <span>Novo Orçamento</span>
@@ -431,8 +390,10 @@ export default function App() {
           </div>
         </header>
 
+        {actionError && <div role="alert" className="flex items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-800"><span>{actionError}</span><button onClick={() => setActionError(null)} className="underline">Fechar</button></div>}
         {/* Main App Body View Router */}
         <main className="flex-1 overflow-hidden relative bg-slate-50">
+          {requiresTechnicalSetup && !technicalReady && <div className="mx-auto max-w-lg p-8 text-center"><h1 className="text-lg font-bold">Configure sua oficina</h1><p className="my-4 text-sm text-slate-600">Cadastre ao menos um material e uma máquina para criar projetos e calcular preços.</p><button className="rounded-lg bg-amber-500 px-4 py-2 text-sm text-white" onClick={() => setActiveTab('settings')}>Abrir cadastros técnicos</button></div>}
           {activeTab === 'dashboard' && (
             <DashboardView
               orders={salesOrders}
@@ -445,15 +406,17 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'studio-ai' && (
+          {activeTab === 'studio-ai' && technicalReady && (
             <DesignStudioAiView
               materials={materials}
               machines={machines}
-              onSendTo3D={_modelType => {
+              onSendTo3D={modelType => {
+                setStudioModel(modelType);
                 setActiveTab('studio');
               }}
               onSendToNesting={handleSendToNesting}
-              onSendToCam={(_gcode, _machineType) => {
+              onSendToCam={(gcode, machineType) => {
+                setCamTransfer({ gcode, machineType: machineType === 'router' ? 'Router' : 'CO2', fileName: 'Projeto do Design Studio', cutLength_mm: 0 });
                 setActiveTab('cam-ai');
               }}
               onSendToQuote={item => {
@@ -474,9 +437,9 @@ export default function App() {
                   id: 'orc-' + Date.now(),
                   quoteNumber: `ORC-2026-0${Math.floor(Math.random() * 800 + 100)}`,
                   customerName: 'Cliente Novo Design Studio AI',
-                  customerPhone: '(32) 99876-5432',
-                  customerEmail: 'contato@cliente.com.br',
-                  customerDoc: '000.000.000-00',
+                  customerPhone: '',
+                  customerEmail: '',
+                  customerDoc: '',
                   items: [newQuoteItem],
                   validUntil: new Date(Date.now() + 86400000 * 15).toISOString().split('T')[0],
                   notes: `Orçamento gerado pelo Design Studio AI para corte na oficina de Juiz de Fora / MG.`,
@@ -486,7 +449,7 @@ export default function App() {
                   createdAt: new Date().toISOString().split('T')[0],
                   status: 'Rascunho'
                 };
-                setQuotes([newQuote, ...quotes]);
+                void handleSaveQuote(newQuote).catch(() => {});
                 setActiveTab('quotes');
               }}
               onSendToProduction={handleCreateProductionOrder}
@@ -495,18 +458,20 @@ export default function App() {
 
           {activeTab === 'studio' && (
             <DesignStudioView
+              initialModel={studioModel}
               onSendToNesting={handleSendToNesting}
             />
           )}
 
-          {activeTab === 'cam-ai' && (
+          {activeTab === 'cam-ai' && technicalReady && (
             <CamOptimizerAiView
+              initialProgram={camTransfer}
               materials={materials}
               machines={machines}
             />
           )}
 
-          {activeTab === 'nesting' && (
+          {activeTab === 'nesting' && technicalReady && (
             <NestingView
               materials={materials}
               machines={machines}
@@ -514,7 +479,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'pricing' && (
+          {activeTab === 'pricing' && technicalReady && (
             <PricingCalculatorView
               materials={materials}
               machines={machines}
@@ -524,8 +489,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'quotes' && (
+          {activeTab === 'quotes' && technicalReady && (
             <QuotesView
+              newQuoteToken={newQuoteToken}
               quotes={quotes}
               materials={materials}
               machines={machines}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Material, Machine } from '../../types';
+import { Material, Machine, CamTransferData } from '../../types';
 import {
   Cpu,
   Play,
@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 interface CamOptimizerAiViewProps {
+  initialProgram?: CamTransferData | null;
   materials: Material[];
   machines: Machine[];
 }
@@ -36,6 +37,7 @@ interface ToolpathPoint {
 
 export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
   materials,
+  initialProgram,
   machines
 }) => {
   // Machine & Material selection
@@ -77,6 +79,15 @@ G00 Z5.0000
 M05 ; Desliga ferramenta
 G00 X0.0000 Y0.0000 ; Retorno à origem
 M30 ; Fim do programa`);
+
+  useEffect(() => {
+    if (!initialProgram) return;
+    setRawGcode(initialProgram.gcode);
+    setSelectedMachineType(initialProgram.machineType === 'Router' ? 'router' : 'laser');
+    setPlaybackProgress(0);
+    setIsPlaying(false);
+    setAnalysisResult(null);
+  }, [initialProgram]);
 
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<{

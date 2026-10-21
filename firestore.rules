@@ -64,7 +64,7 @@ service cloud.firestore {
 
     function isValidOrder(data) {
       return data.keys().hasAll(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'status', 'priority', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'status', 'priority', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'scannedQuantity', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'status', 'priority', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'scannedQuantity', 'dueDate', 'assignedTo', 'notes', 'createdAt', 'updatedAt']) &&
         data.id is string && isValidId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.orderNumber is string && data.orderNumber.size() <= 32 &&
@@ -77,12 +77,15 @@ service cloud.firestore {
         (!('machineId' in data) || (data.machineId is string && data.machineId.size() <= 64)) &&
         (!('materialName' in data) || (data.materialName is string && data.materialName.size() <= 64)) &&
         (!('laserTimeEstimatedMin' in data) || (data.laserTimeEstimatedMin is number && data.laserTimeEstimatedMin >= 0)) &&
-        (!('scannedQuantity' in data) || (data.scannedQuantity is number && data.scannedQuantity >= 0));
+        (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 32)) &&
+        (!('assignedTo' in data) || (data.assignedTo is string && data.assignedTo.size() <= 128)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('scannedQuantity' in data) || (data.scannedQuantity is number && data.scannedQuantity >= 0 && data.scannedQuantity <= data.quantityRequested));
     }
 
     function isValidMaterial(data) {
       return data.keys().hasAll(['id', 'ownerId', 'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'ownerId', 'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'speedsByMachine', 'createdAt', 'updatedAt']) &&
         data.id is string && isValidId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
@@ -93,12 +96,13 @@ service cloud.firestore {
         data.unitCost is number && data.unitCost >= 0 &&
         (!('shippingCost' in data) || (data.shippingCost is number && data.shippingCost >= 0)) &&
         (!('lossPercentage' in data) || (data.lossPercentage is number && data.lossPercentage >= 0)) &&
+        (!('speedsByMachine' in data) || (data.speedsByMachine is list && data.speedsByMachine.size() <= 100)) &&
         (!('density_kg_m3' in data) || (data.density_kg_m3 is number && data.density_kg_m3 >= 0));
     }
 
     function isValidQuote(data) {
       return data.keys().hasAll(['id', 'ownerId', 'quoteNumber', 'customerName', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'ownerId', 'quoteNumber', 'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'quoteNumber', 'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'items', 'desiredProfitMarginPct', 'extraTaxPct', 'fixedExtraFee', 'createdAt', 'updatedAt']) &&
         data.id is string && isValidId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.quoteNumber is string && data.quoteNumber.size() <= 32 &&
@@ -107,6 +111,10 @@ service cloud.firestore {
         (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 32)) &&
         (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 256)) &&
         (!('customerDoc' in data) || (data.customerDoc is string && data.customerDoc.size() <= 32)) &&
+        (!('items' in data) || (data.items is list && data.items.size() <= 100)) &&
+        (!('desiredProfitMarginPct' in data) || (data.desiredProfitMarginPct is number && data.desiredProfitMarginPct >= 0 && data.desiredProfitMarginPct < 100)) &&
+        (!('extraTaxPct' in data) || (data.extraTaxPct is number && data.extraTaxPct >= 0 && data.extraTaxPct < 100)) &&
+        (!('fixedExtraFee' in data) || (data.fixedExtraFee is number && data.fixedExtraFee >= 0)) &&
         (!('total' in data) || (data.total is number && data.total >= 0)) &&
         (!('validUntil' in data) || (data.validUntil is string && data.validUntil.size() <= 32)) &&
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
@@ -114,7 +122,7 @@ service cloud.firestore {
 
     function isValidSettings(data) {
       return data.keys().hasAll(['id', 'ownerId', 'tradeName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'ownerId', 'tradeName', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'tradeName', 'name', 'ie', 'address', 'cep', 'phone', 'email', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'createdAt', 'updatedAt']) &&
         data.id is string && isValidId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.tradeName is string && data.tradeName.size() > 0 && data.tradeName.size() <= 128 &&
@@ -146,7 +154,7 @@ service cloud.firestore {
 
     // PROJECTS COLLECTION
     match /projects/{projectId} {
-      allow get: if isVerified() && isValidId(projectId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(projectId) && (!exists(/databases/$(database)/documents/projects/$(projectId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == projectId &&
@@ -163,7 +171,7 @@ service cloud.firestore {
 
     // ORDERS COLLECTION
     match /orders/{orderId} {
-      allow get: if isVerified() && isValidId(orderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(orderId) && (!exists(/databases/$(database)/documents/orders/$(orderId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == orderId &&
@@ -177,7 +185,7 @@ service cloud.firestore {
           (
             existing().status != 'Pronto/Embalado' &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'priority', 'scannedQuantity', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'updatedAt'
+              'status', 'priority', 'scannedQuantity', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'dueDate', 'assignedTo', 'notes', 'updatedAt'
             ])
           )
         );
@@ -186,7 +194,7 @@ service cloud.firestore {
 
     // MATERIALS COLLECTION
     match /materials/{materialId} {
-      allow get: if isVerified() && isValidId(materialId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(materialId) && (!exists(/databases/$(database)/documents/materials/$(materialId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == materialId &&
@@ -196,14 +204,14 @@ service cloud.firestore {
         incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
         (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'updatedAt'
+          'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'speedsByMachine', 'updatedAt'
         ]));
       allow delete: if isVerified() && isValidId(materialId) && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
 
     // QUOTES COLLECTION
     match /quotes/{quoteId} {
-      allow get: if isVerified() && isValidId(quoteId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(quoteId) && (!exists(/databases/$(database)/documents/quotes/$(quoteId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == quoteId &&
@@ -217,7 +225,7 @@ service cloud.firestore {
           (
             existing().status != 'Convertido em Pedido' &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'updatedAt'
+              'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'items', 'desiredProfitMarginPct', 'extraTaxPct', 'fixedExtraFee', 'updatedAt'
             ])
           )
         );
@@ -226,7 +234,7 @@ service cloud.firestore {
 
     // SETTINGS COLLECTION
     match /settings/{settingId} {
-      allow get: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidId(settingId) && (!exists(/databases/$(database)/documents/settings/$(settingId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == settingId &&
@@ -236,7 +244,7 @@ service cloud.firestore {
         incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
         (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'tradeName', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
+          'tradeName', 'name', 'ie', 'address', 'cep', 'phone', 'email', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
         ]));
       allow delete: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
     }

@@ -52,6 +52,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const reportError = () => setSyncError('Não foi possível sincronizar com a nuvem. Os dados locais foram mantidos. Verifique a conexão e as permissões antes de continuar.');
   const [projects, setProjects] = useState<FirestoreProject[]>([]);
   const [companySettings, setCompanySettings] = useState<FirestoreCompanySettings | null>(null);
 
@@ -60,6 +62,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     // Validação inicial de conectividade
     testConnection().then(online => setIsOnline(online));
+    const onSyncError = (event: Event) => setSyncError((event as CustomEvent<string>).detail);
+    window.addEventListener('cnc-sync-error', onSyncError);
 
     // Monitoramento do estado de autenticação
     const unsubscribe = onAuthStateChanged(auth, currentUser => {
@@ -67,7 +71,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => { unsubscribe(); window.removeEventListener('cnc-sync-error', onSyncError); };
   }, []);
 
   // Subscrição em tempo real de Projetos e Configurações da Empresa quando logado
@@ -105,6 +109,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await loginWithGoogle();
     } catch (err) {
       console.error('Falha no login Google:', err);
+      setSyncError('Não foi possível conectar sua conta Google. Tente novamente.');
     }
   };
 
@@ -113,6 +118,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await logoutUser();
     } catch (err) {
       console.error('Falha no logout:', err);
+      setSyncError('Não foi possível sair da conta. Tente novamente.');
     }
   };
 
@@ -122,7 +128,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   ) => {
     if (!user) return undefined;
     const unsub = subscribeToOrders(user.uid, remoteOrders => {
-      if (remoteOrders && remoteOrders.length > 0) {
+      if (remoteOrders) {
         setOrders(remoteOrders);
       }
     });
@@ -135,6 +141,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await saveOrderToFirestore(order, user.uid);
     } catch (err) {
       console.warn('Erro ao persistir ordem no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -144,6 +152,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await deleteOrderFromFirestore(orderId);
     } catch (err) {
       console.warn('Erro ao excluir ordem no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -153,6 +163,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await saveMaterialToFirestore(material, user.uid);
     } catch (err) {
       console.warn('Erro ao persistir material no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -162,6 +174,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await deleteMaterialFromFirestore(materialId);
     } catch (err) {
       console.warn('Erro ao excluir material no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -171,6 +185,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await saveQuoteToFirestore(quote, user.uid);
     } catch (err) {
       console.warn('Erro ao persistir orçamento no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -180,6 +196,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await deleteQuoteFromFirestore(quoteId);
     } catch (err) {
       console.warn('Erro ao excluir orçamento no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -189,6 +207,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await saveProjectToFirestore(project, user.uid);
     } catch (err) {
       console.warn('Erro ao persistir projeto no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -198,6 +218,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await deleteProjectFromFirestore(projectId);
     } catch (err) {
       console.warn('Erro ao excluir projeto no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -207,6 +229,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       await saveCompanySettingsToFirestore(settings, user.uid);
     } catch (err) {
       console.warn('Erro ao persistir configurações da empresa no Firestore:', err);
+      reportError();
+      throw err;
     }
   };
 
@@ -234,6 +258,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         syncCompanySettingsMutation
       }}
     >
+      {syncError && <div role="alert" className="fixed bottom-4 right-4 z-50 max-w-md rounded-xl border border-red-200 bg-white p-4 text-sm text-red-800 shadow-lg"><p>{syncError}</p><button onClick={() => setSyncError(null)} className="mt-2 underline">Fechar aviso</button></div>}
       {children}
     </FirebaseContext.Provider>
   );

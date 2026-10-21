@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Quote, Material, Machine, FixedCost, TaxConfig, CompanyProfile, QuoteItem } from '../../types';
+import { priceQuote, entityId, documentNumber } from '../../utils/quoteEngine';
 import {
   calcMaterialM2Cost,
   calcMachineCostRates,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 
 interface QuotesViewProps {
+  newQuoteToken?: number;
   quotes: Quote[];
   materials: Material[];
   machines: Machine[];
@@ -28,13 +30,14 @@ interface QuotesViewProps {
   monthlyRevenueTarget: number;
   taxes: TaxConfig[];
   company: CompanyProfile;
-  onSaveQuote: (quote: Quote) => void;
+  onSaveQuote: (quote: Quote) => void | Promise<void>;
   onConvertToOrder?: (quote: Quote) => void;
   onDeleteQuote?: (quoteId: string) => void;
 }
 
 export const QuotesView: React.FC<QuotesViewProps> = ({
   quotes,
+  newQuoteToken = 0,
   materials,
   machines,
   fixedCosts,
@@ -50,20 +53,21 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   const [copiedSuccess, setCopiedSuccess] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
 
-  const activeQuote = quotes.find(q => q.id === selectedQuoteId) || quotes[0];
+  const activeQuote = isCreatingNew ? undefined : quotes.find(q => q.id === selectedQuoteId) || quotes[0];
 
   const [customerName, setCustomerName] = useState<string>(activeQuote?.customerName || '');
   const [customerPhone, setCustomerPhone] = useState<string>(activeQuote?.customerPhone || '');
   const [customerEmail, setCustomerEmail] = useState<string>(activeQuote?.customerEmail || '');
   const [customerDoc, setCustomerDoc] = useState<string>(activeQuote?.customerDoc || '');
-  const [validUntil, setValidUntil] = useState<string>(activeQuote?.validUntil || '2026-11-15');
+  const [validUntil, setValidUntil] = useState<string>(activeQuote?.validUntil || new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10));
   const [notes, setNotes] = useState<string>(activeQuote?.notes || '');
-  const [desiredMargin, setDesiredMargin] = useState<number>(activeQuote?.desiredProfitMarginPct || 35);
+  const [desiredMargin, setDesiredMargin] = useState<number>(activeQuote?.desiredProfitMarginPct ?? 35);
   const [items, setItems] = useState<QuoteItem[]>(activeQuote?.items || []);
 
   const handleSelectQuote = (q: Quote) => {
     setSelectedQuoteId(q.id);
     setIsCreatingNew(false);
+    setFormError(null);
     setCustomerName(q.customerName);
     setCustomerPhone(q.customerPhone);
     setCustomerEmail(q.customerEmail);
@@ -74,65 +78,32 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
     setItems(q.items);
   };
 
-  const { fixedCostPct } = calcFixedCostMarkupPercentage(fixedCosts, monthlyRevenueTarget);
-  const activeTaxPct = taxes.filter(t => t.active).reduce((acc, t) => acc + t.percentage, 0);
-
-  const calculatedItems = items.map(item => {
-    const mat = materials.find(m => m.id === item.materialId) || materials[0];
-    const mach = machines.find(m => m.id === item.machineId) || machines[0];
-
-    const { costPerM2 } = calcMaterialM2Cost(mat);
-    
-    // Accurate piece area if width and height provided, else geometric estimate
-    const pieceWidth = item.width_mm || 150;
-    const pieceHeight = item.height_mm || 100;
-    const pieceAreaM2 = (pieceWidth * pieceHeight) / 1_000_000;
-    const materialCostUnit = pieceAreaM2 * costPerM2;
-
-    const rates = calcMachineCostRates(mach, 'MG');
-    const speedConfig = mat.speedsByMachine.find(s => s.machineId === mach.id) || {
-      cutSpeed_mms: 20,
-      engraveSpeed_mms: 250,
-      lineInterval_mm: 0.08
-    };
-
-    const laser = calcLaserCutTimeAndCost(
-      item.cutLength_mm,
-      speedConfig.cutSpeed_mms,
-      rates.perSecond,
-      item.engraveArea_cm2,
-      speedConfig.engraveSpeed_mms,
-      speedConfig.lineInterval_mm
-    );
-
-    const directCostUnit = materialCostUnit + laser.totalCost + (item.additionalCost || 0);
-
-    const pricing = calcSalePriceMarkupDivisor({
-      directCost: directCostUnit,
-      fixedCostPct,
-      taxPct: activeTaxPct,
-      desiredProfitMarginPct: desiredMargin
-    });
-
-    const unitPrice = pricing.isValid ? pricing.salePrice : directCostUnit * 1.5;
-    const totalPrice = unitPrice * item.quantity;
-
-    return {
-      ...item,
-      pieceWidth,
-      pieceHeight,
-      materialCostUnit,
-      laserTimeSecUnit: laser.totalSeconds,
-      laserCostUnit: laser.totalCost,
-      directCostUnit,
-      unitPrice,
-      totalPrice,
-      totalLaserSeconds: laser.totalSeconds * item.quantity
-    };
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const newQuoteId = React.useRef(entityId('orc'));
+  const resetQuote = () => {
+    newQuoteId.current = entityId('orc');
+    setIsCreatingNew(true); setSelectedQuoteId('');
+    setCustomerName(''); setCustomerPhone(''); setCustomerEmail(''); setCustomerDoc('');
+    setNotes(''); setDesiredMargin(35); setItems([]); setFormError(null);
+    setValidUntil(new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10));
+  };
+  useEffect(() => { if (newQuoteToken) resetQuote(); }, [newQuoteToken]);
+  const priced = priceQuote({ items, desiredProfitMarginPct: desiredMargin,
+    extraTaxPct: activeQuote?.extraTaxPct ?? 0, fixedExtraFee: activeQuote?.fixedExtraFee ?? 0 },
+    { materials, machines, fixedCosts, monthlyRevenueTarget, taxes, company });
+  const calculatedItems = priced.items;
+  const quoteSubtotal = priced.total;
+  const quoteTotalLaserSeconds = priced.totalLaserSeconds;
+  const isConverted = activeQuote?.status === 'Convertido em Pedido';
+  const buildQuote = (): Quote => ({
+    id: activeQuote?.id ?? newQuoteId.current,
+    quoteNumber: activeQuote?.quoteNumber ?? documentNumber('ORC', newQuoteId.current),
+    customerName: customerName.trim(), customerPhone, customerEmail, customerDoc, items,
+    validUntil, notes, desiredProfitMarginPct: desiredMargin,
+    extraTaxPct: activeQuote?.extraTaxPct ?? 0, fixedExtraFee: activeQuote?.fixedExtraFee ?? 0,
+    createdAt: activeQuote?.createdAt ?? new Date().toISOString(), status: activeQuote?.status ?? 'Rascunho'
   });
-
-  const quoteSubtotal = calculatedItems.reduce((acc, i) => acc + i.totalPrice, 0);
-  const quoteTotalLaserSeconds = calculatedItems.reduce((acc, i) => acc + i.totalLaserSeconds, 0);
 
   const handleAddItem = () => {
     const newItem: QuoteItem = {
@@ -155,57 +126,30 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
     setItems(items.filter(i => i.id !== id));
   };
 
-  const handleSaveCurrentQuote = () => {
-    const quoteToSave: Quote = {
-      id: isCreatingNew || !selectedQuoteId ? 'orc-' + Date.now() : selectedQuoteId,
-      quoteNumber: activeQuote?.quoteNumber || `ORC-2026-0${Math.floor(Math.random() * 800 + 100)}`,
-      customerName: customerName || 'Cliente Balcão JF',
-      customerPhone,
-      customerEmail,
-      customerDoc,
-      items,
-      validUntil,
-      notes,
-      desiredProfitMarginPct: desiredMargin,
-      extraTaxPct: 0,
-      fixedExtraFee: 0,
-      createdAt: activeQuote?.createdAt || new Date().toISOString().split('T')[0],
-      status: activeQuote?.status || 'Enviado'
-    };
-
-    onSaveQuote(quoteToSave);
-    setSelectedQuoteId(quoteToSave.id);
-    setIsCreatingNew(false);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 2500);
+  const handleSaveCurrentQuote = async () => {
+    if (isConverted) return;
+    if (!customerName.trim()) { setFormError('Informe o nome do cliente.'); return; }
+    if (items.length && !priced.isValid) { setFormError(priced.errors.join(' ')); return; }
+    setIsSaving(true); setFormError(null);
+    try {
+      const quoteToSave = buildQuote();
+      await onSaveQuote(quoteToSave);
+      setSelectedQuoteId(quoteToSave.id); setIsCreatingNew(false); setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Não foi possível salvar.');
+    } finally { setIsSaving(false); }
   };
 
   const handleConvertOrder = () => {
-    if (onConvertToOrder) {
-      const quoteToConvert: Quote = {
-        id: selectedQuoteId || 'orc-' + Date.now(),
-        quoteNumber: activeQuote?.quoteNumber || `ORC-2026-0${Math.floor(Math.random() * 800 + 100)}`,
-        customerName: customerName || 'Cliente Balcão JF',
-        customerPhone,
-        customerEmail,
-        customerDoc,
-        items,
-        validUntil,
-        notes,
-        desiredProfitMarginPct: desiredMargin,
-        extraTaxPct: 0,
-        fixedExtraFee: 0,
-        createdAt: activeQuote?.createdAt || new Date().toISOString().split('T')[0],
-        status: 'Convertido em Pedido'
-      };
-      onConvertToOrder(quoteToConvert);
-    }
+    if (!priced.isValid || isConverted || !customerName.trim()) { setFormError(priced.errors.join(' ') || 'Revise o cliente e o status do orçamento.'); return; }
+    onConvertToOrder?.(buildQuote());
   };
 
   const whatsappMessage = `*ORÇAMENTO CNC - ${company.tradeName.toUpperCase()} (JUIZ DE FORA)*
 Olá ${customerName || 'Cliente'}! Segue a proposta técnica de corte e usinagem:
 
-📄 Proposta: *${activeQuote?.quoteNumber || 'ORC-2026-NOVO'}*
+📄 Proposta: *${activeQuote?.quoteNumber || documentNumber('ORC', newQuoteId.current)}*
 📅 Validade: *${validUntil}*
 
 *ITENS:*
@@ -231,7 +175,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
   };
 
   const cleanPhone = customerPhone.replace(/\D/g, '');
-  const whatsappUrl = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+  const whatsappUrl = `https://wa.me/${cleanPhone.startsWith('55') && cleanPhone.length >= 12 ? cleanPhone : '55' + cleanPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-y-auto">
@@ -251,6 +195,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
         <div className="flex items-center gap-2">
           <button
+            disabled={isSaving || isConverted}
             onClick={handleSaveCurrentQuote}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
           >
@@ -269,6 +214,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
           {onConvertToOrder && (
             <button
+              disabled={!priced.isValid || isConverted || !customerName.trim()}
               onClick={handleConvertOrder}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
             >
@@ -283,9 +229,8 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                 if (window.confirm(`Tem certeza que deseja excluir o orçamento ${activeQuote.quoteNumber}?`)) {
                   onDeleteQuote(activeQuote.id);
                   const remaining = quotes.filter(q => q.id !== activeQuote.id);
-                  if (remaining.length > 0) {
-                    handleSelectQuote(remaining[0]);
-                  }
+                  if (remaining.length > 0) handleSelectQuote(remaining[0]);
+                  else resetQuote();
                 }
               }}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer"
@@ -297,28 +242,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
           )}
 
           <button
-            onClick={() => {
-              setIsCreatingNew(true);
-              setSelectedQuoteId('');
-              setCustomerName('');
-              setCustomerPhone('');
-              setCustomerEmail('');
-              setItems([
-                {
-                  id: 'qi-' + Date.now(),
-                  description: 'Peça Personalizada CNC (MDF 3mm)',
-                  materialId: materials[0]?.id || '',
-                  cutLength_mm: 1500,
-                  engraveArea_cm2: 0,
-                  machineId: machines[0]?.id || '',
-                  quantity: 1,
-                  additionalCost: 0,
-                  customKerf_mm: 0.15,
-                  width_mm: 200,
-                  height_mm: 150
-                }
-              ]);
-            }}
+            onClick={resetQuote}
             className="flex items-center gap-2 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -327,6 +251,8 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
         </div>
       </div>
 
+      {(formError || (items.length > 0 && !priced.isValid)) && <div role="alert" className="mx-6 mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{formError || priced.errors.join(' ')}</div>}
+      {isConverted && <p className="mx-6 mt-4 text-sm text-emerald-700">Proposta convertida. Crie um novo orçamento para alterações.</p>}
       <div className="p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Quotes List */}
         <div className="lg:col-span-4 space-y-3">
@@ -466,9 +392,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                       type="text"
                       value={item.description}
                       onChange={e => {
-                        const next = [...items];
-                        next[index].description = e.target.value;
-                        setItems(next);
+                        setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, description: e.target.value } : entry));
                       }}
                       className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold"
                     />
@@ -486,9 +410,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                       <select
                         value={item.materialId}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].materialId = e.target.value;
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, materialId: e.target.value } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800"
                       >
@@ -505,9 +427,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                       <select
                         value={item.machineId}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].machineId = e.target.value;
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, machineId: e.target.value } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800"
                       >
@@ -525,9 +445,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                         type="number"
                         value={item.width_mm || 150}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].width_mm = Number(e.target.value);
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, width_mm: Number(e.target.value) } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
                       />
@@ -539,9 +457,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                         type="number"
                         value={item.height_mm || 100}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].height_mm = Number(e.target.value);
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, height_mm: Number(e.target.value) } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
                       />
@@ -553,9 +469,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                         type="number"
                         value={item.cutLength_mm}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].cutLength_mm = Number(e.target.value);
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, cutLength_mm: Number(e.target.value) } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
                       />
@@ -568,9 +482,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                         min="1"
                         value={item.quantity}
                         onChange={e => {
-                          const next = [...items];
-                          next[index].quantity = Number(e.target.value);
-                          setItems(next);
+                          setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, quantity: Number(e.target.value) } : entry));
                         }}
                         className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono font-bold"
                       />
