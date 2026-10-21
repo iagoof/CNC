@@ -48,6 +48,7 @@ interface SettingsViewProps {
   onUpdateMonthlyRevenueTarget: (val: number) => void;
   onUpdateTaxes: (taxes: TaxConfig[]) => void;
   onSwitchPlan: (planId: any) => void;
+  onRemoveMaterial?: (id: string) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -64,7 +65,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateFixedCosts,
   onUpdateMonthlyRevenueTarget,
   onUpdateTaxes,
-  onSwitchPlan
+  onSwitchPlan,
+  onRemoveMaterial
 }) => {
   const [activeTab, setActiveTab] = useState<
     'machines' | 'materials' | 'fixed-costs' | 'taxes' | 'company' | 'plans'
@@ -96,6 +98,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleRemoveMachine = (id: string) => {
     if (machines.length <= 1) return;
     onUpdateMachines(machines.filter(m => m.id !== id));
+  };
+
+  // Remove Material Handler
+  const handleRemoveMaterial = (id: string) => {
+    if (materials.length <= 1) return;
+    if (onRemoveMaterial) {
+      onRemoveMaterial(id);
+    } else {
+      onUpdateMaterials(materials.filter(m => m.id !== id));
+    }
   };
 
   // Add Material Handler
@@ -437,6 +449,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             R$ {costPerM2.toFixed(2)} / m²
                           </strong>
                         </span>
+                        <button
+                          onClick={() => handleRemoveMaterial(mat.id)}
+                          className="text-slate-400 hover:text-rose-600 transition cursor-pointer p-1 rounded hover:bg-slate-100"
+                          title="Remover material"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 

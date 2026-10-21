@@ -9,7 +9,8 @@ import {
   ArrowRight,
   Package,
   Layers,
-  Volume2
+  Volume2,
+  Trash2
 } from 'lucide-react';
 
 interface ProductionKanbanViewProps {
@@ -18,6 +19,7 @@ interface ProductionKanbanViewProps {
   onUpdateOrderStatus: (orderId: string, newStatus: ProductionOrder['status']) => void;
   onCreateProductionOrder: (order: Partial<ProductionOrder>) => void;
   onUpdateScannedQty: (orderId: string, qty: number) => void;
+  onDeleteOrder?: (orderId: string) => void;
 }
 
 export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
@@ -25,7 +27,8 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
   inventory,
   onUpdateOrderStatus,
   onCreateProductionOrder,
-  onUpdateScannedQty
+  onUpdateScannedQty,
+  onDeleteOrder
 }) => {
   const [activeTab, setActiveTab] = useState<'kanban' | 'barcode-scanner' | 'auto-op'>('kanban');
   const [barcodeInput, setBarcodeInput] = useState<string>('');
@@ -170,17 +173,32 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-amber-700">{order.orderNumber}</span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              order.priority === 'Urgente'
-                                ? 'bg-red-50 text-red-700 border border-red-200'
-                                : order.priority === 'Alta'
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {order.priority}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                order.priority === 'Urgente'
+                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                  : order.priority === 'Alta'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {order.priority}
+                            </span>
+                            {onDeleteOrder && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Tem certeza que deseja excluir/cancelar a OP ${order.orderNumber}?`)) {
+                                    onDeleteOrder(order.id);
+                                  }
+                                }}
+                                className="text-slate-400 hover:text-rose-600 transition p-0.5 rounded hover:bg-slate-100"
+                                title="Excluir Ordem de Produção"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         <div>

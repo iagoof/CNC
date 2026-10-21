@@ -26,6 +26,8 @@ import {
   exportSceneGroupToStl,
   generateGcodeFromSvg
 } from '../../utils/cncExporters';
+import { useFirebase } from '../../services/firebase/FirebaseContext';
+import { FirestoreProject } from '../../services/firebase/firebase';
 import {
   Sparkles,
   UploadCloud,
@@ -51,7 +53,11 @@ import {
   Wand2,
   ExternalLink,
   Copy,
-  Lightbulb
+  Lightbulb,
+  Cloud,
+  Trash2,
+  FolderOpen,
+  LogIn
 } from 'lucide-react';
 
 interface DesignStudioAiViewProps {
@@ -100,8 +106,10 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   onSendToQuote,
   onSendToProduction
 }) => {
+  const { user, isAuthenticated, projects, syncProjectMutation, deleteProjectMutation, login } = useFirebase();
+
   // Input State
-  const [inputMode, setInputMode] = useState<'prompt' | 'upload' | 'library'>('prompt');
+  const [inputMode, setInputMode] = useState<'prompt' | 'upload' | 'cloud'>('prompt');
   const [activeModel, setActiveModel] = useState<string>('gemini-1.5-pro-002');
   const [promptText, setPromptText] = useState<string>(
     'Porta-copos hexagonal de 100x100mm com cantos arredondados R5, corte externo passante fechado em vermelho puro #FF0000, gravação de geometria sagrada com padrão flor da vida e anel de drenagem perimétrico em azul puro #0000FF, espessura recomendada de 3.0mm em MDF ou acrílico.'
@@ -723,6 +731,66 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     triggerToast('Ordem de Produção (OP) disparada para o Kanban da fábrica!');
   };
 
+  const handleSaveToFirestore = async () => {
+    if (!isAuthenticated || !user) {
+      triggerToast('Conecte sua conta Google na barra lateral para salvar projetos na nuvem.');
+      return;
+    }
+    try {
+      const projId = currentArtifact.id.startsWith('proj-') ? currentArtifact.id : `proj-${Date.now()}`;
+      await syncProjectMutation({
+        id: projId,
+        name: currentArtifact.title || 'Projeto CNC Vetorial',
+        ownerId: user.uid,
+        svgContent: currentArtifact.svgString,
+        widthMm: currentArtifact.width_mm,
+        heightMm: currentArtifact.height_mm,
+        cutLengthMm: currentArtifact.cutLength_mm,
+        engraveAreaCm2: currentArtifact.engraveArea_cm2,
+        materialCategory: selectedMaterial?.category || 'MDF',
+        recommendedThicknessMm: currentArtifact.thickness_mm || 3,
+        source: 'ai_prompt'
+      });
+      triggerToast('Projeto salvo na nuvem Firestore com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar projeto no Firestore:', err);
+      triggerToast('Falha ao salvar projeto na nuvem.');
+    }
+  };
+
+  const handleLoadCloudProject = (proj: FirestoreProject) => {
+    const gcode = generateGcodeFromSvg(proj.svgContent, {
+      machineType: selectedMachine.type,
+      feedRate_mms: selectedMachine.type === 'Router' ? 40 : 25,
+      powerOrRpm: selectedMachine.type === 'Router' ? 18000 : 70,
+      depthMm: proj.recommendedThicknessMm || 3,
+      stepDownMm: 2.0
+    });
+    const loaded: GeneratedVectorArtifact = {
+      id: proj.id,
+      title: proj.name,
+      description: `Projeto recuperado do Firestore. Espessura recomendada: ${proj.recommendedThicknessMm || 3}mm.`,
+      width_mm: proj.widthMm,
+      height_mm: proj.heightMm,
+      thickness_mm: proj.recommendedThicknessMm || 3,
+      cutLength_mm: proj.cutLengthMm || Math.round((proj.widthMm + proj.heightMm) * 2),
+      engraveArea_cm2: proj.engraveAreaCm2 || 0,
+      materialName: proj.materialCategory || selectedMaterial.name,
+      model3dType: proj.name.toLowerCase().includes('luminaria')
+        ? 'luminaria-geometrica'
+        : proj.name.toLowerCase().includes('caixa')
+        ? 'caixa-fingerjoint'
+        : 'padrao',
+      partsCount: 1,
+      svgString: proj.svgContent,
+      gcode: gcode,
+      estimatedLaserSeconds: Math.round((proj.cutLengthMm || 1000) / 25) + 15,
+      aiPromptUsed: proj.name
+    };
+    setCurrentArtifact(loaded);
+    triggerToast(`Projeto "${proj.name}" carregado no estúdio!`);
+  };
+
   const handleDownloadSvg = () => {
     const blob = new Blob([currentArtifact.svgString], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -932,7 +1000,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   <Wand2 className="w-4 h-4 text-amber-600" />
                   1. Entrada Generativa com IA
                 </span>
-                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs gap-1">
                   <button
                     onClick={() => setInputMode('prompt')}
                     className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
@@ -949,10 +1017,26 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   >
                     Foto / Croqui
                   </button>
+                  <button
+                    onClick={() => setInputMode('cloud')}
+                    className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      inputMode === 'cloud' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>Nuvem</span>
+                    {projects.length > 0 && (
+                      <span className={`text-[10px] px-1 rounded-full font-mono font-bold ${
+                        inputMode === 'cloud' ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {projects.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
               </div>
 
-              {inputMode === 'prompt' ? (
+              {inputMode === 'prompt' && (
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-semibold text-slate-600">
@@ -975,7 +1059,9 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-amber-500 transition resize-none leading-relaxed"
                   />
                 </div>
-              ) : (
+              )}
+
+              {inputMode === 'upload' && (
                 <div className="space-y-3">
                   <label className="text-[11px] font-semibold text-slate-600 block">
                     Upload de Imagem para Vetorização 3D:
@@ -1002,6 +1088,67 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   {uploadedImage && (
                     <div className="rounded-xl overflow-hidden border border-slate-200 max-h-32 bg-slate-100 flex items-center justify-center p-2">
                       <img src={uploadedImage} alt="Preview" className="max-h-28 object-contain rounded" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {inputMode === 'cloud' && (
+                <div className="space-y-3">
+                  {!isAuthenticated ? (
+                    <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl space-y-2 text-center">
+                      <Cloud className="w-6 h-6 text-amber-600 mx-auto" />
+                      <p className="text-xs font-bold text-slate-900">Projetos na Nuvem Firestore</p>
+                      <p className="text-[11px] text-slate-600">Conecte sua conta Google para sincronizar e persistir seus modelos CAD/CAM na nuvem.</p>
+                      <button
+                        onClick={login}
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <LogIn className="w-3.5 h-3.5" /> Conectar Conta Google
+                      </button>
+                    </div>
+                  ) : projects.length === 0 ? (
+                    <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                      <FolderOpen className="w-6 h-6 text-slate-400 mx-auto" />
+                      <p className="text-xs font-bold text-slate-700">Nenhum projeto salvo na nuvem ainda</p>
+                      <p className="text-[11px] text-slate-500">
+                        Gere qualquer vetor ou use a galeria e clique em <strong>Salvar na Nuvem</strong> para guardá-lo no Firestore.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {projects.map(proj => (
+                        <div
+                          key={proj.id}
+                          className="p-3 bg-slate-50 hover:bg-amber-50/50 border border-slate-200 hover:border-amber-300 rounded-xl transition flex items-center justify-between text-xs"
+                        >
+                          <div className="space-y-0.5 truncate pr-2">
+                            <p className="font-bold text-slate-900 truncate">{proj.name}</p>
+                            <p className="text-[10px] text-slate-500 font-mono">
+                              {proj.widthMm}×{proj.heightMm}mm • {proj.materialCategory || 'MDF'} ({proj.recommendedThicknessMm || 3}mm)
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleLoadCloudProject(proj)}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-[10px] transition cursor-pointer"
+                            >
+                              Abrir
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Deseja excluir o projeto "${proj.name}" da nuvem?`)) {
+                                  deleteProjectMutation(proj.id);
+                                }
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                              title="Excluir da Nuvem"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1359,7 +1506,22 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   </div>
                 </button>
 
-                {/* 6. Direct Downloads */}
+                {/* 6. Salvar no Firestore / Cloud */}
+                <button
+                  onClick={handleSaveToFirestore}
+                  className="p-3 rounded-xl border border-amber-300 hover:border-amber-500 bg-amber-50/60 hover:bg-amber-100/60 text-left transition flex flex-col justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <Cloud className="w-4 h-4 text-amber-600" />
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 transition" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-900 block text-xs">Salvar na Nuvem</span>
+                    <span className="text-[10px] text-amber-700 font-medium">Firestore Cloud Sync</span>
+                  </div>
+                </button>
+
+                {/* 7. Direct Downloads */}
                 <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
                   <span className="font-bold text-slate-900 block text-xs mb-1">Downloads Prontos</span>
                   <div className="grid grid-cols-2 gap-1.5">

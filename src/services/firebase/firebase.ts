@@ -325,6 +325,15 @@ export async function saveMaterialToFirestore(material: Material, userId: string
   }
 }
 
+export async function deleteMaterialFromFirestore(materialId: string): Promise<void> {
+  const path = `materials/${materialId}`;
+  try {
+    await deleteDoc(doc(db, 'materials', materialId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 // Orçamentos (Quotes)
 export function subscribeToQuotes(
   userId: string,
@@ -401,6 +410,15 @@ export async function saveQuoteToFirestore(quote: Quote, userId: string): Promis
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteQuoteFromFirestore(quoteId: string): Promise<void> {
+  const path = `quotes/${quoteId}`;
+  try {
+    await deleteDoc(doc(db, 'quotes', quoteId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
@@ -485,3 +503,87 @@ export async function saveProjectToFirestore(project: FirestoreProject, userId: 
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
+
+export async function deleteProjectFromFirestore(projectId: string): Promise<void> {
+  const path = `projects/${projectId}`;
+  try {
+    await deleteDoc(doc(db, 'projects', projectId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// Configurações da Empresa e Máquinas (CompanySettings)
+export interface FirestoreCompanySettings {
+  id: string;
+  ownerId: string;
+  tradeName: string;
+  cnpj?: string;
+  city?: string;
+  uf?: string;
+  cemigRateKwh?: number;
+  monthlyWorkHours?: number;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export function subscribeToCompanySettings(
+  userId: string,
+  onData: (settings: FirestoreCompanySettings | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const collectionPath = 'settings';
+  const q = query(collection(db, collectionPath), where('ownerId', '==', userId));
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      if (snapshot.empty) {
+        onData(null);
+        return;
+      }
+      const docSnap = snapshot.docs[0];
+      onData(docSnap.data() as FirestoreCompanySettings);
+    },
+    error => {
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.LIST, collectionPath);
+    }
+  );
+}
+
+export async function saveCompanySettingsToFirestore(
+  settings: Partial<FirestoreCompanySettings> & { tradeName: string },
+  userId: string
+): Promise<void> {
+  const settingId = settings.id || `set-${userId}`;
+  const path = `settings/${settingId}`;
+  try {
+    const docRef = doc(db, 'settings', settingId);
+    const existingSnap = await getDoc(docRef);
+
+    const dataToSave: Record<string, any> = {
+      tradeName: settings.tradeName,
+      updatedAt: serverTimestamp()
+    };
+    if (settings.cnpj !== undefined) dataToSave.cnpj = settings.cnpj;
+    if (settings.city !== undefined) dataToSave.city = settings.city;
+    if (settings.uf !== undefined) dataToSave.uf = settings.uf;
+    if (settings.cemigRateKwh !== undefined) dataToSave.cemigRateKwh = Number(settings.cemigRateKwh);
+    if (settings.monthlyWorkHours !== undefined) dataToSave.monthlyWorkHours = Number(settings.monthlyWorkHours);
+
+    if (existingSnap.exists()) {
+      await updateDoc(docRef, dataToSave);
+    } else {
+      await setDoc(docRef, {
+        id: settingId,
+        ownerId: userId,
+        ...dataToSave,
+        createdAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+

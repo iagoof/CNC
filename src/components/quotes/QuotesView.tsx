@@ -30,6 +30,7 @@ interface QuotesViewProps {
   company: CompanyProfile;
   onSaveQuote: (quote: Quote) => void;
   onConvertToOrder?: (quote: Quote) => void;
+  onDeleteQuote?: (quoteId: string) => void;
 }
 
 export const QuotesView: React.FC<QuotesViewProps> = ({
@@ -41,7 +42,8 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   taxes,
   company,
   onSaveQuote,
-  onConvertToOrder
+  onConvertToOrder,
+  onDeleteQuote
 }) => {
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>(quotes[0]?.id || '');
   const [isCreatingNew, setIsCreatingNew] = useState<boolean>(false);
@@ -275,6 +277,25 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
             </button>
           )}
 
+          {onDeleteQuote && activeQuote && (
+            <button
+              onClick={() => {
+                if (window.confirm(`Tem certeza que deseja excluir o orçamento ${activeQuote.quoteNumber}?`)) {
+                  onDeleteQuote(activeQuote.id);
+                  const remaining = quotes.filter(q => q.id !== activeQuote.id);
+                  if (remaining.length > 0) {
+                    handleSelectQuote(remaining[0]);
+                  }
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer"
+              title="Excluir Orçamento"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Excluir</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               setIsCreatingNew(true);
@@ -335,9 +356,25 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                   </span>
                 </div>
                 <p className="font-semibold text-slate-900 truncate">{q.customerName}</p>
-                <div className="flex justify-between text-[11px] text-slate-500 mt-2">
+                <div className="flex justify-between items-center text-[11px] text-slate-500 mt-2">
                   <span>{q.items.length} itens</span>
-                  <span>Válido até: {q.validUntil}</span>
+                  <div className="flex items-center gap-2">
+                    <span>Válido até: {q.validUntil}</span>
+                    {onDeleteQuote && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Excluir orçamento ${q.quoteNumber}?`)) {
+                            onDeleteQuote(q.id);
+                          }
+                        }}
+                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition"
+                        title="Excluir Orçamento"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

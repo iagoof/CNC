@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Markup normal",
+    "status": "PASS"
+  },
+  {
+    "name": "Markup bloqueia deducoes de 100%",
+    "status": "PASS"
+  },
+  {
+    "name": "Tempo laser 1200mm / 20mm/s",
+    "status": "PASS"
+  },
+  {
+    "name": "Mensalizacao anual",
+    "status": "PASS"
+  },
+  {
+    "name": "Kerf externo e interno",
+    "status": "PASS"
+  },
+  {
+    "name": "Markup rejeita NaN",
+    "status": "FAIL",
+    "detail": "Expected values to be strictly equal:\n\ntrue !== false\n"
+  },
+  {
+    "name": "Markup rejeita custo negativo",
+    "status": "FAIL",
+    "detail": "Expected values to be strictly equal:\n\ntrue !== false\n"
+  },
+  {
+    "name": "Reposicao desconta saldo disponivel",
+    "status": "FAIL",
+    "detail": "Expected values to be strictly equal:\n\n20 !== 0\n"
+  },
+  {
+    "name": "Kerf altera geometria do contorno",
+    "status": "FAIL",
+    "detail": "Expected \"actual\" to be strictly unequal to:\n\n'<rect x=\"0\" y=\"0\" width=\"100\" height=\"100\"/>'"
+  }
+]
