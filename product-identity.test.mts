@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { productDocumentId } from './src/utils/orderReservation.ts';
-import { selectOwnedProduct, planProductSave, assertProductDeletable } from './src/utils/productIdentity.ts';
+import { selectOwnedProduct, planProductSave, assertProductDeletable, adjustedPhysicalStock } from './src/utils/productIdentity.ts';
+
+test('ajuste físico usa saldo recebido, preserva reservas e recusa estoque inválido', () => {
+  const product = { ownerId: 'A', sku: 'S', physicalStock: 2, committedStock: 4, inProductionStock: 6 };
+  assert.equal(adjustedPhysicalStock('A', 'S', product, -1), 1);
+  assert.equal(adjustedPhysicalStock('A', 'S', { ...product, physicalStock: 9 }, 1), 10);
+  assert.equal(product.physicalStock, 2); assert.equal(product.committedStock, 4); assert.equal(product.inProductionStock, 6);
+  for (const delta of [-3, 0, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) assert.throws(() => adjustedPhysicalStock('A', 'S', product, delta));
+  for (const physicalStock of [-1, NaN, 0.5, '2']) assert.throws(() => adjustedPhysicalStock('A', 'S', { ...product, physicalStock }, 1));
+  assert.throws(() => adjustedPhysicalStock('B', 'S', product, 1));
+  assert.throws(() => adjustedPhysicalStock('A', 'OTHER', product, 1));
+});
 
 test('mesmo SKU em contas distintas produz documentos separados e IDs estáveis', async () => {
   const a = await productDocumentId('user-A', 'SKU-1'), b = await productDocumentId('user-B', 'SKU-1');

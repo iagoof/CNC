@@ -58,6 +58,7 @@ export default function App() {
     deleteMaterialMutation,
     products: remoteProducts,
     syncProductMutation,
+    adjustStockMutation,
     deleteProductMutation,
     salesOrders: remoteSalesOrders,
     createCatalogOrderMutation,
@@ -234,18 +235,8 @@ export default function App() {
   const [nestingTransferPart, setNestingTransferPart] = useState<NestingTransfer | null>(null);
 
   // Handlers for Stock updates
-  const handleUpdateStock = (sku: string, delta: number) => {
-    setInventory(prev =>
-      prev.map(item => {
-        if (item.sku === sku) {
-          const nextPhysical = Math.max(0, item.physicalStock + delta);
-          const updated = { ...item, physicalStock: nextPhysical };
-          void syncProductMutation(updated).catch(() => {});
-          return updated;
-        }
-        return item;
-      })
-    );
+  const handleUpdateStock = async (sku: string, delta: number) => {
+    await adjustStockMutation(sku, delta);
   };
 
   // Handlers for Production Orders (Kanban & Bipagem) com Sincronização Cloud

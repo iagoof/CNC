@@ -28,7 +28,7 @@ import firebaseConfig from '../../../firebase-applet-config.json';
 import { reserveCatalogOrder, productDocumentId } from '../../utils/orderReservation';
 import { convertQuoteInTransaction } from '../../utils/quoteConversion';
 import type { PricingContext } from '../../utils/quoteEngine';
-import { selectOwnedProduct, planProductSave, assertProductDeletable } from '../../utils/productIdentity';
+import { selectOwnedProduct, planProductSave, assertProductDeletable, adjustedPhysicalStock } from '../../utils/productIdentity';
 import { ProductionOrder, Material, Quote, CompanyProfile, UF, ProductInventory, SalesOrder, Machine } from '../../types';
 
 // Inicialização oficial do Firebase
@@ -715,6 +715,21 @@ export async function saveProductToFirestore(product: ProductInventory, userId: 
     if (!(error as { code?: string })?.code) throw error;
     throw new Error('Não foi possível salvar o produto. Verifique a conexão e as permissões.');
   }
+}
+
+export async function adjustProductStockInFirestore(sku: string, delta: number, userId: string): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para ajustar o estoque.');
+  const refs = await resolveOwnedProduct(userId, sku);
+  await runTransaction(db, async transaction => {
+    if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+    const target = await transaction.get(refs.target);
+    const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+    if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados. Revise os registros.');
+    const existing = candidate.exists() ? candidate : target;
+    if (!existing.exists()) throw new Error('Produto não encontrado. Atualize a lista.');
+    const physicalStock = adjustedPhysicalStock(userId, sku, existing.data(), delta);
+    transaction.update(existing.ref, { physicalStock, updatedAt: serverTimestamp() });
+  });
 }
 
 export async function deleteProductFromFirestore(sku: string, userId: string): Promise<void> {

@@ -21,6 +21,7 @@ import {
   saveCompanySettingsToFirestore,
   subscribeToProducts,
   saveProductToFirestore,
+  adjustProductStockInFirestore,
   deleteProductFromFirestore,
   subscribeToSalesOrders,
   saveSalesOrderToFirestore,
@@ -33,7 +34,6 @@ import {
   FirestoreProject,
   FirestoreCompanySettings
 } from './firebase';
-import { seedFirestoreIfEmpty, SeedResult } from './seedData';
 import { ProductionOrder, Material, Quote, ProductInventory, SalesOrder, Machine } from '../../types';
 import type { PricingContext } from '../../utils/quoteEngine';
 
@@ -43,10 +43,8 @@ interface FirebaseContextType {
   isAdmin: boolean;
   isLoading: boolean;
   isOnline: boolean;
-  isSeeding: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
-  seedInitialDataMutation: () => Promise<SeedResult>;
   syncOrders: (orders: ProductionOrder[], setOrders: React.Dispatch<React.SetStateAction<ProductionOrder[]>>) => (() => void) | undefined;
   syncOrderMutation: (order: ProductionOrder) => Promise<void>;
   deleteOrderMutation: (orderId: string) => Promise<void>;
@@ -61,6 +59,7 @@ interface FirebaseContextType {
   syncCompanySettingsMutation: (settings: Partial<FirestoreCompanySettings> & { tradeName: string }) => Promise<void>;
   products: ProductInventory[];
   syncProductMutation: (product: ProductInventory, createOnly?: boolean) => Promise<void>;
+  adjustStockMutation: (sku: string, delta: number) => Promise<void>;
   deleteProductMutation: (sku: string) => Promise<void>;
   salesOrders: SalesOrder[];
   syncSalesOrderMutation: (order: SalesOrder) => Promise<void>;
@@ -78,7 +77,6 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(true);
-  const [isSeeding, setIsSeeding] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const reportError = () => setSyncError('Não foi possível sincronizar com a nuvem. Os dados locais foram mantidos. Verifique a conexão e as permissões antes de continuar.');
   const [projects, setProjects] = useState<FirestoreProject[]>([]);
@@ -95,20 +93,10 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     const onSyncError = (event: Event) => setSyncError((event as CustomEvent<string>).detail);
     window.addEventListener('cnc-sync-error', onSyncError);
 
-    // Monitoramento do estado de autenticação e seed automático de dados no Firestore
-    const unsubscribe = onAuthStateChanged(auth, async currentUser => {
+    // Autenticação não cria dados comerciais nem configurações de exemplo.
+    const unsubscribe = onAuthStateChanged(auth, currentUser => {
       setUser(currentUser);
       setIsLoading(false);
-      if (currentUser) {
-        setIsSeeding(true);
-        try {
-          await seedFirestoreIfEmpty(currentUser.uid);
-        } catch (err) {
-          console.warn('Aviso ao semear dados iniciais no Firestore:', err);
-        } finally {
-          setIsSeeding(false);
-        }
-      }
     });
 
     return () => { unsubscribe(); window.removeEventListener('cnc-sync-error', onSyncError); };
@@ -315,6 +303,11 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
+  const adjustStockMutation = async (sku: string, delta: number) => {
+    if (!user) throw new Error('Entre na sua conta para ajustar o estoque.');
+    await adjustProductStockInFirestore(sku, delta, user.uid);
+  };
+
   const deleteProductMutation = async (sku: string) => {
     if (!user) return;
     try {
@@ -382,20 +375,6 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
-  const seedInitialDataMutation = async (): Promise<SeedResult> => {
-    if (!user) throw new Error('Usuário precisa estar autenticado para sincronizar dados no Firestore');
-    setIsSeeding(true);
-    try {
-      return await seedFirestoreIfEmpty(user.uid);
-    } catch (err) {
-      console.warn('Erro ao semear dados manualmente no Firestore:', err);
-      reportError();
-      throw err;
-    } finally {
-      setIsSeeding(false);
-    }
-  };
-
   return (
     <FirebaseContext.Provider
       value={{
@@ -404,10 +383,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         isAdmin,
         isLoading,
         isOnline,
-        isSeeding,
         login: handleLogin,
         logout: handleLogout,
-        seedInitialDataMutation,
         syncOrders,
         syncOrderMutation,
         deleteOrderMutation,
@@ -422,6 +399,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         syncCompanySettingsMutation,
         products,
         syncProductMutation,
+        adjustStockMutation,
         deleteProductMutation,
         salesOrders,
         syncSalesOrderMutation,

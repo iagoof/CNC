@@ -6,6 +6,7 @@ import { productDocumentId, reserveCatalogOrder } from '../src/utils/orderReserv
 import { convertQuoteInTransaction } from '../src/utils/quoteConversion.ts';
 import type { SalesOrder, Quote } from '../src/types/index.ts';
 import type { PricingContext } from '../src/utils/quoteEngine.ts';
+import { adjustedPhysicalStock } from '../src/utils/productIdentity.ts';
 
 // Fail closed: this suite must never initialize a production Firebase client.
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8089') throw new Error('Execute somente pelo runner local: npm run test:rules. O emulador 127.0.0.1:8089 é obrigatório.');
@@ -30,6 +31,21 @@ test('anônimo e usuário não verificado não criam nem leem produtos', async (
   await denied(setDoc(doc(unverified.db, 'products', data.id), data));
   await denied(setDoc(doc(anonymous.db, 'products', data.id), data));
   await denied(getDocFromServer(doc(anonymous.db, 'products', data.id)));
+});
+
+test('ajustes físicos concorrentes conservam incrementos e reservas', async () => {
+  const data = await product('rules-user-A', `ADJUST-${runId}`, 3), ref = doc(a.db, 'products', data.id);
+  await setDoc(ref, data);
+  const adjust = (delta: number) => runTransaction(a.db, async transaction => {
+    const current = await transaction.get(ref);
+    const physicalStock = adjustedPhysicalStock('rules-user-A', data.sku, current.data()!, delta);
+    transaction.update(ref, { physicalStock, updatedAt: serverTimestamp() });
+  });
+  await Promise.all([adjust(1), adjust(1)]);
+  const saved = (await getDocFromServer(ref)).data()!;
+  assert.equal(saved.physicalStock, 52); assert.equal(saved.committedStock, 3);
+  await assert.rejects(adjust(-53));
+  assert.equal((await getDocFromServer(ref)).data()?.physicalStock, 52);
 });
 test('mesmo SKU pode ser criado em contas distintas sem compartilhar documento', async () => {
   const sku = `SAME-${runId}`, pa = await product('rules-user-A', sku, 2), pb = await product('rules-user-B', sku, 8);

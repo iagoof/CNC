@@ -21,8 +21,7 @@ import {
   LogOut,
   Cloud,
   CheckCircle2,
-  Shield,
-  RefreshCw
+  Shield
 } from 'lucide-react';
 import { useFirebase } from '../services/firebase/FirebaseContext';
 
@@ -55,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Cadastros Técnicos', icon: Settings, section: 'Configurações' }
   ];
 
-  const { user, isAuthenticated, isAdmin, login, logout, isOnline, isSeeding, seedInitialDataMutation } = useFirebase();
+  const { user, isAuthenticated, isAdmin, login, logout, isOnline } = useFirebase();
 
   return (
     <aside className="w-64 h-screen bg-white border-r border-slate-200 flex flex-col shrink-0 select-none z-30 shadow-sm print:hidden">
@@ -107,15 +106,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 )}
               </div>
-              <button
-                onClick={() => seedInitialDataMutation()}
-                disabled={isSeeding}
-                className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-medium text-slate-700 hover:text-amber-700 bg-white border border-slate-200 rounded-lg hover:border-amber-300 transition-colors cursor-pointer disabled:opacity-50"
-                title="Sincronizar e persistir todos os dados no Firestore da sua conta"
-              >
-                <RefreshCw className={`w-3 h-3 ${isSeeding ? 'animate-spin text-amber-500' : 'text-slate-500'}`} />
-                {isSeeding ? 'Sincronizando Firestore...' : 'Sincronizar no Firestore'}
-              </button>
               <button
                 onClick={logout}
                 className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-medium text-slate-600 hover:text-red-600 bg-white border border-slate-200 rounded-lg hover:border-red-200 transition-colors cursor-pointer"

@@ -15,7 +15,7 @@ import {
 
 interface InventoryViewProps {
   inventory: ProductInventory[];
-  onUpdateStock: (sku: string, delta: number) => void;
+  onUpdateStock: (sku: string, delta: number) => void | Promise<void>;
   onOpenOpModal?: (product: ProductInventory) => void;
   onCreateProduct?: (product: ProductInventory) => void | Promise<void>;
   onCreateProductionOrder?: (order: Partial<ProductionOrder>) => void;
@@ -32,6 +32,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [stockError, setStockError] = useState('');
+  const [adjustingSkus, setAdjustingSkus] = useState<Set<string>>(new Set());
+  const adjusting = React.useRef(new Set<string>());
+  const handleStockAdjustment = async (sku: string, delta: number) => {
+    if (adjusting.current.has(sku)) return;
+    adjusting.current.add(sku); setAdjustingSkus(new Set(adjusting.current)); setStockError('');
+    try { await onUpdateStock(sku, delta); }
+    catch (error) { setStockError(error instanceof Error ? error.message : 'Não foi possível ajustar o estoque.'); }
+    finally { adjusting.current.delete(sku); setAdjustingSkus(new Set(adjusting.current)); }
+  };
 
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [productError, setProductError] = useState('');
@@ -124,6 +134,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-y-auto">
+      {stockError && <p role="alert" className="px-6 py-3 text-sm text-red-700 bg-red-50">{stockError}</p>}
       {/* Top Banner */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
         <div className="flex items-center gap-3">
@@ -276,14 +287,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             </button>
                           )}
                           <button
-                            onClick={() => onUpdateStock(item.sku, -1)}
+                            disabled={adjustingSkus.has(item.sku) || item.physicalStock === 0}
+                            onClick={() => void handleStockAdjustment(item.sku, -1)}
                             className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
                             title="Dar Baixa (-1)"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => onUpdateStock(item.sku, 1)}
+                            disabled={adjustingSkus.has(item.sku)}
+                            onClick={() => void handleStockAdjustment(item.sku, 1)}
                             className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
                             title="Entrada Manual (+1)"
                           >

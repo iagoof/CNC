@@ -5,6 +5,27 @@
 
 ## Atualização da revisão
 
+### Ajustes manuais de estoque
+
+- Botões +/− agora aguardam uma transação que lê o produto remoto e altera apenas `physicalStock` e `updatedAt`. A resolução é por proprietário/SKU, com nova conferência de conta e duplicatas na transação. Não gravam mais o objeto da tela sobre o estoque remoto.
+- A tela bloqueia novos ajustes do mesmo SKU durante a confirmação e apresenta falhas, sem antecipar saldo local. Ajustes negativos não são truncados silenciosamente para zero; são recusados se o saldo remoto não comporta a saída.
+- Teste de validação do ajuste e testes de identidade/reserva: 14 aprovados. TypeScript e build passaram. Acrescentado teste SDK de incrementos concorrentes à suíte do emulador, ainda não executada por falta da CLI. Interação no navegador com conta real segue pendente.
+- Conclusão, exclusão e criação de OPs ainda usam alterações separadas no fluxo atual; o ciclo completo de produção/estoque precisa ser convertido em transações antes da liberação.
+
+### Entrada de conta sem dados comerciais fictícios
+
+- Removida a criação automática de materiais, pedidos, orçamentos, produtos, máquinas e empresa de exemplo durante o login. Uma coleção vazia não volta a ser preenchida a cada autenticação.
+- Removido o botão “Sincronizar no Firestore”, que executava esse preenchimento em vez de sincronizar os dados editados. As subscrições e gravações normais continuam no serviço.
+- Os SVGs de inspiração permanecem locais na galeria, sem rotina de gravação automática. Nenhum registro anteriormente criado no Firestore foi excluído; dados antigos exigem identificação e revisão antes de qualquer limpeza.
+- TypeScript e build passaram após a remoção. Login com conta real e comportamento no Firestore de homologação continuam pendentes.
+
+### Testes de regras preparados — execução pendente
+
+- Criados `firebase.test.json`, runner e suíte com o SDK Firebase instalado: anonimato, verificação de e-mail, isolamento entre contas, imutabilidade, consultas, reservas e conversão com rollback. O runner exige o projeto fictício `demo-cnc-rules` e a suíte recusa iniciar sem o emulador local na porta 8089.
+- Java 21 está disponível em Eclipse Adoptium. Firebase CLI e o emulador não estão instalados. A consulta externa para obter a ferramenta foi bloqueada por EACCES; a aprovação automática rejeitou a elevação porque o ambiente não a permite. Não foi tentado contornar esse bloqueio.
+- **Nenhum teste de regras foi executado.** A ausência da CLI encerra o runner com código 1. A suíte usa `mockUserToken` do SDK existente e não depende de `@firebase/rules-unit-testing`. A instalação autorizada da CLI e o download do emulador ainda são necessários. Nenhuma regra foi publicada.
+- Verificação local desta etapa: TypeScript sem erros, build concluído e 39 testes de domínio aprovados. Confirmado também que a execução direta da suíte de regras é recusada sem a variável do emulador; essa recusa não é aprovação das regras.
+
 ### Identidade de produtos por conta — revisão adicional
 
 - Documentos novos de produto usam UID + SHA-256 do SKU normalizado. O mesmo SKU em contas diferentes tem identificadores distintos; caracteres como barra e hífen não são mais reduzidos ao mesmo identificador. As regras locais exigem o prefixo do proprietário em novas criações e aceitam o tamanho necessário para UIDs longos.
