@@ -844,15 +844,11 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900">Design Studio AI — Criação de Vetores 3D & CAM</h1>
-              {/* Active AI Model Badge */}
-              <span className="flex items-center gap-1 text-[10px] font-mono bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Modelo: Gemini 1.5 Pro (gemini-1.5-pro-002)
-              </span>
+              <h1 className="text-base font-bold text-slate-900">Design Studio AI</h1>
+
             </div>
             <p className="text-xs text-slate-500">
-              Vetorização com camadas semânticas (corte #FF0000, gravação #0000FF), espessura 3mm e integração fabril direta
+              Crie seu projeto e prepare os arquivos de corte.
             </p>
           </div>
         </div>
@@ -870,26 +866,13 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         {/* ======================================================== */}
         {/* SEÇÃO: GALERIA DE INSPIRAÇÃO (4 PROJETOS PRONTOS & PROMPTS) */}
         {/* ======================================================== */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700">
-                <Lightbulb className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Galeria de Inspiração — Projetos Prontos & Prompts Detalhados
-                </h3>
-                <p className="text-xs text-slate-500">
-                  4 projetos otimizados com camadas semanticamente separadas (Corte #FF0000 e Gravação #0000FF) e metadados de espessura de 3.0mm.
-                </p>
-              </div>
-            </div>
-            <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-semibold">
-              Prontos para Corte & Gravação
-            </span>
-          </div>
-
+        <details className="group rounded-xl border border-slate-200 bg-white">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-amber-500 [&::-webkit-details-marker]:hidden">
+            <Lightbulb className="h-4 w-4 text-amber-600" aria-hidden="true" />
+            Galeria de Inspiração
+            <ChevronRight className="ml-auto h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+          </summary>
+          <div className="border-t border-slate-100 p-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {READY_EXAMPLES.slice(0, 4).map((item, idx) => {
               const isSelected = currentArtifact.id === item.id;
@@ -987,7 +970,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
               );
             })}
           </div>
-        </div>
+          </div>
+        </details>
 
         {/* SECTION 2: CREATION WORKSPACE & 3D STUDIO VIEWER */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { calcSalePriceMarkupDivisor, calcProductionOrderQuantity, calcLaserCutTimeAndCost, calcKerfOffsets, convertToMonthlyCost } from './src/utils/calculations.ts';
 import { applyKerfToSvg } from './src/utils/cncExporters.ts';
-const checks = [];
-function check(name, fn) { try { fn(); checks.push({name, status:'PASS'}); } catch(e) { checks.push({name,status:'FAIL',detail:e.message}); } }
+const checks: { name: string; status: string; detail?: string }[] = [];
+function check(name: string, fn: () => void) { try { fn(); checks.push({name, status:'PASS'}); } catch(e) { checks.push({name,status:'FAIL',detail:e instanceof Error ? e.message : String(e)}); } }
 check('Markup normal',()=>assert.ok(Math.abs(calcSalePriceMarkupDivisor({directCost:100,fixedCostPct:15,taxPct:12,desiredProfitMarginPct:20}).salePrice-188.679245283)<0.001));
 check('Markup bloqueia deducoes de 100%',()=>assert.equal(calcSalePriceMarkupDivisor({directCost:100,fixedCostPct:40,taxPct:30,desiredProfitMarginPct:30}).isValid,false));
 check('Tempo laser 1200mm / 20mm/s',()=>assert.equal(calcLaserCutTimeAndCost(1200,20,1).cutSeconds,60));

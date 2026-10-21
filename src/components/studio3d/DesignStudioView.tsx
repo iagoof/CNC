@@ -14,6 +14,8 @@ import {
 } from './LaserModel3D';
 import { generateCncVector } from '../../services/geminiCncService';
 import { convertSvgToDxf, calculateSvgMetrics } from '../../utils/cncExporters';
+import { useFirebase } from '../../services/firebase/FirebaseContext';
+import { FirestoreProject } from '../../services/firebase/firebase';
 import {
   Box,
   Layers,
@@ -28,7 +30,10 @@ import {
   Scissors,
   CheckCircle2,
   FileCode,
-  UploadCloud
+  UploadCloud,
+  Trash2,
+  Cloud,
+  FolderOpen
 } from 'lucide-react';
 
 interface DesignStudioProps {

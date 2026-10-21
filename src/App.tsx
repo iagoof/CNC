@@ -42,13 +42,25 @@ import { ErrorBoundary } from './components/observability/ErrorBoundary';
 import { initializeSreTelemetry } from './services/telemetry';
 import { useFirebase } from './services/firebase/FirebaseContext';
 import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes } from './services/firebase/firebase';
-import { Cloud, CheckCircle2 } from 'lucide-react';
+import { Info } from 'lucide-react';
+import { TARIFA_ENERGIA_POR_UF } from './utils/calculations';
 
 // Inicialização imediata dos interceptores e manipuladores SRE
 initializeSreTelemetry();
 
 export default function App() {
-  const { user, isAuthenticated, syncOrderMutation, syncQuoteMutation, syncMaterialMutation } = useFirebase();
+  const {
+    user,
+    isAuthenticated,
+    companySettings,
+    syncCompanySettingsMutation,
+    syncOrderMutation,
+    deleteOrderMutation,
+    syncQuoteMutation,
+    deleteQuoteMutation,
+    syncMaterialMutation,
+    deleteMaterialMutation
+  } = useFirebase();
 
   // Global Domain State with LocalStorage Persistence
   const [activeTab, setActiveTab] = useState<string>('studio-ai');
@@ -89,6 +101,52 @@ export default function App() {
       unsubQuotes();
     };
   }, [user]);
+
+  // Sincroniza configurações da empresa vindas da nuvem Firestore
+  useEffect(() => {
+    if (companySettings) {
+      setCompany(prev => ({
+        ...prev,
+        name: companySettings.name || prev.name,
+        cnpj: companySettings.cnpj || prev.cnpj,
+        city: companySettings.city || prev.city,
+        uf: companySettings.uf || prev.uf,
+        taxRegime: companySettings.taxRegime || prev.taxRegime
+      }));
+    }
+  }, [companySettings, setCompany]);
+
+  // Handlers com persistência em nuvem Firestore
+  const handleUpdateCompany = (updated: CompanyProfile) => {
+    setCompany(updated);
+    syncCompanySettingsMutation({
+      name: updated.name,
+      cnpj: updated.cnpj,
+      city: updated.city,
+      uf: updated.uf,
+      taxRegime: updated.taxRegime
+    });
+  };
+
+  const handleUpdateMaterials = (newMaterials: Material[]) => {
+    setMaterials(newMaterials);
+    newMaterials.forEach(m => syncMaterialMutation(m));
+  };
+
+  const handleRemoveMaterial = (materialId: string) => {
+    setMaterials(prev => prev.filter(m => m.id !== materialId));
+    deleteMaterialMutation(materialId);
+  };
+
+  const handleDeleteOrder = (orderId: string) => {
+    setProductionOrders(prev => prev.filter(o => o.id !== orderId));
+    deleteOrderMutation(orderId);
+  };
+
+  const handleDeleteQuote = (quoteId: string) => {
+    setQuotes(prev => prev.filter(q => q.id !== quoteId));
+    deleteQuoteMutation(quoteId);
+  };
 
   // Stored part for transfer between Studio and Nesting
   const [nestingTransferPart, setNestingTransferPart] = useState<{
@@ -343,32 +401,25 @@ export default function App() {
             <h2 className="text-sm font-bold text-slate-800 tracking-tight">
               {tabTitles[activeTab]?.title || 'CNC APP'}
             </h2>
-            <span className="hidden sm:inline-block text-xs text-slate-300 font-normal">|</span>
-            <span className="hidden sm:inline-block text-xs text-slate-500 font-medium truncate max-w-md">
-              {tabTitles[activeTab]?.subtitle || 'Oficina CNC — Juiz de Fora / MG'}
-            </span>
+
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Firebase Cloud Sync Badge */}
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200/80 rounded-lg text-amber-900 text-[11px] font-semibold">
-              <Cloud className="w-3.5 h-3.5 text-amber-600" />
-              <span>Firestore: {isAuthenticated ? 'Sincronizado' : 'Pronto'}</span>
-              <span className="text-[9px] font-mono text-amber-700 bg-amber-100/70 px-1 py-0.2 rounded">
-                copper-psyche
-              </span>
-            </div>
-
-            {/* Quick status badge for machines & location */}
-            <div className="hidden md:flex items-center gap-2 px-2.5 py-1 bg-emerald-50 border border-emerald-200/70 rounded-lg text-emerald-800 text-[11px] font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>3 Máquinas Operacionais</span>
-            </div>
-
-            <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-500 font-mono bg-slate-100/80 px-2.5 py-1 rounded-lg border border-slate-200/60">
-              <span className="text-slate-400">CEMIG:</span>
-              <span className="font-semibold text-slate-700">R$ 1,02/kWh</span>
-            </div>
+            <details className="relative group">
+              <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-lg px-3 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-amber-500 [&::-webkit-details-marker]:hidden">
+                <Info className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden md:inline">Informações da oficina</span>
+                <span className="sr-only md:hidden">Informações da oficina</span>
+              </summary>
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-slate-200 bg-white p-4 shadow-lg space-y-3 text-xs text-slate-600">
+                <h3 className="font-semibold text-slate-900">Informações da oficina</h3>
+                <dl className="space-y-3">
+                  <div className="flex justify-between gap-3"><dt>Firestore</dt><dd>{isAuthenticated ? 'Conta conectada' : 'Conta não conectada'}</dd></div>
+                  <div className="flex justify-between gap-3"><dt>Máquinas cadastradas</dt><dd>{machines.length}</dd></div>
+                  <div className="flex justify-between gap-3"><dt>Energia ({company.uf})</dt><dd>{TARIFA_ENERGIA_POR_UF[company.uf].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/kWh</dd></div>
+                </dl>
+              </div>
+            </details>
 
             {/* Quick Action button */}
             <button
@@ -484,6 +535,7 @@ export default function App() {
               company={company}
               onSaveQuote={handleSaveQuote}
               onConvertToOrder={handleConvertQuoteToOrder}
+              onDeleteQuote={handleDeleteQuote}
             />
           )}
 
@@ -494,6 +546,7 @@ export default function App() {
               onUpdateOrderStatus={handleUpdateOrderStatus}
               onCreateProductionOrder={handleCreateProductionOrder}
               onUpdateScannedQty={handleUpdateScannedQty}
+              onDeleteOrder={handleDeleteOrder}
             />
           )}
 
@@ -535,9 +588,10 @@ export default function App() {
               taxes={taxes}
               company={company}
               currentPlanId={currentPlan}
-              onUpdateCompany={setCompany}
+              onUpdateCompany={handleUpdateCompany}
               onUpdateMachines={setMachines}
-              onUpdateMaterials={setMaterials}
+              onUpdateMaterials={handleUpdateMaterials}
+              onRemoveMaterial={handleRemoveMaterial}
               onUpdateFixedCosts={setFixedCosts}
               onUpdateMonthlyRevenueTarget={setMonthlyRevenueTarget}
               onUpdateTaxes={setTaxes}

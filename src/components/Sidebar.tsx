@@ -75,18 +75,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Location Badge (Juiz de Fora / MG) */}
-        <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-            <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span className="truncate">Juiz de Fora / MG</span>
-          </div>
-          <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-            <span>CEMIG Tarifa:</span>
-            <span className="font-bold text-slate-700">R$ 1,02/kWh</span>
-          </div>
-        </div>
-
+        <details className="group">
+          <summary className="cursor-pointer rounded-lg px-2 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-amber-500">Conta e conexão</summary>
+          <div className="mt-2">
         {/* Firebase Cloud Sync Status */}
         <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold">
@@ -131,6 +122,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
+          </div>
+        </details>
       </div>
 
       {/* Navigation List */}
@@ -157,41 +150,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="truncate">{item.label}</span>
               </div>
 
-              {item.badge && (
-                <span
-                  className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                    isActive
-                      ? 'bg-white/20 text-white'
-                      : 'bg-amber-50 text-amber-700 border border-amber-200/50'
-                  }`}
-                >
-                  {item.badge}
-                </span>
-              )}
+
             </button>
           );
         })}
       </nav>
 
-      {/* Footer Profile & Workshop Status */}
-      <div className="p-4 border-t border-slate-100 bg-slate-50/70 space-y-2.5">
-        <div className="flex items-center justify-between text-[11px]">
-          <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-            <span>Fábrica Operando</span>
+      <div className="border-t border-slate-100 p-4">
+        <details>
+          <summary className="cursor-pointer rounded-lg py-2 text-xs text-slate-500 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-amber-500">Sobre a oficina</summary>
+          <div className="mt-2 space-y-2 text-xs text-slate-600">
+            <p className="font-medium text-slate-800">{company.tradeName}</p>
+            <p>{company.city} / {company.uf}</p>
+            <p>Plano: {currentPlan}</p>
           </div>
-          <span className="text-[10px] font-mono text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded">
-            copper-psyche
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500">
-          <span>Plano Ativo:</span>
-          <span className="font-bold text-amber-700 font-mono flex items-center gap-1">
-            <Zap className="w-3 h-3 text-amber-600" />
-            {currentPlan}
-          </span>
-        </div>
+        </details>
       </div>
     </aside>
   );
