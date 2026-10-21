@@ -66,7 +66,37 @@ export default function App() {
 
   const storageKey = (key: string) => user ? `user:${user.uid}:${key}` : key;
   // Account-scoped local recovery cache.
-  const [activeTab, setActiveTab] = useState<string>('studio-ai');
+  const VALID_TABS = [
+    'dashboard', 'studio-ai', 'studio', 'cam-ai', 'nesting',
+    'pricing', 'quotes', 'production', 'inventory', 'catalog',
+    'fiscal', 'observability', 'settings'
+  ];
+
+  const getTabFromHash = () => {
+    if (typeof window === 'undefined') return 'studio-ai';
+    const raw = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+    return VALID_TABS.includes(raw) ? raw : 'studio-ai';
+  };
+
+  const [activeTab, setActiveTabState] = useState<string>(getTabFromHash);
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    if (typeof window !== 'undefined' && window.location.hash !== '#' + tab) {
+      window.location.hash = '#' + tab;
+    }
+  };
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setActiveTabState(getTabFromHash());
+    };
+    window.addEventListener('hashchange', onHashChange);
+    if (!window.location.hash) {
+      window.location.hash = '#' + activeTab;
+    }
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [newQuoteToken, setNewQuoteToken] = useState(0);
   const conversionInProgress = useRef(new Set<string>());
@@ -430,8 +460,8 @@ export default function App() {
                   quantity: item.quantity,
                   additionalCost: 0,
                   customKerf_mm: 0.15,
-                  width_mm: 200,
-                  height_mm: 150
+                  width_mm: item.width_mm,
+                  height_mm: item.height_mm
                 };
                 const newQuote: Quote = {
                   id: 'orc-' + Date.now(),

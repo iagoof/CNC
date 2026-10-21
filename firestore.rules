@@ -133,6 +133,73 @@ service cloud.firestore {
         (!('monthlyWorkHours' in data) || (data.monthlyWorkHours is number && data.monthlyWorkHours >= 0));
     }
 
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'sku', 'name', 'category', 'physicalStock', 'unitPrice', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'sku', 'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.sku is string && data.sku.size() > 0 && data.sku.size() <= 64 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+        data.category is string && data.category.size() <= 64 &&
+        data.physicalStock is number && data.physicalStock >= 0 &&
+        data.unitPrice is number && data.unitPrice >= 0 &&
+        (!('committedStock' in data) || (data.committedStock is number && data.committedStock >= 0)) &&
+        (!('minStock' in data) || (data.minStock is number && data.minStock >= 0)) &&
+        (!('idealStock' in data) || (data.idealStock is number && data.idealStock >= 0)) &&
+        (!('inProductionStock' in data) || (data.inProductionStock is number && data.inProductionStock >= 0)) &&
+        (!('minBatchToProduce' in data) || (data.minBatchToProduce is number && data.minBatchToProduce >= 0)) &&
+        (!('batchMultiple' in data) || (data.batchMultiple is number && data.batchMultiple >= 0)) &&
+        (!('costPrice' in data) || (data.costPrice is number && data.costPrice >= 0)) &&
+        (!('materialId' in data) || (data.materialId is string && data.materialId.size() <= 64)) &&
+        (!('estimatedLaserTimeSeconds' in data) || (data.estimatedLaserTimeSeconds is number && data.estimatedLaserTimeSeconds >= 0)) &&
+        (!('dimensions_mm' in data) || data.dimensions_mm is map);
+    }
+
+    function isValidSalesOrder(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'orderNumber', 'channel', 'customerName', 'total', 'items', 'paymentStatus', 'fulfillmentStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'orderNumber', 'sourceQuoteId', 'channel', 'customerName', 'customerDoc', 'customerCity', 'customerUf', 'items', 'subtotal', 'shippingCost', 'discount', 'total', 'paymentMethod', 'paymentStatus', 'paidAt', 'fulfillmentStatus', 'invoiceKey', 'trackingCode', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.orderNumber is string && data.orderNumber.size() > 0 && data.orderNumber.size() <= 32 &&
+        data.channel in ['Loja Própria', 'WhatsApp', 'Mercado Livre', 'Shopee', 'Temu', 'Balcão/Direto', 'Bling'] &&
+        data.customerName is string && data.customerName.size() > 0 && data.customerName.size() <= 128 &&
+        data.total is number && data.total >= 0 &&
+        data.items is list && data.items.size() <= 100 &&
+        data.paymentStatus in ['Pago', 'Pendente', 'Cancelado'] &&
+        data.fulfillmentStatus in ['Pendente', 'Em Produção', 'Separado', 'Nota Emitida', 'Enviado', 'Entregue'] &&
+        (!('sourceQuoteId' in data) || (data.sourceQuoteId is string && data.sourceQuoteId.size() <= 64)) &&
+        (!('customerDoc' in data) || (data.customerDoc is string && data.customerDoc.size() <= 32)) &&
+        (!('customerCity' in data) || (data.customerCity is string && data.customerCity.size() <= 64)) &&
+        (!('customerUf' in data) || (data.customerUf is string && data.customerUf.size() <= 2)) &&
+        (!('subtotal' in data) || (data.subtotal is number && data.subtotal >= 0)) &&
+        (!('shippingCost' in data) || (data.shippingCost is number && data.shippingCost >= 0)) &&
+        (!('discount' in data) || (data.discount is number && data.discount >= 0)) &&
+        (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 32)) &&
+        (!('paidAt' in data) || (data.paidAt is string && data.paidAt.size() <= 32)) &&
+        (!('invoiceKey' in data) || (data.invoiceKey is string && data.invoiceKey.size() <= 48)) &&
+        (!('trackingCode' in data) || (data.trackingCode is string && data.trackingCode.size() <= 64));
+    }
+
+    function isValidMachine(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'name', 'type', 'laserPowerW', 'workAreaX_mm', 'workAreaY_mm', 'purchasePrice', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'name', 'model', 'type', 'laserPowerW', 'workAreaX_mm', 'workAreaY_mm', 'purchasePrice', 'depreciationYears', 'monthlyWorkHours', 'energyConsumptionKwh', 'monthlyMaintenanceCosts', 'tubeSpareCost', 'notes', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+        data.type in ['CO2', 'Diodo', 'Fibra', 'Router', 'Plasma', 'laser_co2', 'laser_fiber', 'cnc_router', 'plasma'] &&
+        data.laserPowerW is number && data.laserPowerW >= 0 &&
+        data.workAreaX_mm is number && data.workAreaX_mm > 0 &&
+        data.workAreaY_mm is number && data.workAreaY_mm > 0 &&
+        data.purchasePrice is number && data.purchasePrice >= 0 &&
+        (!('model' in data) || (data.model is string && data.model.size() <= 128)) &&
+        (!('depreciationYears' in data) || (data.depreciationYears is number && data.depreciationYears >= 0)) &&
+        (!('monthlyWorkHours' in data) || (data.monthlyWorkHours is number && data.monthlyWorkHours >= 0)) &&
+        (!('energyConsumptionKwh' in data) || (data.energyConsumptionKwh is number && data.energyConsumptionKwh >= 0)) &&
+        (!('monthlyMaintenanceCosts' in data) || (data.monthlyMaintenanceCosts is number && data.monthlyMaintenanceCosts >= 0)) &&
+        (!('tubeSpareCost' in data) || (data.tubeSpareCost is number && data.tubeSpareCost >= 0)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
     // --- COLLECTION RULES ---
 
     // USERS COLLECTION
@@ -247,6 +314,57 @@ service cloud.firestore {
           'tradeName', 'name', 'ie', 'address', 'cep', 'phone', 'email', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
         ]));
       allow delete: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // PRODUCTS COLLECTION
+    match /products/{productId} {
+      allow get: if isVerified() && isValidId(productId) && (!exists(/databases/$(database)/documents/products/$(productId)) || resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(productId) && isValidProduct(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == productId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(productId) && isValidProduct(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(productId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // SALES ORDERS COLLECTION
+    match /sales_orders/{salesOrderId} {
+      allow get: if isVerified() && isValidId(salesOrderId) && (!exists(/databases/$(database)/documents/sales_orders/$(salesOrderId)) || resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == salesOrderId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'orderNumber', 'channel', 'customerName', 'customerDoc', 'customerCity', 'customerUf', 'items', 'subtotal', 'shippingCost', 'discount', 'total', 'paymentMethod', 'paymentStatus', 'paidAt', 'fulfillmentStatus', 'invoiceKey', 'trackingCode', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(salesOrderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // MACHINES COLLECTION
+    match /machines/{machineId} {
+      allow get: if isVerified() && isValidId(machineId) && (!exists(/databases/$(database)/documents/machines/$(machineId)) || resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == machineId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'model', 'type', 'laserPowerW', 'workAreaX_mm', 'workAreaY_mm', 'purchasePrice', 'depreciationYears', 'monthlyWorkHours', 'energyConsumptionKwh', 'monthlyMaintenanceCosts', 'tubeSpareCost', 'notes', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(machineId) && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
 
     // ADMINS COLLECTION

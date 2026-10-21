@@ -309,14 +309,14 @@ export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, i
     const svgRects = nestingResult.placed
       .map(
         p => `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="#ef4444" stroke-width="0.3" data-layer="cut" />
-  <text x="${p.x + 4}" y="${p.y + 12}" fill="#0f172a" font-size="7" font-family="sans-serif">${p.name} ${p.rotated ? '(90°)' : ''}</text>`
+  <text data-layer="guide" x="${p.x + 4}" y="${p.y + 12}" fill="#0f172a" font-size="7" font-family="sans-serif">${p.name} ${p.rotated ? '(90°)' : ''}</text>`
       )
       .join('\n');
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetWidth} ${sheetLength}" width="${sheetWidth}mm" height="${sheetLength}mm">
-  <rect x="0" y="0" width="${sheetWidth}" height="${sheetLength}" fill="#ffffff" stroke="#94a3b8" stroke-width="0.5" />
-  <rect x="${margin}" y="${margin}" width="${sheetWidth - margin * 2}" height="${sheetLength - margin * 2}" fill="none" stroke="#cbd5e1" stroke-dasharray="2 2" stroke-width="0.3" />
+  <rect data-layer="guide" x="0" y="0" width="${sheetWidth}" height="${sheetLength}" fill="#ffffff" stroke="#94a3b8" stroke-width="0.5" />
+  <rect data-layer="guide" x="${margin}" y="${margin}" width="${sheetWidth - margin * 2}" height="${sheetLength - margin * 2}" fill="none" stroke="#cbd5e1" stroke-dasharray="2 2" stroke-width="0.3" />
   <g id="CORTE_EXTERNO">
 ${svgRects}
   </g>

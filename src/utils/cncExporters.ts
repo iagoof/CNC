@@ -1,4 +1,5 @@
 import { readSvgGeometry, orderedContours, contourLength, engravingIntervalMm, type CncGeometry } from './svgGeometry.ts';
+import { compensateGeometry, geometryToSvg } from './kerfGeometry.ts';
 import * as THREE from 'three';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 
@@ -51,7 +52,6 @@ export function validateCncVector(svgString: string, machineMaxX = 1300, machine
     issues.push('Há contornos fora da mesa de trabalho.');
   }
   if (geometry.contours.some(c => c.layer === 'cut' && !c.closed)) warnings.push('Há percursos de corte abertos. Revise os pontos de início e fim.');
-  if (svgString.includes('stroke-dasharray')) warnings.push('Traços pontilhados são exportados como percursos contínuos. Converta os traços em caminhos para manter as interrupções.');
   return { isValid: !issues.length, issues, warnings, stats: {
     cutLengthMm: geometry.contours.filter(c => c.layer === 'cut').reduce((sum, c) => sum + contourLength(c), 0),
     boundingBox: { width: geometry.widthMm, height: geometry.heightMm },
@@ -63,12 +63,12 @@ export function validateCncVector(svgString: string, machineMaxX = 1300, machine
  * Applies kerf compensation (+kerf/2 on outer profile, -kerf/2 on inner cutouts)
  */
 export function applyKerfToSvg(svgString: string, kerfMm = 0.15): string {
-  if (!svgString) return '';
-  const halfKerf = (kerfMm / 2).toFixed(3);
-  return svgString.replace(
-    /<svg\b([^>]*)>/,
-    `<svg$1 data-kerf="${kerfMm}" data-kerf-offset="${halfKerf}"><!-- Compensação de Kerf CNC: ${kerfMm}mm (deslocamento normal de ${halfKerf}mm) -->`
-  );
+  const root = new DOMParser().parseFromString(svgString, 'image/svg+xml').documentElement;
+  if (root.hasAttribute('data-kerf-applied')) {
+    if (Number(root.getAttribute('data-kerf-applied')) === kerfMm) return svgString;
+    throw new Error('O arquivo já recebeu compensação. Use o SVG original para alterar o kerf.');
+  }
+  return geometryToSvg(compensateGeometry(readSvgGeometry(svgString), kerfMm), kerfMm);
 }
 
 /**
@@ -95,9 +95,17 @@ export function convertSvgToDxf(svgString: string): string {
 /**
  * Exports Three.js 3D scene group directly to STL file using STLExporter
  */
-export function exportSceneGroupToStl(object: THREE.Object3D, filename = 'modelo_cnc.stl'): void {
+export function serializeSceneGroupToStl(object: THREE.Object3D, unitsToMm = 1): string {
+  if (!Number.isFinite(unitsToMm) || unitsToMm <= 0) throw new Error('Escala STL inválida.');
+  const exported = object.clone(true);
+  exported.scale.multiplyScalar(unitsToMm);
+  exported.updateMatrixWorld(true);
   const exporter = new STLExporter();
-  const stlString = exporter.parse(object, { binary: false });
+  return exporter.parse(exported, { binary: false });
+}
+
+export function exportSceneGroupToStl(object: THREE.Object3D, filename = 'modelo_cnc.stl', unitsToMm = 1): void {
+  const stlString = serializeSceneGroupToStl(object, unitsToMm);
 
   const blob = new Blob([stlString], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
@@ -144,8 +152,8 @@ export function generateGcodeFromGeometry(geometry: CncGeometry, options: GcodeO
     || options.maxYmm !== undefined && !(Number.isFinite(options.maxYmm) && options.maxYmm > 0)) throw new Error('Dimensões da mesa inválidas.');
   for (const contour of contours) {
     if (contour.points.length < 2 || contour.points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)
-      || p.x < -0.001 || p.y < -0.001 || p.x > (options.maxXmm ?? geometry.widthMm) + 0.001
-      || p.y > (options.maxYmm ?? geometry.heightMm) + 0.001)) throw new Error('Percurso fora da área útil. Revise dimensões, origem e transformações.');
+      || p.x < -0.001 || p.y < -0.001 || p.x > Math.min(options.maxXmm ?? geometry.widthMm, geometry.widthMm) + 0.001
+      || p.y > geometry.heightMm + 0.001 || geometry.heightMm - p.y > (options.maxYmm ?? geometry.heightMm) + 0.001)) throw new Error('Percurso fora da área útil. Revise dimensões, origem e transformações.');
   }
   const code = ['(CNC APP - contornos SVG em mm)', 'G21', 'G90', 'G17', 'G94', 'M05'];
   const xy = (p: { x: number; y: number }) => `X${p.x.toFixed(4)} Y${(geometry.heightMm - p.y).toFixed(4)}`;

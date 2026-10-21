@@ -1,6 +1,10 @@
-import { calculateSvgMetrics, convertSvgToDxf, generateGcodeFromSvg, validateCncVector } from '../src/utils/cncExporters';
-import { readSvgGeometry, contourLength } from '../src/utils/svgGeometry';
+import { calculateSvgMetrics, convertSvgToDxf, generateGcodeFromSvg, validateCncVector, applyKerfToSvg, serializeSceneGroupToStl } from '../src/utils/cncExporters';
+import { readSvgGeometry, contourLength, contourArea } from '../src/utils/svgGeometry';
 import { sanitizeSvg } from '../src/utils/sanitizeSvg';
+import studioSource from '../src/services/firebase/seedData.ts?raw';
+import { build3DFromSvg, createLaserMaterials } from '../src/components/studio3d/LaserModel3D';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import * as THREE from 'three';
 
 const results: { name: string; pass: boolean; detail?: string }[] = [];
 function assert(condition: unknown, message = 'Asserção falhou'): asserts condition { if (!condition) throw new Error(message); }
@@ -92,6 +96,56 @@ test('SVG ativo é removido da prévia', () => {
   const clean = sanitizeSvg(svg('<script>alert(1)</script><foreignObject><div>HTML</div></foreignObject><rect width="10" height="10" onload="alert(1)" fill="url(https://example.org/a)"/>'));
   assert(!/script|foreignObject|onload|example\.org/.test(clean)); assert(clean.includes('rect'));
   assert(sanitizeSvg('<svg onload="alert(1)"><rect width="10" height="10"/></svg>').includes('rect'));
+});
+test('Kerf expande exterior e reduz furo de verdade', () => {
+  const input = svg('<rect x="10" y="10" width="80" height="80" fill="none"/><rect x="40" y="40" width="20" height="20" fill="none"/>');
+  const compensated = readSvgGeometry(applyKerfToSvg(input, 0.2));
+  near(contourArea(compensated.contours[0]), 80.2 ** 2, 0.01);
+  near(contourArea(compensated.contours[1]), 19.8 ** 2, 0.01);
+});
+test('Kerf funciona em curva, expande canvas e não aplica duas vezes', () => {
+  const input = svg('<circle cx="50" cy="50" r="50" fill="none"/>');
+  const output = applyKerfToSvg(input, 0.2);
+  const geometry = readSvgGeometry(output);
+  near(geometry.widthMm, 100.2, 0.02); near(geometry.heightMm, 100.2, 0.02);
+  near(contourLength(geometry.contours[0]), Math.PI * 100.2, 0.2);
+  assert(applyKerfToSvg(output, 0.2) === output);
+});
+test('Kerf rejeita contorno aberto e colisão entre peças', () => {
+  for (const body of ['<line x1="10" y1="10" x2="30" y2="10"/>', '<rect x="10" y="10" width="10" height="10"/><rect x="20.1" y="10" width="10" height="10"/>']) {
+    let failed = false; try { applyKerfToSvg(svg(body), 0.2); } catch { failed = true; } assert(failed);
+  }
+});
+const gallerySvgs = [...studioSource.matchAll(/svgContent: `([\s\S]*?)`/g)].map(m => m[1]);
+test('Todos os exemplos da galeria preservam geometria e exportam DXF', () => {
+  assert(gallerySvgs.length >= 4, `Encontrados ${gallerySvgs.length} exemplos`);
+  for (const [index, input] of gallerySvgs.entries()) {
+    let geometry;
+    try { geometry = readSvgGeometry(input); } catch (error) { throw new Error(`Exemplo ${index + 1}: ${error}`); }
+    assert(geometry.contours.some(c => c.layer === 'cut'), `Sem cortes no exemplo ${index + 1}`);
+    assert(convertSvgToDxf(input).endsWith('EOF\n'));
+  }
+});
+test('STL usa milímetros, espessura real e preserva volume do furo', () => {
+  const input = svg('<rect x="0" y="0" width="100" height="80" fill="none"/><rect x="40" y="30" width="20" height="10" fill="none"/>');
+  const model = build3DFromSvg(input, 3, createLaserMaterials('mdf-cru', false));
+  assert(model.parts.length === 1);
+  const stl = serializeSceneGroupToStl(model.group, 10);
+  const geometry = new STLLoader().parse(stl);
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new THREE.Vector3());
+  near(size.x, 100); near(size.y, 80); near(size.z, 3);
+  const vertices = geometry.getAttribute('position');
+  let volume = 0;
+  for (let i = 0; i < vertices.count; i += 3) {
+    const a = new THREE.Vector3().fromBufferAttribute(vertices, i);
+    const b = new THREE.Vector3().fromBufferAttribute(vertices, i + 1);
+    const c = new THREE.Vector3().fromBufferAttribute(vertices, i + 2);
+    volume += a.dot(b.cross(c)) / 6;
+  }
+  near(Math.abs(volume), (100 * 80 - 20 * 10) * 3, 0.1);
+  geometry.dispose();
+  model.group.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
 });
 for (const result of results) {
   const li = document.createElement('li'); li.textContent = `${result.pass ? 'PASS' : 'FAIL'}: ${result.name}${result.detail ? ` — ${result.detail}` : ''}`;

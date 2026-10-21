@@ -19,11 +19,20 @@ import {
   deleteProjectFromFirestore,
   subscribeToCompanySettings,
   saveCompanySettingsToFirestore,
+  subscribeToProducts,
+  saveProductToFirestore,
+  deleteProductFromFirestore,
+  subscribeToSalesOrders,
+  saveSalesOrderToFirestore,
+  deleteSalesOrderFromFirestore,
+  subscribeToMachines,
+  saveMachineToFirestore,
+  deleteMachineFromFirestore,
   FirestoreProject,
   FirestoreCompanySettings
 } from './firebase';
 import { seedFirestoreIfEmpty, SeedResult } from './seedData';
-import { ProductionOrder, Material, Quote } from '../../types';
+import { ProductionOrder, Material, Quote, ProductInventory, SalesOrder, Machine } from '../../types';
 
 interface FirebaseContextType {
   user: FirebaseUser | null;
@@ -47,6 +56,15 @@ interface FirebaseContextType {
   deleteProjectMutation: (projectId: string) => Promise<void>;
   companySettings: FirestoreCompanySettings | null;
   syncCompanySettingsMutation: (settings: Partial<FirestoreCompanySettings> & { tradeName: string }) => Promise<void>;
+  products: ProductInventory[];
+  syncProductMutation: (product: ProductInventory) => Promise<void>;
+  deleteProductMutation: (sku: string) => Promise<void>;
+  salesOrders: SalesOrder[];
+  syncSalesOrderMutation: (order: SalesOrder) => Promise<void>;
+  deleteSalesOrderMutation: (orderId: string) => Promise<void>;
+  machines: Machine[];
+  syncMachineMutation: (machine: Machine) => Promise<void>;
+  deleteMachineMutation: (machineId: string) => Promise<void>;
 }
 
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
@@ -60,6 +78,9 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const reportError = () => setSyncError('Não foi possível sincronizar com a nuvem. Os dados locais foram mantidos. Verifique a conexão e as permissões antes de continuar.');
   const [projects, setProjects] = useState<FirestoreProject[]>([]);
   const [companySettings, setCompanySettings] = useState<FirestoreCompanySettings | null>(null);
+  const [products, setProducts] = useState<ProductInventory[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
 
   const isAdmin = user?.email === 'iagoofss@gmail.com';
 
@@ -88,11 +109,14 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => { unsubscribe(); window.removeEventListener('cnc-sync-error', onSyncError); };
   }, []);
 
-  // Subscrição em tempo real de Projetos e Configurações da Empresa quando logado
+  // Subscrição em tempo real de Projetos, Configurações, Produtos, Pedidos e Máquinas quando logado
   useEffect(() => {
     if (!user) {
       setProjects([]);
       setCompanySettings(null);
+      setProducts([]);
+      setSalesOrders([]);
+      setMachines([]);
       return;
     }
 
@@ -112,9 +136,36 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       err => console.warn('Aviso ao sincronizar configurações da empresa do Firestore:', err)
     );
 
+    const unsubProducts = subscribeToProducts(
+      user.uid,
+      remoteProducts => {
+        setProducts(remoteProducts || []);
+      },
+      err => console.warn('Aviso ao sincronizar produtos do Firestore:', err)
+    );
+
+    const unsubSalesOrders = subscribeToSalesOrders(
+      user.uid,
+      remoteSalesOrders => {
+        setSalesOrders(remoteSalesOrders || []);
+      },
+      err => console.warn('Aviso ao sincronizar pedidos de venda do Firestore:', err)
+    );
+
+    const unsubMachines = subscribeToMachines(
+      user.uid,
+      remoteMachines => {
+        setMachines(remoteMachines || []);
+      },
+      err => console.warn('Aviso ao sincronizar máquinas do Firestore:', err)
+    );
+
     return () => {
       unsubProjects();
       unsubSettings();
+      unsubProducts();
+      unsubSalesOrders();
+      unsubMachines();
     };
   }, [user]);
 

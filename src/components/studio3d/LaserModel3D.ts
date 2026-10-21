@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { readSvgGeometry, pointInContour, contourArea } from '../../utils/svgGeometry';
 
 export type LaserMaterialFinish = 'mdf-cru' | 'mdf-branco' | 'acrilico-cristal' | 'compensado-pinus' | 'mdf-preto';
 
@@ -711,59 +711,37 @@ export function build3DFromSvg(
   root.name = 'SvgExtrudedModel3D';
   const parts: { name: string; mesh: THREE.Object3D; explodeVector: THREE.Vector3 }[] = [];
 
-  try {
-    const loader = new SVGLoader();
-    const svgData = loader.parse(svgString);
-    const extrudeDepth = Math.max(0.1, thicknessMm * 0.1); // Convert mm to 3D scene units (1 unit = 10mm)
-
-    const subGroup = new THREE.Group();
-
-    svgData.paths.forEach((path, pathIdx) => {
-      const shapes = SVGLoader.createShapes(path);
-
-      shapes.forEach((shape, shapeIdx) => {
-        const geom = new THREE.ExtrudeGeometry(shape, {
-          depth: extrudeDepth,
-          bevelEnabled: false
-        });
-
-        // Center geometry
-        geom.computeBoundingBox();
-
-        const mesh = new THREE.Mesh(geom, [materials.faceMaterial, materials.edgeMaterial]);
-        // Invert Y to match 3D coordinate convention (SVG origin is top-left)
-        mesh.scale.set(0.1, -0.1, 1);
-        mesh.name = `Camada Vetorial ${pathIdx + 1}.${shapeIdx + 1}`;
-        subGroup.add(mesh);
-
-        parts.push({
-          name: `Elemento Vetorial #${pathIdx + 1}`,
-          mesh,
-          explodeVector: new THREE.Vector3(0, (pathIdx % 2 === 0 ? 1 : -1) * (pathIdx + 1) * 1.5, (pathIdx + 1) * 2)
-        });
-      });
-    });
-
-    // Center the whole subGroup at the origin
-    const box = new THREE.Box3().setFromObject(subGroup);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    subGroup.position.sub(center);
-
-    root.add(subGroup);
-  } catch (err) {
-    console.warn('Erro ao processar SVG no SVGLoader, gerando placa de contingência:', err);
-    // Fallback simple extruded slab
-    const geom = new THREE.BoxGeometry(15, 10, thicknessMm * 0.1);
+  if (!Number.isFinite(thicknessMm) || thicknessMm <= 0) throw new Error('Espessura inválida para o modelo 3D.');
+  const geometry = readSvgGeometry(svgString);
+  const cuts = geometry.contours.filter(c => c.layer === 'cut');
+  if (!cuts.length || cuts.some(c => !c.closed)) throw new Error('O modelo sólido requer contornos de corte fechados. Revise os caminhos na vista 2D.');
+  const areas = new Map(cuts.map(c => [c, contourArea(c)]));
+  const containers = new Map(cuts.map(c => [c, cuts.filter(other => other !== c && areas.get(other)! > areas.get(c)! && pointInContour(c.points[0], other))]));
+  const subGroup = new THREE.Group();
+  for (const [index, contour] of cuts.entries()) {
+    const depth = containers.get(contour)!.length;
+    if (depth % 2) continue;
+    const vectors = (c: typeof contour) => c.points.slice(0, -1).map(p => new THREE.Vector2(p.x * 0.1, -p.y * 0.1));
+    const outer = vectors(contour);
+    if (!THREE.ShapeUtils.isClockWise(outer)) outer.reverse();
+    const shape = new THREE.Shape(outer);
+    for (const hole of cuts) {
+      const parents = containers.get(hole)!;
+      if (parents.length === depth + 1 && parents.includes(contour)) {
+        const ring = vectors(hole);
+        if (THREE.ShapeUtils.isClockWise(ring)) ring.reverse();
+        shape.holes.push(new THREE.Path(ring));
+      }
+    }
+    const geom = new THREE.ExtrudeGeometry(shape, { depth: thicknessMm * 0.1, bevelEnabled: false, steps: 1 });
     const mesh = new THREE.Mesh(geom, [materials.faceMaterial, materials.edgeMaterial]);
-    mesh.name = 'Placa Base Usinada';
-    root.add(mesh);
-    parts.push({
-      name: 'Placa Base Usinada',
-      mesh,
-      explodeVector: new THREE.Vector3(0, 0, 2)
-    });
+    mesh.name = `Peça ${index + 1}`;
+    subGroup.add(mesh);
+    parts.push({ name: mesh.name, mesh, explodeVector: new THREE.Vector3(0, 0, (parts.length + 1) * 2) });
   }
+  const center = new THREE.Box3().setFromObject(subGroup).getCenter(new THREE.Vector3());
+  subGroup.position.sub(center);
+  root.add(subGroup);
 
   return { group: root, parts };
 }

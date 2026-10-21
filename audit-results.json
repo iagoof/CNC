@@ -21,22 +21,18 @@
   },
   {
     "name": "Markup rejeita NaN",
-    "status": "FAIL",
-    "detail": "Expected values to be strictly equal:\n\ntrue !== false\n"
+    "status": "PASS"
   },
   {
     "name": "Markup rejeita custo negativo",
-    "status": "FAIL",
-    "detail": "Expected values to be strictly equal:\n\ntrue !== false\n"
+    "status": "PASS"
   },
   {
     "name": "Reposicao desconta saldo disponivel",
-    "status": "FAIL",
-    "detail": "Expected values to be strictly equal:\n\n20 !== 0\n"
+    "status": "PASS"
   },
   {
-    "name": "Kerf altera geometria do contorno",
-    "status": "FAIL",
-    "detail": "Expected \"actual\" to be strictly unequal to:\n\n'<rect x=\"0\" y=\"0\" width=\"100\" height=\"100\"/>'"
+    "name": "Reposicao rejeita saldo infinito",
+    "status": "PASS"
   }
 ]

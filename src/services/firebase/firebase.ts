@@ -23,7 +23,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
-import { ProductionOrder, Material, Quote, CompanyProfile, UF } from '../../types';
+import { ProductionOrder, Material, Quote, CompanyProfile, UF, ProductInventory, SalesOrder, Machine } from '../../types';
 
 // Inicialização oficial do Firebase
 const app = initializeApp(firebaseConfig);
@@ -614,6 +614,303 @@ export async function saveCompanySettingsToFirestore(
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+// PRODUTOS & ESTOQUE (ProductInventory)
+export function subscribeToProducts(
+  userId: string,
+  onData: (products: ProductInventory[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const collectionPath = 'products';
+  const q = query(collection(db, collectionPath), where('ownerId', '==', userId));
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const items: ProductInventory[] = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data();
+        items.push({
+          sku: d.sku,
+          name: d.name,
+          category: d.category,
+          physicalStock: Number(d.physicalStock || 0),
+          committedStock: Number(d.committedStock || 0),
+          minStock: Number(d.minStock || 0),
+          idealStock: Number(d.idealStock || 0),
+          inProductionStock: Number(d.inProductionStock || 0),
+          minBatchToProduce: Number(d.minBatchToProduce || 1),
+          batchMultiple: Number(d.batchMultiple || 1),
+          unitPrice: Number(d.unitPrice || 0),
+          costPrice: Number(d.costPrice || 0),
+          materialId: d.materialId || '',
+          estimatedLaserTimeSeconds: Number(d.estimatedLaserTimeSeconds || 0),
+          dimensions_mm: d.dimensions_mm || { width: 0, height: 0, depth: 0 }
+        });
+      });
+      onData(items);
+    },
+    error => {
+      if (onError) onError(error);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
+    }
+  );
+}
+
+export async function saveProductToFirestore(product: ProductInventory, userId: string): Promise<void> {
+  const cleanId = (product.sku || 'sku-custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const path = `products/${cleanId}`;
+  try {
+    const docRef = doc(db, 'products', cleanId);
+    const existingSnap = await getDoc(docRef);
+
+    const dataToSave: Record<string, any> = {
+      sku: product.sku,
+      name: product.name,
+      category: product.category || 'Geral',
+      physicalStock: Number(product.physicalStock || 0),
+      committedStock: Number(product.committedStock || 0),
+      minStock: Number(product.minStock || 0),
+      idealStock: Number(product.idealStock || 0),
+      inProductionStock: Number(product.inProductionStock || 0),
+      minBatchToProduce: Number(product.minBatchToProduce || 1),
+      batchMultiple: Number(product.batchMultiple || 1),
+      unitPrice: Number(product.unitPrice || 0),
+      costPrice: Number(product.costPrice || 0),
+      materialId: product.materialId || '',
+      estimatedLaserTimeSeconds: Number(product.estimatedLaserTimeSeconds || 0),
+      dimensions_mm: product.dimensions_mm || { width: 0, height: 0, depth: 0 },
+      updatedAt: serverTimestamp()
+    };
+
+    if (existingSnap.exists()) {
+      await updateDoc(docRef, dataToSave);
+    } else {
+      await setDoc(docRef, {
+        id: cleanId,
+        ownerId: userId,
+        ...dataToSave,
+        createdAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteProductFromFirestore(sku: string): Promise<void> {
+  const cleanId = sku.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const path = `products/${cleanId}`;
+  try {
+    await deleteDoc(doc(db, 'products', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// PEDIDOS DE VENDA & CANAIS (SalesOrder)
+export function subscribeToSalesOrders(
+  userId: string,
+  onData: (orders: SalesOrder[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const collectionPath = 'sales_orders';
+  const q = query(collection(db, collectionPath), where('ownerId', '==', userId));
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const orders: SalesOrder[] = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data();
+        orders.push({
+          id: d.id,
+          orderNumber: d.orderNumber,
+          sourceQuoteId: d.sourceQuoteId,
+          channel: d.channel,
+          customerName: d.customerName,
+          customerDoc: d.customerDoc || '',
+          customerCity: d.customerCity || '',
+          customerUf: d.customerUf || 'MG',
+          items: Array.isArray(d.items) ? d.items : [],
+          subtotal: Number(d.subtotal || 0),
+          shippingCost: Number(d.shippingCost || 0),
+          discount: Number(d.discount || 0),
+          total: Number(d.total || 0),
+          paymentMethod: d.paymentMethod || 'Pix Asaas',
+          paymentStatus: d.paymentStatus || 'Pendente',
+          paidAt: d.paidAt,
+          fulfillmentStatus: d.fulfillmentStatus || 'Pendente',
+          invoiceKey: d.invoiceKey,
+          trackingCode: d.trackingCode,
+          createdAt: typeof d.createdAt?.toDate === 'function' ? d.createdAt.toDate().toISOString() : (d.createdAt || new Date().toISOString())
+        });
+      });
+      onData(orders);
+    },
+    error => {
+      if (onError) onError(error);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
+    }
+  );
+}
+
+export async function saveSalesOrderToFirestore(order: SalesOrder, userId: string): Promise<void> {
+  const path = `sales_orders/${order.id}`;
+  try {
+    const docRef = doc(db, 'sales_orders', order.id);
+    const existingSnap = await getDoc(docRef);
+
+    const sanitizedItems = (order.items || []).map(item =>
+      Object.fromEntries(
+        Object.entries({
+          sku: item.sku,
+          productName: item.productName,
+          quantity: Number(item.quantity || 1),
+          unitPrice: Number(item.unitPrice || 0),
+          totalPrice: Number(item.totalPrice || 0),
+          laserTimeSeconds: Number(item.laserTimeSeconds || 0)
+        }).filter(([, v]) => v !== undefined)
+      )
+    );
+
+    const baseData: Record<string, any> = {
+      orderNumber: order.orderNumber,
+      channel: order.channel || 'Loja Própria',
+      customerName: order.customerName,
+      customerDoc: order.customerDoc || '',
+      customerCity: order.customerCity || '',
+      customerUf: order.customerUf || 'MG',
+      items: sanitizedItems,
+      subtotal: Number(order.subtotal || 0),
+      shippingCost: Number(order.shippingCost || 0),
+      discount: Number(order.discount || 0),
+      total: Number(order.total || 0),
+      paymentMethod: order.paymentMethod || 'Pix Asaas',
+      paymentStatus: order.paymentStatus || 'Pendente',
+      fulfillmentStatus: order.fulfillmentStatus || 'Pendente',
+      updatedAt: serverTimestamp()
+    };
+
+    if (order.sourceQuoteId) baseData.sourceQuoteId = order.sourceQuoteId;
+    if (order.paidAt) baseData.paidAt = order.paidAt;
+    if (order.invoiceKey) baseData.invoiceKey = order.invoiceKey;
+    if (order.trackingCode) baseData.trackingCode = order.trackingCode;
+
+    if (existingSnap.exists()) {
+      await updateDoc(docRef, baseData);
+    } else {
+      await setDoc(docRef, {
+        id: order.id,
+        ownerId: userId,
+        ...baseData,
+        createdAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteSalesOrderFromFirestore(orderId: string): Promise<void> {
+  const path = `sales_orders/${orderId}`;
+  try {
+    await deleteDoc(doc(db, 'sales_orders', orderId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// MÁQUINAS CADASTRADAS (Machine)
+export function subscribeToMachines(
+  userId: string,
+  onData: (machines: Machine[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const collectionPath = 'machines';
+  const q = query(collection(db, collectionPath), where('ownerId', '==', userId));
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const machines: Machine[] = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data();
+        machines.push({
+          id: d.id,
+          name: d.name,
+          model: d.model || '',
+          type: d.type || 'CO2',
+          laserPowerW: Number(d.laserPowerW || 0),
+          workAreaX_mm: Number(d.workAreaX_mm || 0),
+          workAreaY_mm: Number(d.workAreaY_mm || 0),
+          purchasePrice: Number(d.purchasePrice || 0),
+          depreciationYears: Number(d.depreciationYears || 5),
+          monthlyWorkHours: Number(d.monthlyWorkHours || 160),
+          energyConsumptionKwh: Number(d.energyConsumptionKwh || 0),
+          monthlyMaintenanceCosts: Number(d.monthlyMaintenanceCosts || 0),
+          tubeSpareCost: Number(d.tubeSpareCost || 0),
+          notes: d.notes || ''
+        });
+      });
+      onData(machines);
+    },
+    error => {
+      if (onError) onError(error);
+      console.warn(`Falha ao sincronizar ${collectionPath}:`, error.code);
+      window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
+    }
+  );
+}
+
+export async function saveMachineToFirestore(machine: Machine, userId: string): Promise<void> {
+  const path = `machines/${machine.id}`;
+  try {
+    const docRef = doc(db, 'machines', machine.id);
+    const existingSnap = await getDoc(docRef);
+
+    const baseData: Record<string, any> = {
+      name: machine.name,
+      model: machine.model || '',
+      type: machine.type || 'CO2',
+      laserPowerW: Number(machine.laserPowerW || 0),
+      workAreaX_mm: Number(machine.workAreaX_mm || 1),
+      workAreaY_mm: Number(machine.workAreaY_mm || 1),
+      purchasePrice: Number(machine.purchasePrice || 0),
+      depreciationYears: Number(machine.depreciationYears || 5),
+      monthlyWorkHours: Number(machine.monthlyWorkHours || 160),
+      energyConsumptionKwh: Number(machine.energyConsumptionKwh || 0),
+      monthlyMaintenanceCosts: Number(machine.monthlyMaintenanceCosts || 0),
+      tubeSpareCost: Number(machine.tubeSpareCost || 0),
+      notes: machine.notes || '',
+      updatedAt: serverTimestamp()
+    };
+
+    if (existingSnap.exists()) {
+      await updateDoc(docRef, baseData);
+    } else {
+      await setDoc(docRef, {
+        id: machine.id,
+        ownerId: userId,
+        ...baseData,
+        createdAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteMachineFromFirestore(machineId: string): Promise<void> {
+  const path = `machines/${machineId}`;
+  try {
+    await deleteDoc(doc(db, 'machines', machineId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 

@@ -6,12 +6,18 @@ import {
   saveQuoteToFirestore,
   saveProjectToFirestore,
   saveCompanySettingsToFirestore,
+  saveProductToFirestore,
+  saveSalesOrderToFirestore,
+  saveMachineToFirestore,
   FirestoreProject
 } from './firebase';
 import {
   INITIAL_COMPANY,
+  INITIAL_MACHINES,
   INITIAL_MATERIALS,
+  INITIAL_PRODUCTS,
   INITIAL_PRODUCTION_ORDERS,
+  INITIAL_SALES_ORDERS,
   INITIAL_QUOTES
 } from '../../data/initialData';
 
@@ -56,7 +62,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 280" width="360mm" height="280mm" data-thickness-mm="3.0">
-  <rect width="360" height="280" fill="#f8fafc" />
+  <rect data-layer="guide" width="360" height="280" fill="#f8fafc" />
   <!-- Camada de Corte: Aletas Radiais (Vermelho #FF0000) -->
   <path d="M 20 20 Q 80 80 20 180 L 35 180 Q 95 80 35 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
   <path d="M 60 20 Q 120 80 60 180 L 75 180 Q 135 80 75 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
@@ -89,7 +95,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
       <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e2e8f0" stroke-width="0.3"/>
     </pattern>
   </defs>
-  <rect width="420" height="310" fill="url(#grid_pattern)" />
+  <rect data-layer="guide" width="420" height="310" fill="url(#grid_pattern)" />
   <!-- PEÇA 1: FUNDO COM ENCAIXES (Corte #FF0000) -->
   <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
     <rect x="10" y="10" width="160" height="120" rx="1" />
@@ -135,7 +141,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="200mm" height="120mm" data-thickness-mm="3.0">
-  <rect width="200" height="120" fill="#f8fafc" />
+  <rect data-layer="guide" width="200" height="120" fill="#f8fafc" />
   <!-- Camada de Corte: Perímetro Chanfrado e 4 Furos M4 (Vermelho #FF0000) -->
   <path d="M 12 0 L 188 0 L 200 12 L 200 108 L 188 120 L 12 120 L 0 108 L 0 12 Z" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut" id="corte-perimetro" />
   <circle cx="10" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="furo-m4-1" />
@@ -147,7 +153,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
   <polygon points="100,24 116,52 84,52" fill="none" stroke="#0000FF" stroke-width="0.8" data-layer="engrave" />
   <text x="100" y="47" font-family="sans-serif" font-size="9" text-anchor="middle" fill="#0000FF" font-weight="bold">!</text>
   <text x="100" y="70" font-family="sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#0000FF">ÁREA RESTRITA / OPERAÇÃO CNC</text>
-  <text x="100" y="85" font-family="sans-serif" font-size="6.5" text-anchor="middle" fill="#0000FF">USO OBRIGATÓRIO DE EPI • CORTE LASER & ROUTER</text>
+  <text x="100" y="85" font-family="sans-serif" font-size="6.5" text-anchor="middle" fill="#0000FF">USO OBRIGATÓRIO DE EPI • CORTE LASER &amp; ROUTER</text>
   <line x1="28" y1="92" x2="172" y2="92" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
 </svg>`
   },
@@ -163,7 +169,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 350 260" width="350mm" height="260mm" data-thickness-mm="3.0">
-  <rect width="350" height="260" fill="#f8fafc" />
+  <rect data-layer="guide" width="350" height="260" fill="#f8fafc" />
   <polygon points="120,20 180,20 210,80 180,180 120,180 90,80" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
   <polygon points="150,55 165,75 135,75" fill="none" stroke="#0000FF" stroke-width="0.5" data-layer="engrave" />
   <polygon points="250,30 280,30 300,50 300,80 280,100 250,100 230,80 230,50" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
@@ -185,7 +191,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 250" width="380mm" height="250mm" data-thickness-mm="4.5">
-  <rect width="380" height="250" fill="#f8fafc" />
+  <rect data-layer="guide" width="380" height="250" fill="#f8fafc" />
   <path d="M 20 220 L 220 220 L 220 190 L 205 190 L 50 40 L 20 50 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
   <rect x="90" y="150" width="6" height="40" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
   <path d="M 20 220 L 220 220 L 220 190 L 205 190 L 50 40 L 20 50 Z" transform="translate(130, -20)" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
@@ -206,7 +212,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 260" width="320mm" height="260mm" data-thickness-mm="6.0">
-  <rect width="320" height="260" fill="#f8fafc" />
+  <rect data-layer="guide" width="320" height="260" fill="#f8fafc" />
   <ellipse cx="90" cy="70" rx="75" ry="50" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
   <rect x="80" y="65" width="20" height="10" stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut" />
   <path d="M 200 20 Q 250 120 180 230 L 205 230 Q 280 120 225 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
@@ -226,7 +232,7 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
     source: 'ai_prompt',
     svgContent: `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300mm" height="300mm" data-thickness-mm="6.0">
-  <rect width="300" height="300" fill="#f8fafc" />
+  <rect data-layer="guide" width="300" height="300" fill="#f8fafc" />
   <rect x="5" y="5" width="290" height="290" rx="4" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut" />
   <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
     <rect x="30" y="30" width="105" height="105" rx="3" />
@@ -245,6 +251,9 @@ export interface SeedResult {
   ordersCount: number;
   quotesCount: number;
   projectsCount: number;
+  productsCount: number;
+  salesOrdersCount: number;
+  machinesCount: number;
   settingsCreated: boolean;
 }
 
@@ -258,6 +267,9 @@ export async function seedFirestoreIfEmpty(userId: string): Promise<SeedResult> 
     ordersCount: 0,
     quotesCount: 0,
     projectsCount: 0,
+    productsCount: 0,
+    salesOrdersCount: 0,
+    machinesCount: 0,
     settingsCreated: false
   };
 
@@ -326,6 +338,33 @@ export async function seedFirestoreIfEmpty(userId: string): Promise<SeedResult> 
           userId
         );
         result.projectsCount++;
+      }
+    }
+
+    // 6. Produtos & Catálogo de Estoque
+    const prodSnap = await getDocs(query(collection(db, 'products'), where('ownerId', '==', userId), limit(1)));
+    if (prodSnap.empty) {
+      for (const prod of INITIAL_PRODUCTS) {
+        await saveProductToFirestore(prod, userId);
+        result.productsCount++;
+      }
+    }
+
+    // 7. Pedidos de Venda
+    const salesSnap = await getDocs(query(collection(db, 'sales_orders'), where('ownerId', '==', userId), limit(1)));
+    if (salesSnap.empty) {
+      for (const order of INITIAL_SALES_ORDERS) {
+        await saveSalesOrderToFirestore(order, userId);
+        result.salesOrdersCount++;
+      }
+    }
+
+    // 8. Máquinas Cadastradas
+    const machSnap = await getDocs(query(collection(db, 'machines'), where('ownerId', '==', userId), limit(1)));
+    if (machSnap.empty) {
+      for (const mach of INITIAL_MACHINES) {
+        await saveMachineToFirestore(mach, userId);
+        result.machinesCount++;
       }
     }
 

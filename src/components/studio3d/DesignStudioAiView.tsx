@@ -1,3 +1,4 @@
+import { calcLaserCutTimeAndCost } from '../../utils/calculations';
 import { sanitizeSvg } from '../../utils/sanitizeSvg';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
@@ -22,6 +23,7 @@ import {
   ensureSvgMetadataBlock
 } from '../../services/geminiCncService';
 import {
+  applyKerfToSvg,
   calculateSvgMetrics,
   convertSvgToDxf,
   exportSceneGroupToStl,
@@ -76,6 +78,8 @@ interface DesignStudioAiViewProps {
     machineId: string;
     quantity: number;
     unitPriceEstimated?: number;
+    width_mm: number;
+    height_mm: number;
   }) => void;
   onSendToProduction?: (order: Partial<ProductionOrder>) => void;
 }
@@ -93,7 +97,6 @@ export interface GeneratedVectorArtifact {
   model3dType: 'caixa-fingerjoint' | 'trofeu-acrilico' | 'suporte-notebook' | 'mandala-camadas' | 'luminaria-geometrica' | 'suporte-fone' | 'padrao';
   partsCount: number;
   svgString: string;
-  gcode: string;
   estimatedLaserSeconds: number;
   aiPromptUsed: string;
   metadata?: CncMetadataBlock;
@@ -135,6 +138,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [showKerfLines, setShowKerfLines] = useState<boolean>(true);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
 
   const selectedMaterial = materials.find(m => m.id === selectedMaterialId) || materials[0];
   const selectedMachine = machines[0] || { id: 'mach-1', name: 'CNC Laser CO2 100W' };
@@ -144,280 +148,47 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   // Strict Semantic Layers: Cut = #FF0000, Engrave = #0000FF
   // Material Thickness Metadata Standard: 3.0mm
   // ========================================================
+  // Projetos dinâmicos vinculados à conta do usuário no Firestore
   const READY_EXAMPLES: GeneratedVectorArtifact[] = useMemo(() => {
-    const rawExamples: GeneratedVectorArtifact[] = [
-    {
-      id: 'ex-1',
-      title: 'Porta-copos Geométrico Sagrado',
-      description: 'Porta-copos hexagonal de 100mm com geometria sagrada, anel de drenagem perimétrico, corte perimetral em #FF0000 e gravação em #0000FF.',
-      width_mm: 100,
-      height_mm: 100,
-      thickness_mm: 3.0,
-      cutLength_mm: 310,
-      engraveArea_cm2: 28,
-      materialName: 'MDF Cru 3,0 mm',
-      model3dType: 'mandala-camadas',
-      partsCount: 1,
-      aiPromptUsed: 'Porta-copos hexagonal de 100x100mm com cantos arredondados R5, corte externo passante fechado em vermelho puro #FF0000, gravação de geometria sagrada com padrão flor da vida e anel de drenagem perimétrico em azul puro #0000FF, espessura recomendada de 3.0mm em MDF ou acrílico.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm" data-thickness-mm="3.0">
-  <!-- Camada de Corte Perimetral (Vermelho #FF0000) -->
-  <circle cx="50" cy="50" r="47" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
-  <!-- Camada de Gravação Geométrica e Textos (Azul #0000FF) -->
-  <circle cx="50" cy="50" r="42" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" id="gravacao-borda" />
-  <circle cx="50" cy="50" r="28" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <polygon points="50,15 80,68 20,68" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <polygon points="50,85 80,32 20,32" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <circle cx="50" cy="50" r="14" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <text x="50" y="52" font-family="sans-serif" font-size="4.5" text-anchor="middle" fill="#0000FF" font-weight="bold">CNC MINAS JF • 3MM</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - PORTA-COPOS GEOMETRICO\nG21\nG90\nM03 S65\nG00 Z5.0000\nG00 X50 Y3\nG01 Z-3.0000 F450\nG02 X50 Y97 R47 F1600\nG02 X50 Y3 R47 F1600\nG00 Z5.0000\nM05\nM30`,
-      estimatedLaserSeconds: 24
-    },
-    {
-      id: 'ex-2',
-      title: 'Luminária 3D de Encaixe E27',
-      description: 'Luminária pendente moderna com 12 aletas radiais curvas de encaixe e 2 anéis estruturais para soquete E27, fendas para MDF 3mm.',
-      width_mm: 220,
-      height_mm: 280,
-      thickness_mm: 3.0,
-      cutLength_mm: 3680,
-      engraveArea_cm2: 12,
-      materialName: 'MDF Cru 3,0 mm',
-      model3dType: 'luminaria-geometrica',
-      partsCount: 14,
-      aiPromptUsed: 'Luminária pendente 3D com 12 aletas radiais curvas de encaixe rápido e 2 anéis de travamento com suporte para soquete E27, fendas calculadas com kerf de 0.15mm para chapas de 3.0mm, percursos de corte fechados em vermelho puro #FF0000 e marcações decorativas em azul puro #0000FF.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 280" width="360mm" height="280mm" data-thickness-mm="3.0">
-  <rect width="360" height="280" fill="#f8fafc" />
-  <!-- Camada de Corte: Aletas Radiais (Vermelho #FF0000) -->
-  <path d="M 20 20 Q 80 80 20 180 L 35 180 Q 95 80 35 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <path d="M 60 20 Q 120 80 60 180 L 75 180 Q 135 80 75 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <path d="M 100 20 Q 160 80 100 180 L 115 180 Q 175 80 115 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <!-- Camada de Corte: Anéis Bocal E27 e Trava (Vermelho #FF0000) -->
-  <circle cx="260" cy="70" r="50" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="260" cy="70" r="21" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="260" cy="190" r="60" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="260" cy="190" r="35" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <!-- Camada de Gravação: Marcações de Encaixe (Azul #0000FF) -->
-  <circle cx="260" cy="70" r="32" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" />
-  <text x="260" y="74" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle" font-weight="bold">BOCAL E27</text>
-  <text x="260" y="194" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle" font-weight="bold">TRAVA INFERIOR 3MM</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - LUMINARIA E27\nG21\nG90\nM03 S65\nG00 Z5.0000\nG00 X20 Y20\nG01 Z-3.0000 F450\nM05\nM30`,
-      estimatedLaserSeconds: 152
-    },
-    {
-      id: 'ex-3',
-      title: 'Caixa de Encaixe Finger-Joint',
-      description: 'Caixa organizadora paramétrica com 7 peças em 3D: base denteada, 4 paredes perimetrais, tampa corrediça com puxador e divisória.',
-      width_mm: 200,
-      height_mm: 150,
-      thickness_mm: 3.0,
-      cutLength_mm: 2840,
-      engraveArea_cm2: 18,
-      materialName: 'MDF Cru 3,0 mm',
-      model3dType: 'caixa-fingerjoint',
-      partsCount: 7,
-      aiPromptUsed: 'Caixa organizadora paramétrica de encaixe tipo finger-joint com 6 peças em chapa de 3.0mm, dentes alternados de 15mm com compensação kerf de 0.15mm, tampa com canal deslizante e puxador ergonômico vazado, contornos de corte em vermelho puro #FF0000 e gravação técnica de identificação em azul puro #0000FF.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 310" width="420mm" height="310mm" data-thickness-mm="3.0">
-  <defs>
-    <pattern id="grid_pattern" width="10" height="10" patternUnits="userSpaceOnUse">
-      <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e2e8f0" stroke-width="0.3"/>
-    </pattern>
-  </defs>
-  <rect width="420" height="310" fill="url(#grid_pattern)" />
-  <!-- PEÇA 1: FUNDO COM ENCAIXES (Corte #FF0000) -->
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="10" y="10" width="160" height="120" rx="1" />
-    <path d="M 10 30 L 14 30 L 14 50 L 10 50 M 10 70 L 14 70 L 14 90 L 10 90 M 170 30 L 166 30 L 166 50 L 170 50" />
-  </g>
-  <text x="90" y="70" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">1. Fundo da Caixa (160x120mm)</text>
-  <!-- PEÇA 2: PAREDE FRONTAL (Corte #FF0000) -->
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="180" y="10" width="160" height="80" rx="1" />
-  </g>
-  <text x="260" y="50" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">2. Parede Frontal (160x80mm)</text>
-  <!-- PEÇA 3: PAREDE TRASEIRA (Corte #FF0000) -->
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="180" y="100" width="160" height="80" rx="1" />
-  </g>
-  <text x="260" y="140" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">3. Parede Traseira (160x80mm)</text>
-  <!-- PEÇAS 4 e 5: LATERAIS (Corte #FF0000) -->
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="10" y="140" width="120" height="80" rx="1" />
-    <rect x="10" y="230" width="120" height="70" rx="1" />
-  </g>
-  <text x="70" y="180" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle">4. Lateral Esquerda</text>
-  <text x="70" y="265" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle">5. Lateral Direita</text>
-  <!-- PEÇA 6: TAMPA COM PUXADOR OVAL VAZADO (Corte #FF0000) -->
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="140" y="190" width="165" height="110" rx="2" />
-    <ellipse cx="222" cy="245" rx="18" ry="6" />
-  </g>
-  <text x="222" y="235" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle" font-weight="bold">6. Tampa Corrediça</text>
-  <!-- GRAVAÇÃO TÉCNICA LASER (Azul #0000FF) -->
-  <text x="222" y="270" font-family="sans-serif" font-size="9" fill="#0000FF" font-weight="bold" text-anchor="middle">CNC APP • OFICINA JUIZ DE FORA</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - CAIXA FINGER-JOINT\nG21\nG90\nM03 S65\nG00 Z5.0000\nG00 X10 Y10\nG01 Z-3.0000 F450\nG01 X170 Y10 F1500\nG01 X170 Y130 F1500\nG01 X10 Y130 F1500\nG01 X10 Y10 F1500\nG00 Z5.0000\nM05\nM30`,
-      estimatedLaserSeconds: 114
-    },
-    {
-      id: 'ex-4',
-      title: 'Placa de Sinalização Industrial',
-      description: 'Placa de segurança industrial com cantos chanfrados, 4 furos M4 perimetrais em #FF0000 e textos/moldura técnica em #0000FF.',
-      width_mm: 200,
-      height_mm: 120,
-      thickness_mm: 3.0,
-      cutLength_mm: 680,
-      engraveArea_cm2: 48,
-      materialName: 'Acrílico Cristal 3,0 mm',
-      model3dType: 'trofeu-acrilico',
-      partsCount: 1,
-      aiPromptUsed: 'Placa de sinalização industrial técnica 200x120mm com cantos chanfrados C10 e 4 furos de fixação M4 nos cantos com corte passante em vermelho puro #FF0000, moldura técnica com hachuras e texto "ÁREA RESTRITA / OPERAÇÃO CNC" gravados em azul puro #0000FF, espessura recomendada 3.0mm em acrílico ou MDF.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="200mm" height="120mm" data-thickness-mm="3.0">
-  <rect width="200" height="120" fill="#f8fafc" />
-  <!-- Camada de Corte: Perímetro Chanfrado e 4 Furos M4 (Vermelho #FF0000) -->
-  <path d="M 12 0 L 188 0 L 200 12 L 200 108 L 188 120 L 12 120 L 0 108 L 0 12 Z" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut" id="corte-perimetro" />
-  <circle cx="10" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="furo-m4-1" />
-  <circle cx="190" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="furo-m4-2" />
-  <circle cx="10" cy="110" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="furo-m4-3" />
-  <circle cx="190" cy="110" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="furo-m4-4" />
-  <!-- Camada de Gravação: Textos Técnicos e Moldura (Azul #0000FF) -->
-  <rect x="18" y="14" width="164" height="92" rx="4" fill="none" stroke="#0000FF" stroke-width="0.6" stroke-dasharray="3,1" data-layer="engrave" />
-  <polygon points="100,24 116,52 84,52" fill="none" stroke="#0000FF" stroke-width="0.8" data-layer="engrave" />
-  <text x="100" y="47" font-family="sans-serif" font-size="9" text-anchor="middle" fill="#0000FF" font-weight="bold">!</text>
-  <text x="100" y="70" font-family="sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#0000FF">ÁREA RESTRITA / OPERAÇÃO CNC</text>
-  <text x="100" y="85" font-family="sans-serif" font-size="6.5" text-anchor="middle" fill="#0000FF">USO OBRIGATÓRIO DE EPI • CORTE LASER & ROUTER</text>
-  <line x1="28" y1="92" x2="172" y2="92" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-</svg>`,
-      gcode: `; CNC APP GCODE - PLACA SINALIZACAO\nG21\nG90\nM03 S65\nG00 Z5.0000\nG00 X12 Y0\nG01 Z-3.0000 F450\nG01 X188 Y0 F1600\nM05\nM30`,
-      estimatedLaserSeconds: 36
-    },
-    {
-      id: 'ex-5',
-      title: 'Troféu Corporativo Lapidado',
-      description: 'Troféu piramidal em acrílico cristal com base octogonal maciça em MDF 6mm e ranhura de encaixe com kerf preciso.',
-      width_mm: 160,
-      height_mm: 220,
-      thickness_mm: 3.0,
-      cutLength_mm: 1980,
-      engraveArea_cm2: 24,
-      materialName: 'Acrílico Cristal 3,0 mm',
-      model3dType: 'trofeu-acrilico',
-      partsCount: 5,
-      aiPromptUsed: 'Troféu corporativo lapidado em acrílico 3mm com base octogonal em MDF, encaixe tipo slot, corte perimetral em vermelho puro #FF0000 e gravação em azul #0000FF.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 350 260" width="350mm" height="260mm" data-thickness-mm="3.0">
-  <rect width="350" height="260" fill="#f8fafc" />
-  <polygon points="120,20 180,20 210,80 180,180 120,180 90,80" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <polygon points="150,55 165,75 135,75" fill="none" stroke="#0000FF" stroke-width="0.5" data-layer="engrave" />
-  <polygon points="250,30 280,30 300,50 300,80 280,100 250,100 230,80 230,50" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="250" y="60" width="30" height="6" stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut" />
-  <rect x="230" y="120" width="80" height="30" rx="3" stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut" />
-  <text x="270" y="138" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">DESTAQUE INDUSTRIAL 2026</text>
-  <text x="150" y="130" font-family="sans-serif" font-size="10" fill="#0000FF" text-anchor="middle" font-weight="bold">ACRÍLICO CRISTAL</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - TROFEU\nG21\nG90\nM03 S65\nG00 Z5.0000\nG00 X120 Y20\nG01 Z-3.0000 F450\nG01 X180 Y20 F1600\nM05\nM30`,
-      estimatedLaserSeconds: 88
-    },
-    {
-      id: 'ex-6',
-      title: 'Suporte Articulado para Notebook',
-      description: 'Suporte ergonômico de 3 peças em MDF 4.5mm com inclinação a 25 graus, travas frontais e travessa estrutural com ranhuras de ventilação.',
-      width_mm: 260,
-      height_mm: 200,
-      thickness_mm: 4.5,
-      cutLength_mm: 2240,
-      engraveArea_cm2: 12,
-      materialName: 'Compensado Naval 4,5 mm',
-      model3dType: 'suporte-notebook',
-      partsCount: 3,
-      aiPromptUsed: 'Suporte ergonômico dobrável para notebook em 3 peças com encaixe tipo slot, corte fechado em #FF0000 e ventilação térmica em #0000FF.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 250" width="380mm" height="250mm" data-thickness-mm="4.5">
-  <rect width="380" height="250" fill="#f8fafc" />
-  <path d="M 20 220 L 220 220 L 220 190 L 205 190 L 50 40 L 20 50 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="90" y="150" width="6" height="40" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <path d="M 20 220 L 220 220 L 220 190 L 205 190 L 50 40 L 20 50 Z" transform="translate(130, -20)" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="20" y="20" width="160" height="45" rx="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <ellipse cx="100" cy="42" rx="35" ry="10" stroke="#0000FF" stroke-width="0.6" fill="none" data-layer="engrave" />
-  <text x="100" y="45" font-family="sans-serif" font-size="7" fill="#0000FF" text-anchor="middle">VENTILAÇÃO TÉRMICA</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - SUPORTE NOTEBOOK\nG21\nG90\nM03 S70\nG00 Z5.0000\nG01 Z-4.5000 F400\nM30`,
-      estimatedLaserSeconds: 96
-    },
-    {
-      id: 'ex-7',
-      title: 'Suporte Ergonômico de Fone & Relógio',
-      description: 'Organizador de bancada em MDF 6mm com base oval, coluna tipo cisne e berço anatômico para fone de ouvido gamer.',
-      width_mm: 150,
-      height_mm: 240,
-      thickness_mm: 6.0,
-      cutLength_mm: 1850,
-      engraveArea_cm2: 15,
-      materialName: 'MDF Cru 6,0 mm',
-      model3dType: 'suporte-fone',
-      partsCount: 3,
-      aiPromptUsed: 'Suporte de mesa para fone de ouvido gamer em MDF 6mm com base estabilizadora, berço anatômico e organizador de cabos, corte em #FF0000.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 260" width="320mm" height="260mm" data-thickness-mm="6.0">
-  <rect width="320" height="260" fill="#f8fafc" />
-  <ellipse cx="90" cy="70" rx="75" ry="50" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="80" y="65" width="20" height="10" stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut" />
-  <path d="M 200 20 Q 250 120 180 230 L 205 230 Q 280 120 225 20 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <path d="M 40 180 Q 90 140 140 180 L 130 195 Q 90 160 50 195 Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <text x="90" y="195" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">BERÇO DA TIARA</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - SUPORTE FONE\nG21\nG90\nM03 S85\nM30`,
-      estimatedLaserSeconds: 84
-    },
-    {
-      id: 'ex-8',
-      title: 'Cobogó Arquitetônico Floral Vazado',
-      description: 'Elemento vazado modular para divisórias de ambientes e cabeceiras, com padrão geométrico islâmico em chapa de 6mm.',
-      width_mm: 300,
-      height_mm: 300,
-      thickness_mm: 6.0,
-      cutLength_mm: 5200,
-      engraveArea_cm2: 0,
-      materialName: 'MDF Cru 6,0 mm',
-      model3dType: 'mandala-camadas',
-      partsCount: 2,
-      aiPromptUsed: 'Painel cobogó geométrico modular vazado 300x300mm em MDF 6mm com padrão arabesco para divisória arquitetônica, corte em #FF0000.',
-      svgString: `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300mm" height="300mm" data-thickness-mm="6.0">
-  <rect width="300" height="300" fill="#f8fafc" />
-  <rect x="5" y="5" width="290" height="290" rx="4" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut" />
-  <g stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut">
-    <rect x="30" y="30" width="105" height="105" rx="3" />
-    <rect x="165" y="30" width="105" height="105" rx="3" />
-    <rect x="30" y="165" width="105" height="105" rx="3" />
-    <rect x="165" y="165" width="105" height="105" rx="3" />
-    <circle cx="150" cy="150" r="35" />
-  </g>
-  <text x="150" y="154" font-family="sans-serif" font-size="8" fill="#0000FF" text-anchor="middle" font-weight="bold">COBOGÓ MODULAR</text>
-</svg>`,
-      gcode: `; CNC APP GCODE - COBOGO\nG21\nG90\nM03 S85\nM30`,
-      estimatedLaserSeconds: 195
-    }
-  ];
+    const sourceList = (projects && projects.length > 0)
+      ? projects
+      : DEFAULT_PROJECTS_SEED.map(p => ({ ...p, ownerId: user?.uid || 'local-user' }));
 
-  return rawExamples.map(item => ({
-    ...item,
-    metadata: item.metadata || createStandardMetadataBlock(item.thickness_mm, 0.15),
-    svgString: ensureSvgMetadataBlock(item.svgString, item.thickness_mm, 0.15)
-  }));
-}, []);
+    return sourceList.map(item => {
+      const thickness = item.recommendedThicknessMm || 3.0;
+      const metrics = calculateSvgMetrics(item.svgContent);
+      return {
+        id: item.id,
+        title: item.name,
+        description: `Projeto do Firestore em ${item.materialCategory || 'MDF'} ${thickness}mm (${item.widthMm}x${item.heightMm}mm).`,
+        width_mm: metrics.widthMm,
+        height_mm: metrics.heightMm,
+        thickness_mm: thickness,
+        cutLength_mm: metrics.totalCutLengthMm,
+        engraveArea_cm2: metrics.engraveAreaCm2,
+        materialName: `${item.materialCategory || 'MDF'} Cru ${thickness},0 mm`,
+        model3dType: (item.source === 'parametric_box' ? 'caixa-fingerjoint' : 'mandala-camadas') as any,
+        partsCount: item.source === 'parametric_box' ? 7 : 1,
+        aiPromptUsed: `Projeto vetorial CNC ${item.name}`,
+        svgString: ensureSvgMetadataBlock(item.svgContent, thickness, 0.15),
+        estimatedLaserSeconds: Math.max(15, Math.round((item.cutLengthMm || metrics.totalCutLengthMm || 1000) / 25)),
+        metadata: createStandardMetadataBlock(thickness, 0.15)
+      };
+    });
+  }, [projects, user, selectedMachine]);
 
   // Currently active generated artifact
   const [currentArtifact, setCurrentArtifact] = useState<GeneratedVectorArtifact>(READY_EXAMPLES[0]);
 
+  const currentSpeed = selectedMaterial.speedsByMachine.find(speed => speed.machineId === selectedMachine.id);
+  const currentProcessSeconds = currentSpeed ? Math.ceil(calcLaserCutTimeAndCost(
+    currentArtifact.cutLength_mm, currentSpeed.cutSpeed_mms, 0, currentArtifact.engraveArea_cm2,
+    currentSpeed.engraveSpeed_mms, currentSpeed.lineInterval_mm).totalSeconds) : null;
+
   // Three.js interactive 3D assembly mount
   const mount3dRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const modelGroupRef = useRef<THREE.Group | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const partsRef = useRef<{ name: string; mesh: THREE.Object3D; explodeVector: THREE.Vector3; basePos: THREE.Vector3 }[]>([]);
@@ -485,34 +256,22 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     // Build the 3D model parts based on model3dType
     const mats = createLaserMaterials(selectedFinish, false);
     let modelResult;
-
-    switch (currentArtifact.model3dType) {
-      case 'caixa-fingerjoint':
-        modelResult = buildFingerJointBox(mats);
-        break;
-      case 'trofeu-acrilico':
-        modelResult = buildTrophyModel(mats);
-        break;
-      case 'suporte-notebook':
-        modelResult = buildLaptopStand(mats);
-        break;
-      case 'mandala-camadas':
-        modelResult = buildLayeredMandala(mats);
-        break;
-      case 'luminaria-geometrica':
-        modelResult = buildIcosahedronLamp(mats);
-        break;
-      case 'suporte-fone':
-        modelResult = buildHeadphoneStand(mats);
-        break;
-      case 'padrao':
-        modelResult = build3DFromSvg(currentArtifact.svgString, currentArtifact.thickness_mm, mats);
-        break;
-      default:
-        modelResult = buildFingerJointBox(mats);
+    try {
+      modelResult = build3DFromSvg(currentArtifact.svgString, currentArtifact.thickness_mm, mats);
+      setModelError(null);
+    } catch (error) {
+      setModelError(error instanceof Error ? error.message : 'Não foi possível construir o modelo 3D.');
+      modelResult = { group: new THREE.Group(), parts: [] };
     }
-
     scene.add(modelResult.group);
+    modelGroupRef.current = modelResult.parts.length ? modelResult.group : null;
+    if (modelResult.parts.length) {
+      const size = new THREE.Box3().setFromObject(modelResult.group).getSize(new THREE.Vector3());
+      const radius = Math.max(size.x, size.y, size.z, 2);
+      controls.target.set(0, 0, 0);
+      camera.position.set(radius * 0.3, radius * 0.3, radius * 1.6);
+      controls.minDistance = radius * 0.1; controls.maxDistance = radius * 6;
+    }
 
     // Store base positions for explode slider
     partsRef.current = modelResult.parts.map(p => ({
@@ -542,6 +301,15 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
+      controls.dispose();
+      scene.traverse(object => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach(material => material.dispose());
+        }
+      });
+      modelGroupRef.current = null;
       renderer.dispose();
     };
   }, [activeViewMode, currentArtifact, selectedFinish]);
@@ -634,14 +402,6 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
       setProcessingStep('3/3 Calculando métricas de corte, kerf e G-code...');
       const metrics = calculateSvgMetrics(finalSvg);
-      const gcode = generateGcodeFromSvg(finalSvg, {
-        machineType: selectedMachine.type,
-        feedRate_mms: selectedMachine.type === 'Router' ? 40 : 25,
-        powerOrRpm: selectedMachine.type === 'Router' ? 18000 : 70,
-        depthMm: artifactThickness,
-        stepDownMm: 2.0
-      });
-
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
@@ -655,7 +415,6 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         model3dType: promptText.toLowerCase().includes('luminaria') ? 'luminaria-geometrica' : promptText.toLowerCase().includes('caixa') ? 'caixa-fingerjoint' : promptText.toLowerCase().includes('porta-copo') ? 'mandala-camadas' : 'padrao',
         partsCount: metrics.elementCount,
         svgString: finalSvg,
-        gcode: gcode,
         estimatedLaserSeconds: Math.round(metrics.totalCutLengthMm / 25) + 15,
         aiPromptUsed: promptText,
         metadata: artifactMetadata
@@ -666,7 +425,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       triggerToast('Vetor e modelo 3D gerados com sucesso!');
     } catch (e) {
       console.warn('Erro na geração:', e);
-      triggerToast('Geração concluída com parâmetros de contingência.');
+      triggerToast(e instanceof Error ? `Falha na geração: ${e.message}` : 'Não foi possível gerar o projeto.');
     } finally {
       setIsProcessing(false);
       setProcessingStep('');
@@ -698,11 +457,28 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     triggerToast('Peça enviada para o Nesting de Chapas!');
   };
 
+  const buildFabricationSvg = () => applyKerfToSvg(currentArtifact.svgString, kerfCompensation);
+
+  const buildCurrentGcode = () => {
+    const speeds = selectedMaterial.speedsByMachine.find(s => s.machineId === selectedMachine.id);
+    if (!speeds) throw new Error('Cadastre os parâmetros deste material para a máquina selecionada.');
+    return generateGcodeFromSvg(buildFabricationSvg(), {
+      machineType: selectedMachine.type,
+      feedRate_mms: speeds.cutSpeed_mms,
+      powerOrRpm: selectedMachine.type === 'Router' ? 18000 : speeds.cutPower_pct * 10,
+      engraveFeedRate_mms: speeds.engraveSpeed_mms,
+      engravePower: speeds.engravePower_pct * 10,
+      depthMm: currentArtifact.thickness_mm,
+      stepDownMm: 1.5, safeZMm: 5,
+      maxXmm: selectedMachine.workAreaX_mm, maxYmm: selectedMachine.workAreaY_mm
+    });
+  };
+
   const handleSendToCamAction = () => {
-    if (onSendToCam) {
-      onSendToCam(currentArtifact.gcode, selectedMachine.laserPowerW > 1000 ? 'router' : 'laser');
-    }
-    triggerToast('Percurso enviado para o Otimizador CAM & G-Code!');
+    try {
+      if (!onSendToCam) throw new Error('Otimizador CAM indisponível.');
+      onSendToCam(buildCurrentGcode(), selectedMachine.type === 'Router' ? 'router' : 'laser');
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao preparar o programa CNC.'); }
   };
 
   const handleSendToQuoteAction = () => {
@@ -713,6 +489,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         cutLength_mm: currentArtifact.cutLength_mm,
         engraveArea_cm2: currentArtifact.engraveArea_cm2,
         machineId: selectedMachine.id,
+        width_mm: currentArtifact.width_mm,
+        height_mm: currentArtifact.height_mm,
         quantity: 1
       });
     }
@@ -720,13 +498,15 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   };
 
   const handleSendToProductionAction = () => {
+    if (currentProcessSeconds === null) { triggerToast('Cadastre velocidades do material antes de criar a ordem.'); return; }
     if (onSendToProduction) {
       onSendToProduction({
-        sku: `SKU-AI-${Math.floor(Math.random() * 800 + 100)}`,
+        sku: `SKU-AI-${crypto.randomUUID()}`,
         productName: currentArtifact.title,
-        quantityRequested: 5,
+        quantityRequested: 1,
         materialName: selectedMaterial.name,
-        laserTimeEstimatedMin: Math.max(5, Math.round(currentArtifact.estimatedLaserSeconds / 60)),
+        laserTimeEstimatedMin: Math.ceil(currentProcessSeconds / 60),
+        machineId: selectedMachine.id,
         priority: 'Alta'
       });
     }
@@ -761,22 +541,17 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   };
 
   const handleLoadCloudProject = (proj: FirestoreProject) => {
-    const gcode = generateGcodeFromSvg(proj.svgContent, {
-      machineType: selectedMachine.type,
-      feedRate_mms: selectedMachine.type === 'Router' ? 40 : 25,
-      powerOrRpm: selectedMachine.type === 'Router' ? 18000 : 70,
-      depthMm: proj.recommendedThicknessMm || 3,
-      stepDownMm: 2.0
-    });
+    try {
+    const metrics = calculateSvgMetrics(proj.svgContent);
     const loaded: GeneratedVectorArtifact = {
       id: proj.id,
       title: proj.name,
       description: `Projeto recuperado do Firestore. Espessura recomendada: ${proj.recommendedThicknessMm || 3}mm.`,
-      width_mm: proj.widthMm,
-      height_mm: proj.heightMm,
+      width_mm: metrics.widthMm,
+      height_mm: metrics.heightMm,
       thickness_mm: proj.recommendedThicknessMm || 3,
-      cutLength_mm: proj.cutLengthMm || Math.round((proj.widthMm + proj.heightMm) * 2),
-      engraveArea_cm2: proj.engraveAreaCm2 || 0,
+      cutLength_mm: metrics.totalCutLengthMm,
+      engraveArea_cm2: metrics.engraveAreaCm2,
       materialName: proj.materialCategory || selectedMaterial.name,
       model3dType: proj.name.toLowerCase().includes('luminaria')
         ? 'luminaria-geometrica'
@@ -785,27 +560,30 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         : 'padrao',
       partsCount: 1,
       svgString: proj.svgContent,
-      gcode: gcode,
       estimatedLaserSeconds: Math.round((proj.cutLengthMm || 1000) / 25) + 15,
       aiPromptUsed: proj.name
     };
     setCurrentArtifact(loaded);
     triggerToast(`Projeto "${proj.name}" carregado no estúdio!`);
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao carregar o projeto.'); }
   };
 
   const handleDownloadSvg = () => {
-    const blob = new Blob([currentArtifact.svgString], { type: 'image/svg+xml' });
+    try {
+    const blob = new Blob([buildFabricationSvg()], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `cnc_vetor_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.svg`;
     a.click();
     URL.revokeObjectURL(url);
-    triggerToast('Arquivo SVG industrial baixado com sucesso!');
+    triggerToast('SVG baixado com compensação geométrica de kerf.');
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao exportar SVG.'); }
   };
 
   const handleDownloadDxf = () => {
-    const dxfString = convertSvgToDxf(currentArtifact.svgString);
+    try {
+    const dxfString = convertSvgToDxf(buildFabricationSvg());
     const blob = new Blob([dxfString], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -814,26 +592,33 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     a.click();
     URL.revokeObjectURL(url);
     triggerToast('Arquivo DXF (AutoCAD R12) baixado com camadas de corte/gravação!');
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao exportar DXF.'); }
   };
 
   const handleDownloadStl = () => {
-    if (sceneRef.current) {
-      exportSceneGroupToStl(sceneRef.current, `modelo_3d_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.stl`);
+    if (modelGroupRef.current) {
+      const positions = partsRef.current.map(part => part.mesh.position.clone());
+      try {
+        partsRef.current.forEach(part => part.mesh.position.copy(part.basePos));
+        exportSceneGroupToStl(modelGroupRef.current, `modelo_3d_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.stl`, 10);
+      } finally { partsRef.current.forEach((part, index) => part.mesh.position.copy(positions[index])); }
       triggerToast('Arquivo STL para fatiamento/impressão 3D baixado!');
     } else {
-      triggerToast('Carregando cena 3D para exportação STL...');
+      triggerToast(modelError || 'Abra a visualização 3D para preparar o modelo antes de exportar.');
     }
   };
 
   const handleDownloadGcode = () => {
-    const blob = new Blob([currentArtifact.gcode], { type: 'text/plain' });
+    try {
+    const blob = new Blob([buildCurrentGcode()], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `programa_cnc_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.nc`;
     a.click();
     URL.revokeObjectURL(url);
-    triggerToast('Programa G-code (.nc) baixado!');
+    triggerToast('Programa G-code (.nc) baixado para revisão no CAM. Perfil laser: S máximo 1000.');
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao exportar G-code.'); }
   };
 
   return (
@@ -1256,6 +1041,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 </div>
               </div>
 
+              {modelError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{modelError}</div>}
               {/* Viewport Area */}
               {activeViewMode === '3d' ? (
                 <div className="space-y-3">
@@ -1265,7 +1051,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   >
                     <div className="absolute top-2.5 left-2.5 bg-white/95 border border-slate-200/90 px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-700 shadow-xs flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span>{currentArtifact.partsCount} Peças Encaixadas em 3D</span>
+                      <span>{partsRef.current.length} peças extrudadas do SVG</span>
                     </div>
 
                     <div className="absolute top-2.5 right-2.5 bg-white/95 border border-slate-200/90 px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-600 shadow-xs">
@@ -1385,7 +1171,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
                   <span className="text-[10px] text-slate-500 block">Tempo na Laser 100W:</span>
                   <span className="font-mono font-bold text-indigo-700 text-sm">
-                    {Math.floor(currentArtifact.estimatedLaserSeconds / 60)}m {currentArtifact.estimatedLaserSeconds % 60}s
+                    {currentProcessSeconds === null ? 'Configure velocidades' : `${Math.floor(currentProcessSeconds / 60)}m ${currentProcessSeconds % 60}s`}
                   </span>
                 </div>
                 <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
@@ -1398,7 +1184,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
                   <span className="text-[10px] text-slate-500 block">Gravação Laser (#0000FF):</span>
                   <span className="font-mono font-bold text-amber-700 text-sm">
-                    {currentArtifact.engraveArea_cm2} cm²
+                    {currentArtifact.engraveArea_cm2.toFixed(2)} cm²
                   </span>
                 </div>
               </div>

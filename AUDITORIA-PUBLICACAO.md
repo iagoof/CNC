@@ -5,6 +5,20 @@
 
 ## Atualização da revisão
 
+### Arquivos CNC — revisão adicional
+
+- G-code e DXF agora usam os contornos reais, com curvas discretizadas em tolerância de 0,025 mm, transformações, origem e escala física do SVG. Percursos de gravação são executados antes dos cortes e furos antes dos exteriores.
+- Movimentos rápidos de laser ocorrem com M05; Router retrai para Z seguro entre contornos e passes. Downloads e envio ao CAM regeneram o programa com os parâmetros do material, sem usar os programas incompletos dos exemplos. O perfil laser atual considera S máximo de 1000; a compatibilidade com cada controlador ainda precisa ser validada.
+- Kerf altera a geometria. Contornos abertos, cruzamentos e colisões durante compensação produzem erro explícito. Não aplica duas vezes a compensação declarada no arquivo.
+- Prévia e STL do estúdio AI extrudam o SVG real, com furos e espessura. A exportação remove o efeito de explosão e converte unidades da cena para milímetros.
+- Fundos e margens do nesting são guias e não geram cortes. SVGs de origem da galeria foram corrigidos para XML válido e fundos marcados como guias.
+- 18 verificações no navegador aprovadas em `http://127.0.0.1:3001/tests/cnc-audit.html`, incluindo curvas, subcaminhos, transformações, escala, furos, laser, passes Router, preenchimentos, textos, tracejados, sanitização, kerf, todos os exemplos atuais e volume/dimensões do STL. Evidência em `tests/evidence/cnc-audit.png`.
+- Download do botão .NC verificado e conteúdo lido: começa com G21/G90/M05 e contém percursos de gravação reais com potência e avanço cadastrados.
+- TypeScript e build aprovados. Nove verificações numéricas passaram com `node audit-checks.mts`, além dos quatro testes de orçamento com `node --test quote-engine.test.mts`.
+- Limites: os testes não constituem comissionamento físico das máquinas. Texto com tspan/posicionamento por caractere, imagens raster, máscaras e recortes requerem conversão em caminhos; Plasma ainda requer perfil próprio. O nesting ainda precisa preservar os contornos recebidos na transferência, e há exemplos de galeria com caminhos abertos que impedem compensação automática/geração de sólidos.
+
+As integrações reais, a persistência transacional e os demais fluxos da auditoria continuam pendentes. O parecer de não liberar operacionalmente permanece.
+
 - O endereço informado, https://cnc-app.ai.studio/, abriu no navegador. Isso comprova acesso à interface, sem comprovar as integrações ou a configuração de hospedagem.
 - Galeria e indicadores da oficina estão recolhidos por padrão, acessíveis sob solicitação.
 - A conversão passou a usar o cálculo compartilhado do orçamento, preservando valores e mantendo pagamento pendente. Quatro testes reais passaram com `node --test quote-engine.test.mts`: valores/taxa/tempo, duplicidade, entradas inválidas e ausência de velocidade cadastrada.
