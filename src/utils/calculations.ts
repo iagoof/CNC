@@ -1,4 +1,4 @@
-import { Machine, Material, FixedCost, UF, TaxConfig } from '../types';
+import type { Machine, Material, FixedCost, UF, TaxConfig } from '../types/index.ts';
 
 // Tabela oficial média de tarifas elétricas estaduais no Brasil (R$/kWh industrial/comercial B3)
 export const TARIFA_ENERGIA_POR_UF: Record<UF, number> = {
@@ -197,6 +197,10 @@ export function calcSalePriceMarkupDivisor(params: {
   profitAmount: number;
 } {
   const { directCost, fixedCostPct, taxPct, extraTaxPct = 0, desiredProfitMarginPct } = params;
+  if (![directCost, fixedCostPct, taxPct, extraTaxPct, desiredProfitMarginPct].every(value => Number.isFinite(value) && value >= 0)) {
+    return { salePrice: 0, divisor: 0, maxAllowedMarginPct: 0, isValid: false, profitAmount: 0,
+      errorMessage: 'Informe custos e percentuais finitos e não negativos.' };
+  }
   
   const sumDeductionsWithoutMargin = fixedCostPct + taxPct + extraTaxPct;
   const maxAllowedMarginPct = Math.max(0, 100 - sumDeductionsWithoutMargin - 0.5); // margem de folga de 0.5%
@@ -247,10 +251,13 @@ export function calcProductionOrderQuantity(params: {
   recommendedBatch: number;
 } {
   const { physicalStock, committedStock, idealStock, inProduction, minBatch, batchMultiple } = params;
+  if (!Object.values(params).every(value => Number.isFinite(value) && value >= 0)) {
+    throw new Error('Saldos e parâmetros de lote devem ser números finitos e não negativos.');
+  }
   const available = Math.max(0, physicalStock - committedStock);
   const deficit = Math.max(0, committedStock - physicalStock);
   
-  const rawRequired = Math.max(0, deficit + idealStock - inProduction);
+  const rawRequired = Math.max(0, committedStock + idealStock - physicalStock - inProduction);
   if (rawRequired <= 0) {
     return {
       available,

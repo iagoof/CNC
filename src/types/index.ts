@@ -121,6 +121,7 @@ export interface OrderItem {
 }
 
 export interface SalesOrder {
+  sourceQuoteId?: string;
   id: string;
   orderNumber: string;
   channel: 'Loja Própria' | 'WhatsApp' | 'Mercado Livre' | 'Shopee' | 'Temu' | 'Balcão/Direto';
