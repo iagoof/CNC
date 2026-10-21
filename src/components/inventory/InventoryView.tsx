@@ -17,7 +17,7 @@ interface InventoryViewProps {
   inventory: ProductInventory[];
   onUpdateStock: (sku: string, delta: number) => void;
   onOpenOpModal?: (product: ProductInventory) => void;
-  onCreateProduct?: (product: ProductInventory) => void;
+  onCreateProduct?: (product: ProductInventory) => void | Promise<void>;
   onCreateProductionOrder?: (order: Partial<ProductionOrder>) => void;
 }
 
@@ -33,16 +33,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [productError, setProductError] = useState('');
+  const productSaving = React.useRef(false);
+
   // New SKU Form state
   const [newSku, setNewSku] = useState<string>(`SKU-CNC-00${inventory.length + 1}`);
   const [newName, setNewName] = useState<string>('');
   const [newCategory, setNewCategory] = useState<string>('Organizadores & Utilidades');
-  const [newPhysical, setNewPhysical] = useState<number>(10);
-  const [newMinStock, setNewMinStock] = useState<number>(10);
-  const [newIdealStock, setNewIdealStock] = useState<number>(25);
-  const [newUnitPrice, setNewUnitPrice] = useState<number>(45.00);
-  const [newCostPrice, setNewCostPrice] = useState<number>(15.00);
-  const [newLaserTimeSec, setNewLaserTimeSec] = useState<number>(180);
+  const [newPhysical, setNewPhysical] = useState<number>(0);
+  const [newMinStock, setNewMinStock] = useState<number>(0);
+  const [newIdealStock, setNewIdealStock] = useState<number>(0);
+  const [newUnitPrice, setNewUnitPrice] = useState<number>(0);
+  const [newCostPrice, setNewCostPrice] = useState<number>(0);
+  const [newLaserTimeSec, setNewLaserTimeSec] = useState<number>(0);
 
   const filteredItems = inventory.filter(item => {
     const matchesSearch =
@@ -54,34 +58,42 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const categories = Array.from(new Set(inventory.map(i => i.category)));
 
-  const handleCreateSkuSubmit = (e: React.FormEvent) => {
+  const handleCreateSkuSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName) return;
+    if (productSaving.current) return;
+    setProductError('');
+    if (!newSku.trim() || newSku.trim().length > 64 || !newName.trim() || newName.trim().length > 128) { setProductError('Informe SKU e nome válidos.'); return; }
+    if ([newPhysical, newMinStock, newIdealStock].some(value => !Number.isSafeInteger(value) || value < 0) || [newUnitPrice, newCostPrice, newLaserTimeSec].some(value => !Number.isFinite(value) || value < 0)) { setProductError('Revise quantidades, preços e tempo de fabricação.'); return; }
+    productSaving.current = true; setIsSavingProduct(true);
+    try {
+      if (!onCreateProduct) throw new Error('Cadastro de produtos indisponível.');
 
     const created: ProductInventory = {
-      sku: newSku,
-      name: newName,
+      sku: newSku.trim(),
+      name: newName.trim(),
       category: newCategory,
       physicalStock: Number(newPhysical),
       committedStock: 0,
       minStock: Number(newMinStock),
       idealStock: Number(newIdealStock),
       inProductionStock: 0,
-      minBatchToProduce: 5,
-      batchMultiple: 5,
+      minBatchToProduce: 1,
+      batchMultiple: 1,
       unitPrice: Number(newUnitPrice),
       costPrice: Number(newCostPrice),
-      materialId: 'mat-1',
+      materialId: '',
       estimatedLaserTimeSeconds: Number(newLaserTimeSec),
-      dimensions_mm: { width: 150, height: 100, depth: 80 }
+      dimensions_mm: { width: 0, height: 0, depth: 0 }
     };
 
     if (onCreateProduct) {
-      onCreateProduct(created);
+      await onCreateProduct(created);
     }
     setIsModalOpen(false);
     setToastMessage(`Novo produto ${created.sku} cadastrado com sucesso!`);
     setTimeout(() => setToastMessage(null), 3000);
+    } catch (error) { setProductError(error instanceof Error ? error.message : 'Não foi possível cadastrar o produto.'); }
+    finally { productSaving.current = false; setIsSavingProduct(false); }
   };
 
   const handleQuickCreateOp = (item: ProductInventory) => {
@@ -299,6 +311,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 Cadastrar Novo SKU de Produto
               </h3>
               <button
+                disabled={isSavingProduct}
                 onClick={() => setIsModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
@@ -306,11 +319,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateSkuSubmit} className="space-y-3 text-xs">
+            {productError && <p role="alert" className="text-sm text-red-700">{productError}</p>}
+            <form onSubmit={handleCreateSkuSubmit} aria-busy={isSavingProduct}><fieldset disabled={isSavingProduct} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Código SKU</label>
+                  <label htmlFor="inventory-new-sku" className="text-[10px] font-semibold text-slate-600 block mb-1">Código SKU</label>
                   <input
+                    id="inventory-new-sku"
                     type="text"
                     value={newSku}
                     onChange={e => setNewSku(e.target.value)}
@@ -329,8 +344,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               <div>
-                <label className="text-[10px] font-semibold text-slate-600 block mb-1">Nome do Produto</label>
+                <label htmlFor="inventory-new-name" className="text-[10px] font-semibold text-slate-600 block mb-1">Nome do Produto</label>
                 <input
+                  id="inventory-new-name"
                   type="text"
                   placeholder="Ex: Luminária Geométrica Madeira 20cm"
                   value={newName}
@@ -404,7 +420,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  disabled={isSavingProduct}
+                onClick={() => setIsModalOpen(false)}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold cursor-pointer"
                 >
                   Cancelar
@@ -413,10 +430,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   type="submit"
                   className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold shadow-xs cursor-pointer"
                 >
-                  Salvar SKU
+                  {isSavingProduct ? 'Confirmando cadastro…' : 'Salvar SKU'}
                 </button>
               </div>
-            </form>
+            </fieldset></form>
           </div>
         </div>
       )}

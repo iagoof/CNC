@@ -25,6 +25,7 @@ import {
   subscribeToSalesOrders,
   saveSalesOrderToFirestore,
   createCatalogOrderInFirestore,
+  convertQuoteInFirestore,
   deleteSalesOrderFromFirestore,
   subscribeToMachines,
   saveMachineToFirestore,
@@ -34,6 +35,7 @@ import {
 } from './firebase';
 import { seedFirestoreIfEmpty, SeedResult } from './seedData';
 import { ProductionOrder, Material, Quote, ProductInventory, SalesOrder, Machine } from '../../types';
+import type { PricingContext } from '../../utils/quoteEngine';
 
 interface FirebaseContextType {
   user: FirebaseUser | null;
@@ -58,11 +60,12 @@ interface FirebaseContextType {
   companySettings: FirestoreCompanySettings | null;
   syncCompanySettingsMutation: (settings: Partial<FirestoreCompanySettings> & { tradeName: string }) => Promise<void>;
   products: ProductInventory[];
-  syncProductMutation: (product: ProductInventory) => Promise<void>;
+  syncProductMutation: (product: ProductInventory, createOnly?: boolean) => Promise<void>;
   deleteProductMutation: (sku: string) => Promise<void>;
   salesOrders: SalesOrder[];
   syncSalesOrderMutation: (order: SalesOrder) => Promise<void>;
   createCatalogOrderMutation: (order: SalesOrder) => Promise<void>;
+  convertQuoteMutation: (quote: Quote, context: PricingContext) => Promise<void>;
   deleteSalesOrderMutation: (orderId: string) => Promise<void>;
   machines: Machine[];
   syncMachineMutation: (machine: Machine) => Promise<void>;
@@ -301,10 +304,10 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
-  const syncProductMutation = async (product: ProductInventory) => {
-    if (!user) return;
+  const syncProductMutation = async (product: ProductInventory, createOnly = false) => {
+    if (!user) throw new Error('Entre na sua conta para salvar produtos.');
     try {
-      await saveProductToFirestore(product, user.uid);
+      await saveProductToFirestore(product, user.uid, createOnly);
     } catch (err) {
       console.warn('Erro ao persistir produto no Firestore:', err);
       reportError();
@@ -315,12 +318,18 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const deleteProductMutation = async (sku: string) => {
     if (!user) return;
     try {
-      await deleteProductFromFirestore(sku);
+      await deleteProductFromFirestore(sku, user.uid);
     } catch (err) {
       console.warn('Erro ao excluir produto no Firestore:', err);
       reportError();
       throw err;
     }
+  };
+
+  const convertQuoteMutation = async (quote: Quote, context: PricingContext) => {
+    if (!user) throw new Error('Entre na sua conta para converter orçamentos.');
+    try { await convertQuoteInFirestore(quote, context, user.uid); }
+    catch (error) { reportError(); throw error; }
   };
 
   const createCatalogOrderMutation = async (order: SalesOrder) => {
@@ -417,6 +426,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         salesOrders,
         syncSalesOrderMutation,
         createCatalogOrderMutation,
+        convertQuoteMutation,
         deleteSalesOrderMutation,
         machines,
         syncMachineMutation,

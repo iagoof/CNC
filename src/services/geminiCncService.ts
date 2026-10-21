@@ -114,126 +114,258 @@ export function ensureSvgMetadataBlock(svgString: string, thicknessMm = 3.0, ker
 }
 
 /**
- * Procedural fallback vector generators that produce 100% valid, closed, production-ready SVGs
- * with semantic layer separation: Cut #FF0000 (red) and Engrave #0000FF (blue), plus thickness metadata
+ * Helper to generate regular polygon vertices with optional rounded corners
  */
-function generateProceduralVector(prompt: string, style: 'cut_engrave' | 'cut_only' | 'relief_3d'): GeneratedCncVector {
+function createPolygonPath(cx: number, cy: number, radius: number, sides: number, cornerRadius = 0): string {
+  const points: { x: number; y: number }[] = [];
+  const startAngle = -Math.PI / 2; // Flat top or pointed top
+  for (let i = 0; i < sides; i++) {
+    const angle = startAngle + (i * 2 * Math.PI) / sides;
+    points.push({
+      x: Number((cx + radius * Math.cos(angle)).toFixed(2)),
+      y: Number((cy + radius * Math.sin(angle)).toFixed(2))
+    });
+  }
+
+  if (cornerRadius <= 0 || cornerRadius >= radius * 0.5) {
+    return `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+  }
+
+  // Rounded corners polygon path
+  let path = '';
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const pPrev = points[(i - 1 + n) % n];
+    const pCurr = points[i];
+    const pNext = points[(i + 1) % n];
+
+    // Vectors
+    const v1 = { x: pPrev.x - pCurr.x, y: pPrev.y - pCurr.y };
+    const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
+    const len1 = Math.hypot(v1.x, v1.y);
+    const len2 = Math.hypot(v2.x, v2.y);
+    const r = Math.min(cornerRadius, len1 * 0.45, len2 * 0.45);
+
+    const start = {
+      x: Number((pCurr.x + (v1.x / len1) * r).toFixed(2)),
+      y: Number((pCurr.y + (v1.y / len1) * r).toFixed(2))
+    };
+    const end = {
+      x: Number((pCurr.x + (v2.x / len2) * r).toFixed(2)),
+      y: Number((pCurr.y + (v2.y / len2) * r).toFixed(2))
+    };
+
+    if (i === 0) {
+      path += `M ${start.x} ${start.y} Q ${pCurr.x} ${pCurr.y} ${end.x} ${end.y} `;
+    } else {
+      path += `L ${start.x} ${start.y} Q ${pCurr.x} ${pCurr.y} ${end.x} ${end.y} `;
+    }
+  }
+  path += 'Z';
+  return path;
+}
+
+/**
+ * Creates SVG star path
+ */
+function createStarPath(cx: number, cy: number, outerR: number, innerR: number, points = 5): string {
+  const step = Math.PI / points;
+  let d = '';
+  for (let i = 0; i < 2 * points; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const angle = i * step - Math.PI / 2;
+    const x = Number((cx + r * Math.cos(angle)).toFixed(2));
+    const y = Number((cy + r * Math.sin(angle)).toFixed(2));
+    d += (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
+  }
+  return d + ' Z';
+}
+
+/**
+ * Creates SVG gear path (external cut contour)
+ */
+function createGearPath(cx: number, cy: number, outerR: number, rootR: number, teeth = 12): string {
+  const step = (2 * Math.PI) / teeth;
+  const toothWidth = step * 0.25;
+  let d = '';
+
+  for (let i = 0; i < teeth; i++) {
+    const a0 = i * step;
+    const a1 = a0 + toothWidth;
+    const a2 = a1 + toothWidth;
+    const a3 = a0 + step;
+
+    const p0x = Number((cx + rootR * Math.cos(a0)).toFixed(2));
+    const p0y = Number((cy + rootR * Math.sin(a0)).toFixed(2));
+    const p1x = Number((cx + outerR * Math.cos(a1)).toFixed(2));
+    const p1y = Number((cy + outerR * Math.sin(a1)).toFixed(2));
+    const p2x = Number((cx + outerR * Math.cos(a2)).toFixed(2));
+    const p2y = Number((cy + outerR * Math.sin(a2)).toFixed(2));
+    const p3x = Number((cx + rootR * Math.cos(a3)).toFixed(2));
+    const p3y = Number((cy + rootR * Math.sin(a3)).toFixed(2));
+
+    if (i === 0) {
+      d += `M ${p0x} ${p0y} L ${p1x} ${p1y} L ${p2x} ${p2y} L ${p3x} ${p3y}`;
+    } else {
+      d += ` L ${p0x} ${p0y} L ${p1x} ${p1y} L ${p2x} ${p2y} L ${p3x} ${p3y}`;
+    }
+  }
+  return d + ' Z';
+}
+
+interface ParsedPromptParams {
+  width: number;
+  height: number;
+  thickness: number;
+  radius: number;
+  detectedText: string;
+  hasHexagon: boolean;
+  hasCoaster: boolean;
+  hasBox: boolean;
+  hasMandala: boolean;
+  hasGear: boolean;
+  hasStar: boolean;
+  hasKeyring: boolean;
+  hasTrophy: boolean;
+  hasTray: boolean;
+  hasCircle: boolean;
+  hasHeart: boolean;
+}
+
+/**
+ * Robust regex parser for user natural-language CNC prompts in PT-BR
+ */
+function parsePromptParameters(
+  prompt: string,
+  fallbackWidth = 100,
+  fallbackHeight = 100
+): ParsedPromptParams {
   const p = prompt.toLowerCase();
-  
-  if (p.includes('porta-copo') || p.includes('coaster') || p.includes('porta copo')) {
-    const w = 100;
-    const h = 100;
-    const r = 46;
-    const cx = 50;
-    const cy = 50;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="3.0">
-  <metadata id="cnc-metadata">
-    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>3.0</cnc:materialThickness_mm>
-      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
-      <cnc:units>mm</cnc:units>
-      <cnc:layers>
-        <cnc:layer name="corte" color="#FF0000" operation="cut" />
-        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
-      </cnc:layers>
-    </cnc:metadata>
-  </metadata>
-  <!-- Camada de Corte Perimetral (Vermelho #FF0000) -->
-  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
-  <!-- Camada de Gravação Geométrica (Azul #0000FF) -->
-  <circle cx="${cx}" cy="${cy}" r="${r - 5}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" id="gravacao-borda" />
-  <circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <polygon points="50,15 78,65 22,65" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <polygon points="50,85 78,35 22,35" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
-  <text x="50" y="53" font-family="sans-serif" font-size="5" text-anchor="middle" fill="#0000FF" font-weight="bold">CNC PRECISION</text>
-</svg>`;
 
-    return {
-      title: 'Porta-copos Geométrico Sagrado 100mm',
-      description: 'Porta-copos com corte perimetral fechado (#FF0000) e gravação de geometria sagrada hexagonal (#0000FF).',
-      widthMm: w,
-      heightMm: h,
-      svgContent: svg,
-      recommendedMaterial: 'MDF Cru ou Acrílico 3mm',
-      recommendedThicknessMm: 3.0,
-      materialThickness_mm: 3.0,
-      metadata: createStandardMetadataBlock(3.0, 0.15),
-      cutLengthMm: 290,
-      engraveAreaCm2: 28,
-      estimatedLaserTimeSec: 22,
-      layers: [
-        { name: 'Corte Perímetro (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: 290 },
-        { name: 'Gravação Geometria Sagrada (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 90 }
-      ]
-    };
+  // 1. Dimensions like 100x100mm, 150 x 80 mm, 200*120, etc.
+  let w = fallbackWidth;
+  let h = fallbackHeight;
+
+  const dimMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*(?:mm)?/i);
+  if (dimMatch) {
+    w = parseFloat(dimMatch[1].replace(',', '.'));
+    h = parseFloat(dimMatch[2].replace(',', '.'));
+  } else {
+    // Single dimension like 120mm ou diâmetro 100mm
+    const singleDim = prompt.match(/(?:diâmetro|raio|tamanho|lado|largura|comprimento|medindo|de)\s*(\d+(?:[.,]\d+)?)\s*mm/i);
+    if (singleDim) {
+      const val = parseFloat(singleDim[1].replace(',', '.'));
+      w = val;
+      h = val;
+    }
   }
 
-  if (p.includes('caixa') || p.includes('box') || p.includes('organizador') || p.includes('encaixe')) {
-    const w = 150;
-    const h = 100;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="3.0">
-  <metadata id="cnc-metadata">
-    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>3.0</cnc:materialThickness_mm>
-      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
-      <cnc:units>mm</cnc:units>
-      <cnc:layers>
-        <cnc:layer name="corte" color="#FF0000" operation="cut" />
-        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
-      </cnc:layers>
-    </cnc:metadata>
-  </metadata>
-  <!-- Camada de Corte Externo (Vermelho #FF0000) -->
-  <rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="4" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-chapa" />
-  <circle cx="25" cy="${h / 2}" r="6" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-esq" />
-  <circle cx="${w - 25}" cy="${h / 2}" r="6" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-dir" />
-  <!-- Camada de Gravação Técnica (Azul #0000FF) -->
-  <rect x="15" y="15" width="${w - 30}" height="${h - 30}" rx="2" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" id="gravacao-moldura" />
-  <text x="${w / 2}" y="${h / 2 + 3}" font-family="sans-serif" font-size="9" text-anchor="middle" fill="#0000FF" font-weight="bold">CNC MINAS JF • ENCAIXE 3.0MM</text>
-</svg>`;
-
-    return {
-      title: 'Caixa de Encaixe com Furos e Gravação',
-      description: 'Chapa paramétrica de caixa de encaixe com furos de montagem em #FF0000 e gravação central em #0000FF.',
-      widthMm: w,
-      heightMm: h,
-      svgContent: svg,
-      recommendedMaterial: 'MDF Cru 3mm',
-      recommendedThicknessMm: 3.0,
-      materialThickness_mm: 3.0,
-      metadata: createStandardMetadataBlock(3.0, 0.15),
-      cutLengthMm: 520,
-      engraveAreaCm2: 42,
-      estimatedLaserTimeSec: 28,
-      layers: [
-        { name: 'Corte Externo e Furos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: 520 },
-        { name: 'Gravação Logotipo e Moldura (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 60 }
-      ]
-    };
+  // 2. Thickness like 3.0mm, 3mm, 6mm
+  let thickness = 3.0;
+  const thickMatch = prompt.match(/(\d+(?:[.,]\d+)?)\s*mm\s*(?:em\s+mdf|em\s+acrílico|espessura|mdf|acrilico|compensado)/i)
+    || prompt.match(/espessura\s*(?:de\s*)?(\d+(?:[.,]\d+)?)\s*mm/i);
+  if (thickMatch) {
+    thickness = parseFloat(thickMatch[1].replace(',', '.'));
   }
 
-  if (p.includes('mandala') || p.includes('luminaria') || p.includes('redondo') || p.includes('floral')) {
-    const size = 180;
-    const r = size / 2 - 5;
-    const cx = size / 2;
-    const cy = size / 2;
-    
-    // Generate intricate geometric petals
-    let innerPaths = '';
-    const numPetals = 12;
-    for (let i = 0; i < numPetals; i++) {
-      const angle = (i * 2 * Math.PI) / numPetals;
-      const x1 = cx + (r * 0.45) * Math.cos(angle);
-      const y1 = cy + (r * 0.45) * Math.sin(angle);
-      const x2 = cx + (r * 0.82) * Math.cos(angle + Math.PI / numPetals);
-      const y2 = cy + (r * 0.82) * Math.sin(angle + Math.PI / numPetals);
-      innerPaths += `<path d="M ${cx} ${cy} Q ${x1} ${y1} ${x2} ${y2} Q ${cx + (r * 0.45) * Math.cos(angle + (2 * Math.PI) / numPetals)} ${cy + (r * 0.45) * Math.sin(angle + (2 * Math.PI) / numPetals)} ${cx} ${cy}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut"/>\n`;
+  // 3. Corner radius like R5, raio 5, raio de 10mm
+  let radius = 4;
+  const rMatch = prompt.match(/\bR\s*(\d+(?:[.,]\d+)?)\b/i) || prompt.match(/raio\s*(?:de\s*)?(\d+(?:[.,]\d+)?)\s*(?:mm)?/i);
+  if (rMatch) {
+    radius = parseFloat(rMatch[1].replace(',', '.'));
+  }
+
+  // 4. Custom text inside quotes e.g. "CNC MINAS" or 'JUIZ DE FORA'
+  let detectedText = '';
+  const textQuoteMatch = prompt.match(/["'«“]([^"'»”]{2,40})["'»”]/);
+  if (textQuoteMatch) {
+    detectedText = textQuoteMatch[1].trim();
+  } else {
+    const textNamed = prompt.match(/(?:gravação|escrito|texto|com o nome|com os dizeres|com a frase)\s*(?:de|:)?\s*([a-zA-Z0-9À-ÿ\s\-\.\&]{2,30})/i);
+    if (textNamed && !textNamed[1].includes('geometria') && !textNamed[1].includes('sagrada')) {
+      detectedText = textNamed[1].trim().toUpperCase();
+    }
+  }
+
+  // Archetypes
+  const hasHexagon = p.includes('hexagon') || p.includes('hexágon');
+  const hasCoaster = p.includes('porta-copo') || p.includes('porta copo') || p.includes('coaster') || p.includes('bolacha');
+  const hasBox = p.includes('caixa') || p.includes('box') || p.includes('organizador') || p.includes('gaveta') || p.includes('finger joint') || p.includes('fingerjoint') || p.includes('dentead');
+  const hasMandala = p.includes('mandala') || p.includes('flor da vida') || p.includes('sagrada') || p.includes('radial') || p.includes('roseta') || p.includes('luminaria') || p.includes('luminária');
+  const hasGear = p.includes('engrenagem') || p.includes('gear') || p.includes('dentes') || p.includes('mecanic') || p.includes('mecânic');
+  const hasStar = p.includes('estrela') || p.includes('star');
+  const hasKeyring = p.includes('chaveiro') || p.includes('tag') || p.includes('pingente') || p.includes('crachá') || p.includes('identificaç');
+  const hasTrophy = p.includes('trofeu') || p.includes('troféu') || p.includes('premio') || p.includes('prêmio') || p.includes('display');
+  const hasTray = p.includes('bandeja') || p.includes('prato') || p.includes('petisqueira') || p.includes('tabua') || p.includes('tábua');
+  const hasCircle = p.includes('redondo') || p.includes('circular') || p.includes('disco') || p.includes('anel') || p.includes('circulo') || p.includes('círculo');
+  const hasHeart = p.includes('coraç') || p.includes('coracao') || p.includes('heart');
+
+  return {
+    width: Math.max(30, Math.min(1200, Math.round(w))),
+    height: Math.max(30, Math.min(1200, Math.round(h))),
+    thickness: thickness > 0 ? thickness : 3.0,
+    radius,
+    detectedText,
+    hasHexagon,
+    hasCoaster,
+    hasBox,
+    hasMandala,
+    hasGear,
+    hasStar,
+    hasKeyring,
+    hasTrophy,
+    hasTray,
+    hasCircle,
+    hasHeart
+  };
+}
+
+/**
+ * Procedural fallback vector generators that produce 100% valid, closed, production-ready SVGs
+ * strictly responding to user prompt parameters with semantic layer separation:
+ * Cut #FF0000 (red) and Engrave #0000FF (blue), plus thickness metadata
+ */
+export function generateProceduralVector(
+  prompt: string,
+  style: 'cut_engrave' | 'cut_only' | 'relief_3d' = 'cut_engrave',
+  targetMachine: 'laser' | 'router' = 'laser',
+  widthHint?: number,
+  heightHint?: number
+): GeneratedCncVector {
+  const params = parsePromptParameters(prompt, widthHint || 100, heightHint || 100);
+  const w = params.width;
+  const h = params.height;
+  const t = params.thickness;
+  const cx = Number((w / 2).toFixed(2));
+  const cy = Number((h / 2).toFixed(2));
+  const textLabel = params.detectedText || (prompt.slice(0, 22).trim().toUpperCase() || 'CNC PRECISION');
+
+  // =========================================================================
+  // ARCHETYPE 1: HEXAGONAL COASTER / GEOMETRIC HEXAGON
+  // =========================================================================
+  if (params.hasHexagon || (params.hasCoaster && prompt.toLowerCase().includes('hex'))) {
+    const radius = Math.min(w, h) / 2 - 2;
+    const cornerR = params.radius || 5;
+    const hexCutPath = createPolygonPath(cx, cy, radius, 6, cornerR);
+    const innerHexPath = createPolygonPath(cx, cy, radius - 6, 6, Math.max(1, cornerR - 1));
+
+    // Flower of life or sacred geometry circles inside
+    const rFlower = Number(((radius - 10) / 2).toFixed(2));
+    let flowerCircles = '';
+    if (style !== 'cut_only') {
+      flowerCircles += `<circle cx="${cx}" cy="${cy}" r="${rFlower}" fill="none" stroke="#0000FF" stroke-width="0.5" data-layer="engrave" />\n`;
+      for (let i = 0; i < 6; i++) {
+        const ang = (i * 2 * Math.PI) / 6;
+        const fcx = Number((cx + rFlower * Math.cos(ang)).toFixed(2));
+        const fcy = Number((cy + rFlower * Math.sin(ang)).toFixed(2));
+        flowerCircles += `  <circle cx="${fcx}" cy="${fcy}" r="${rFlower}" fill="none" stroke="#0000FF" stroke-width="0.5" data-layer="engrave" />\n`;
+      }
     }
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}mm" height="${size}mm" data-thickness-mm="3.0">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
   <metadata id="cnc-metadata">
     <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>3.0</cnc:materialThickness_mm>
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
       <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
       <cnc:units>mm</cnc:units>
       <cnc:layers>
@@ -242,42 +374,48 @@ function generateProceduralVector(prompt: string, style: 'cut_engrave' | 'cut_on
       </cnc:layers>
     </cnc:metadata>
   </metadata>
-  <!-- Camada de Corte Perimetral (Vermelho #FF0000) -->
-  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut"/>
-  <circle cx="${cx}" cy="${cy}" r="${r * 0.25}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut"/>
-  ${innerPaths}
-  <!-- Camada de Gravação Decorativa (Azul #0000FF) -->
-  <circle cx="${cx}" cy="${cy}" r="${r * 0.9}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="1,2" data-layer="engrave"/>
-  <text x="${cx}" y="${cy + 2}" font-family="sans-serif" font-size="6" text-anchor="middle" fill="#0000FF">LUMINÁRIA / MANDALA 3D</text>
+  <!-- Camada de Corte Passante Perimetral Hexagonal (#FF0000) -->
+  <path d="${hexCutPath}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
+  ${style !== 'cut_only' ? `<!-- Camada de Gravação: Anel de Drenagem e Flor da Vida (#0000FF) -->
+  <path d="${innerHexPath}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" id="gravacao-borda" />
+  ${flowerCircles}
+  <text x="${cx}" y="${cy + 2}" font-family="sans-serif" font-size="4.5" text-anchor="middle" fill="#0000FF" font-weight="bold">${textLabel}</text>` : ''}
 </svg>`;
 
     return {
-      title: 'Luminária 3D / Mandala Geométrica 180mm',
-      description: 'Design radial simétrico com pétalas vazadas para corte (#FF0000) e anéis de gravação (#0000FF).',
-      widthMm: size,
-      heightMm: size,
+      title: `Porta-Copos Hexagonal ${w}x${h}mm R${cornerR}`,
+      description: `Porta-copos hexagonal de ${w}x${h}mm com cantos arredondados R${cornerR}, corte passante fechado (#FF0000) e gravação de geometria sagrada (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
       svgContent: svg,
-      recommendedMaterial: 'MDF Cru ou Acrílico Cast',
-      recommendedThicknessMm: 3.0,
-      materialThickness_mm: 3.0,
-      metadata: createStandardMetadataBlock(3.0, 0.15),
-      cutLengthMm: 1480,
-      engraveAreaCm2: 65,
-      estimatedLaserTimeSec: 68,
+      recommendedMaterial: `MDF Cru ou Acrílico ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(6 * radius),
+      engraveAreaCm2: Math.round((w * h) / 130),
+      estimatedLaserTimeSec: Math.round(w / 4) + 12,
       layers: [
-        { name: 'Corte de Pétalas e Contorno (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: 1480 },
-        { name: 'Gravação Decorativa (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 120 }
+        { name: 'Corte Perímetro Hexagonal (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(6 * radius) },
+        { name: 'Gravação Geometria Sagrada (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 120 }
       ]
     };
   }
 
-  // Default: Placa de Sinalização Industrial
-  const w = 200;
-  const h = 120;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="3.0">
+  // =========================================================================
+  // ARCHETYPE 2: MECHANICAL GEAR / ENGRENAGEM INDUSTRIAL
+  // =========================================================================
+  if (params.hasGear) {
+    const outerR = Math.min(w, h) / 2 - 2;
+    const rootR = outerR * 0.82;
+    const teeth = Math.max(8, Math.min(24, Math.round(outerR / 3.5)));
+    const gearPath = createGearPath(cx, cy, outerR, rootR, teeth);
+    const axleHoleR = Math.max(3, Number((outerR * 0.22).toFixed(2)));
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
   <metadata id="cnc-metadata">
     <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>3.0</cnc:materialThickness_mm>
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
       <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
       <cnc:units>mm</cnc:units>
       <cnc:layers>
@@ -286,65 +424,447 @@ function generateProceduralVector(prompt: string, style: 'cut_engrave' | 'cut_on
       </cnc:layers>
     </cnc:metadata>
   </metadata>
-  <!-- Camada de Corte: Perímetro Chanfrado e 4 Furos M4 (Vermelho #FF0000) -->
-  <path d="M 12 0 L ${w - 12} 0 L ${w} 12 L ${w} ${h - 12} L ${w - 12} ${h} L 12 ${h} L 0 ${h - 12} L 0 12 Z" fill="none" stroke="#FF0000" stroke-width="1.0" data-layer="cut" id="corte-perimetro" />
-  <circle cx="10" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-1"/>
-  <circle cx="${w - 10}" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-2"/>
-  <circle cx="10" cy="${h - 10}" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-3"/>
-  <circle cx="${w - 10}" cy="${h - 10}" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-4"/>
-  <!-- Camada de Gravação: Textos Técnicos e Moldura (Azul #0000FF) -->
-  <rect x="20" y="16" width="${w - 40}" height="${h - 32}" rx="4" fill="none" stroke="#0000FF" stroke-width="0.6" stroke-dasharray="3,1" data-layer="engrave" id="gravacao-moldura" />
-  <text x="${w / 2}" y="48" font-family="sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#0000FF">${prompt.slice(0, 24).toUpperCase() || 'SINALIZAÇÃO INDUSTRIAL'}</text>
-  <text x="${w / 2}" y="70" font-family="sans-serif" font-size="8" text-anchor="middle" fill="#0000FF">ÁREA OPERACIONAL • CNC LASER & ROUTER</text>
-  <line x1="30" y1="80" x2="${w - 30}" y2="80" stroke="#0000FF" stroke-width="0.8" data-layer="engrave" />
+  <!-- Perímetro Dentado de Corte da Engrenagem (#FF0000) -->
+  <path d="${gearPath}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-dentes" />
+  <!-- Furo Central de Eixo com Rasgo de Chaveta (#FF0000) -->
+  <circle cx="${cx}" cy="${cy}" r="${axleHoleR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-eixo" />
+  <circle cx="${cx - outerR * 0.5}" cy="${cy}" r="${axleHoleR * 0.7}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="${cx + outerR * 0.5}" cy="${cy}" r="${axleHoleR * 0.7}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="${cx}" cy="${cy - outerR * 0.5}" r="${axleHoleR * 0.7}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="${cx}" cy="${cy + outerR * 0.5}" r="${axleHoleR * 0.7}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  ${style !== 'cut_only' ? `<!-- Gravação Técnica de Módulo e Dentes (#0000FF) -->
+  <circle cx="${cx}" cy="${cy}" r="${rootR * 0.72}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" />
+  <text x="${cx}" y="${cy + axleHoleR + 6}" font-family="sans-serif" font-size="4" text-anchor="middle" fill="#0000FF" font-weight="bold">${teeth}T • MOD ${(w / teeth).toFixed(1)} • ${textLabel}</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Engrenagem Paramétrica ${teeth} Dentes Ø${w}mm`,
+      description: `Engrenagem técnica de ${teeth} dentes com furo central passante de ${axleHoleR * 2}mm, alívios de massa (#FF0000) e identificação técnica (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `Acrílico Cast ou MDF ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(teeth * 12 + 2 * Math.PI * axleHoleR),
+      engraveAreaCm2: Math.round((w * h) / 140),
+      estimatedLaserTimeSec: Math.round(w / 3) + 14,
+      layers: [
+        { name: 'Corte Perímetro e Furos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(teeth * 12) },
+        { name: 'Gravação Especificações (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 60 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 3: KEYCHAIN / IDENTIFICATION TAG (CHAVEIRO / CRONÔMETRO / TAG)
+  // =========================================================================
+  if (params.hasKeyring) {
+    const rx = Math.min(params.radius || 6, 8);
+    const holeX = Math.round(w > h ? 10 : cx);
+    const holeY = Math.round(w > h ? cy : 10);
+    const holeR = 2.5;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Perímetro de Corte com Cantos Arredondados (#FF0000) -->
+  <rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="${rx}" ry="${rx}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
+  <!-- Furo Passante da Argola (#FF0000) -->
+  <circle cx="${holeX}" cy="${holeY}" r="${holeR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-argola" />
+  ${style !== 'cut_only' ? `<!-- Gravação Personalizada e Moldura Estilizada (#0000FF) -->
+  <rect x="6" y="6" width="${w - 12}" height="${h - 12}" rx="${Math.max(2, rx - 2)}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,1" data-layer="engrave" />
+  <text x="${w > h ? cx + 4 : cx}" y="${w > h ? cy + 2 : cy + 4}" font-family="sans-serif" font-size="${Math.min(10, Math.max(5, Math.round(h / 5)))}" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Chaveiro Personalizado ${w}x${h}mm`,
+      description: `Chaveiro com furo de argola de ${holeR * 2}mm em corte passante fechado (#FF0000) e gravação vetorial de "${textLabel}" em #0000FF.`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `Acrílico Espelhado ou MDF ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(2 * (w + h) + 2 * Math.PI * holeR),
+      engraveAreaCm2: Math.round((w * h) / 100),
+      estimatedLaserTimeSec: 15,
+      layers: [
+        { name: 'Corte Contorno e Argola (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (w + h)) },
+        { name: 'Gravação Nome e Moldura (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 35 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 4: STAR / ESTRELA DECORATIVA
+  // =========================================================================
+  if (params.hasStar) {
+    const outerR = Math.min(w, h) / 2 - 2;
+    const innerR = outerR * 0.45;
+    const starPath = createStarPath(cx, cy, outerR, innerR, 5);
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Contorno de Corte Fechado da Estrela (#FF0000) -->
+  <path d="${starPath}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-estrela" />
+  <!-- Furo de Suspensão (#FF0000) -->
+  <circle cx="${cx}" cy="${cy - outerR * 0.65}" r="2.0" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  ${style !== 'cut_only' ? `<!-- Gravação Geométrica e Facetas (#0000FF) -->
+  <circle cx="${cx}" cy="${cy}" r="${innerR * 0.7}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,1" data-layer="engrave" />
+  <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - outerR}" stroke="#0000FF" stroke-width="0.5" data-layer="engrave" />
+  <text x="${cx}" y="${cy + 2}" font-family="sans-serif" font-size="4.5" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Estrela Geométrica ${w}x${h}mm`,
+      description: `Estrela decorativa com contorno fechado em corte passante (#FF0000) e linhas de facetação em gravação (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `MDF Cru ou Acrílico Dourado ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(10 * (outerR - innerR)),
+      engraveAreaCm2: 12,
+      estimatedLaserTimeSec: 18,
+      layers: [
+        { name: 'Corte Perímetro Estrela (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(10 * outerR) },
+        { name: 'Gravação Facetas (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 45 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 5: TROPHY / DISPLAY / PLACA COM BASE
+  // =========================================================================
+  if (params.hasTrophy) {
+    const bodyW = w - 10;
+    const bodyH = Math.round(h * 0.78);
+    const baseW = w;
+    const baseH = Math.round(h * 0.18);
+    const tenonW = Math.round(bodyW * 0.4);
+    const tenonH = t + 0.2; // Kerf-adjusted tenon height
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Corpo Principal do Troféu com Espiga de Encaixe (#FF0000) -->
+  <path d="M 5 10 L ${w - 5} 10 L ${w - 10} ${bodyH} L ${cx + tenonW / 2} ${bodyH} L ${cx + tenonW / 2} ${bodyH + tenonH} L ${cx - tenonW / 2} ${bodyH + tenonH} L ${cx - tenonW / 2} ${bodyH} L 10 ${bodyH} Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-corpo-trofeu" />
+  <!-- Base de Apoio com Rasgo Mortise (#FF0000) -->
+  <rect x="2" y="${h - baseH - 2}" width="${baseW - 4}" height="${baseH}" rx="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-base" />
+  <rect x="${cx - tenonW / 2}" y="${h - baseH / 2 - t / 2 - 2}" width="${tenonW}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-rasgo-base" />
+  ${style !== 'cut_only' ? `<!-- Gravação Frontal do Troféu (#0000FF) -->
+  <rect x="15" y="16" width="${w - 30}" height="${bodyH - 24}" rx="2" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" />
+  <text x="${cx}" y="32" font-family="sans-serif" font-size="7" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>
+  <text x="${cx}" y="48" font-family="sans-serif" font-size="4.5" text-anchor="middle" fill="#0000FF">PRÊMIO DE RECONHECIMENTO CNC</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Troféu / Display de Mesa ${w}x${h}mm`,
+      description: `Conjunto de 2 peças (Corpo e Base de encaixe com espiga ${tenonW}mm para chapa ${t}mm) em corte fechado (#FF0000) e gravação (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `Acrílico Cast Cristal ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(2 * (w + h) + tenonW * 4),
+      engraveAreaCm2: Math.round((w * h) / 120),
+      estimatedLaserTimeSec: 26,
+      layers: [
+        { name: 'Corte Corpo e Base (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (w + h)) },
+        { name: 'Gravação Nome e Borda (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 75 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 6: BOX / ENCLOSURE / FINGER JOINT ORGANIZER
+  // =========================================================================
+  if (params.hasBox) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Chapa Perimetral de Encaixes Finger-Joint (#FF0000) -->
+  <rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="${params.radius || 4}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-chapa" />
+  <!-- Furos / Encaixes Fêmea de Montagem (#FF0000) -->
+  <rect x="10" y="${cy - t / 2}" width="${w * 0.2}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <rect x="${w - 10 - w * 0.2}" y="${cy - t / 2}" width="${w * 0.2}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="20" cy="20" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="${w - 20}" cy="20" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="20" cy="${h - 20}" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <circle cx="${w - 20}" cy="${h - 20}" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  ${style !== 'cut_only' ? `<!-- Gravação Técnica (#0000FF) -->
+  <rect x="25" y="15" width="${w - 50}" height="${h - 30}" rx="3" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="3,1" data-layer="engrave" />
+  <text x="${cx}" y="${cy + 3}" font-family="sans-serif" font-size="${Math.min(9, Math.round(w / 14))}" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>
+  <text x="${cx}" y="${cy + 15}" font-family="sans-serif" font-size="4" text-anchor="middle" fill="#0000FF">ENCAIXES PARAMÉTRICOS • CHAPA ${t.toFixed(1)}MM</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Caixa com Encaixes ${w}x${h}mm (${t}mm)`,
+      description: `Painel paramétrico com rasgos fêmea de ${t}mm e furos de montagem em corte passante (#FF0000) e identificação técnica em #0000FF.`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `MDF Cru ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(2 * (w + h) + 120),
+      engraveAreaCm2: Math.round((w * h) / 100),
+      estimatedLaserTimeSec: 28,
+      layers: [
+        { name: 'Corte Externo e Rasgos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (w + h) + 120) },
+        { name: 'Gravação Moldura e Identificação (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 70 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 7: MANDALA / RADIAL / FLORAL / LUMINÁRIA CIRCULAR
+  // =========================================================================
+  if (params.hasMandala || (params.hasCircle && prompt.toLowerCase().includes('flor'))) {
+    const size = Math.min(w, h);
+    const r = size / 2 - 4;
+    const numPetals = 8;
+    let innerPetals = '';
+
+    for (let i = 0; i < numPetals; i++) {
+      const angle = (i * 2 * Math.PI) / numPetals;
+      const x1 = Number((cx + (r * 0.42) * Math.cos(angle)).toFixed(2));
+      const y1 = Number((cy + (r * 0.42) * Math.sin(angle)).toFixed(2));
+      const x2 = Number((cx + (r * 0.78) * Math.cos(angle + Math.PI / numPetals)).toFixed(2));
+      const y2 = Number((cy + (r * 0.78) * Math.sin(angle + Math.PI / numPetals)).toFixed(2));
+      const nextAngle = angle + (2 * Math.PI) / numPetals;
+      const x3 = Number((cx + (r * 0.42) * Math.cos(nextAngle)).toFixed(2));
+      const y3 = Number((cy + (r * 0.42) * Math.sin(nextAngle)).toFixed(2));
+      innerPetals += `  <path d="M ${cx} ${cy} Q ${x1} ${y1} ${x2} ${y2} Q ${x3} ${y3} ${cx} ${cy} Z" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />\n`;
+    }
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Perímetro Circular Fechado de Corte (#FF0000) -->
+  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
+  <circle cx="${cx}" cy="${cy}" r="${Number((r * 0.22).toFixed(2))}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-centro" />
+  ${innerPetals}
+  ${style !== 'cut_only' ? `<!-- Gravação Concéntrica e Textos (#0000FF) -->
+  <circle cx="${cx}" cy="${cy}" r="${Number((r * 0.88).toFixed(2))}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="1,2" data-layer="engrave" />
+  <text x="${cx}" y="${cy + 2}" font-family="sans-serif" font-size="4" text-anchor="middle" fill="#0000FF">${textLabel}</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Mandala / Flor da Vida Ø${Math.round(size)}mm`,
+      description: `Mandala radial de ${Math.round(size)}mm com 8 pétalas vazadas em corte (#FF0000) e anéis de gravação (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `MDF Cru ou Acrílico Cast ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(2 * Math.PI * r + numPetals * r * 1.6),
+      engraveAreaCm2: Math.round((w * h) / 110),
+      estimatedLaserTimeSec: 38,
+      layers: [
+        { name: 'Corte Pétalas e Perímetro (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * Math.PI * r + numPetals * r * 1.6) },
+        { name: 'Gravação Textura Radial (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 95 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 8: CIRCULAR COASTER / ROUNDED TRAY / GENERIC CIRCLE
+  // =========================================================================
+  if (params.hasCoaster || params.hasCircle) {
+    const r = Math.min(w, h) / 2 - 3;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Perímetro Circular Fechado de Corte (#FF0000) -->
+  <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
+  ${style !== 'cut_only' ? `<!-- Camadas de Gravação: Anel Perimétrico e Arte (#0000FF) -->
+  <circle cx="${cx}" cy="${cy}" r="${r - 5}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" id="gravacao-anel" />
+  <circle cx="${cx}" cy="${cy}" r="${Number((r * 0.45).toFixed(2))}" fill="none" stroke="#0000FF" stroke-width="0.6" data-layer="engrave" />
+  <text x="${cx}" y="${cy + 2.5}" font-family="sans-serif" font-size="${Math.min(8, Math.round(r / 5))}" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>` : ''}
+</svg>`;
+
+    return {
+      title: `Porta-Copos Circular Ø${Math.round(2 * r)}mm`,
+      description: `Porta-copos circular com perímetro fechado em corte passante (#FF0000) e anel de drenagem em gravação (#0000FF).`,
+      widthMm: w,
+      heightMm: h,
+      svgContent: svg,
+      recommendedMaterial: `MDF Cru ou Cortiça ${t}mm`,
+      recommendedThicknessMm: t,
+      materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15),
+      cutLengthMm: Math.round(2 * Math.PI * r),
+      engraveAreaCm2: Math.round((w * h) / 120),
+      estimatedLaserTimeSec: 18,
+      layers: [
+        { name: 'Corte Perímetro (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * Math.PI * r) },
+        { name: 'Gravação Anel e Arte (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 70 }
+      ]
+    };
+  }
+
+  // =========================================================================
+  // ARCHETYPE 9: TRAY / BANDEJA / PLACA RETANGULAR COM CANTOS ARREDONDADOS
+  // =========================================================================
+  const cornerR = params.radius || 6;
+  const holeR = Math.min(3, Math.max(1.5, Math.round(Math.min(w, h) * 0.03)));
+  const holeOffset = Math.round(cornerR + 4);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+  <metadata id="cnc-metadata">
+    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
+      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
+      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
+      <cnc:units>mm</cnc:units>
+      <cnc:layers>
+        <cnc:layer name="corte" color="#FF0000" operation="cut" />
+        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
+      </cnc:layers>
+    </cnc:metadata>
+  </metadata>
+  <!-- Perímetro Retangular com Cantos Arredondados (#FF0000) -->
+  <rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="${cornerR}" ry="${cornerR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-perimetro" />
+  <!-- Furos de Fixação / Passagem de Parafuso M${holeR * 2} (#FF0000) -->
+  <circle cx="${holeOffset}" cy="${holeOffset}" r="${holeR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-1" />
+  <circle cx="${w - holeOffset}" cy="${holeOffset}" r="${holeR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-2" />
+  <circle cx="${holeOffset}" cy="${h - holeOffset}" r="${holeR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-3" />
+  <circle cx="${w - holeOffset}" cy="${h - holeOffset}" r="${holeR}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-furo-4" />
+  ${style !== 'cut_only' ? `<!-- Moldura Técnica e Gravação de Textos (#0000FF) -->
+  <rect x="${holeOffset + 4}" y="${holeOffset + 4}" width="${w - 2 * (holeOffset + 4)}" height="${h - 2 * (holeOffset + 4)}" rx="${Math.max(2, cornerR - 2)}" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="3,1" data-layer="engrave" id="gravacao-moldura" />
+  <text x="${cx}" y="${cy - 2}" font-family="sans-serif" font-size="${Math.min(12, Math.round(w / 12))}" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>
+  <text x="${cx}" y="${cy + 12}" font-family="sans-serif" font-size="${Math.min(6, Math.round(w / 24))}" text-anchor="middle" fill="#0000FF">PRECISÃO CNC • JUIZ DE FORA</text>` : ''}
 </svg>`;
 
   return {
-    title: prompt ? `Projeto: ${prompt.slice(0, 32)}` : 'Placa de Sinalização Industrial',
-    description: 'Vetor industrial com camadas semânticas: corte perimétrico e furos em #FF0000 e textos/moldura em #0000FF com bloco de metadados de 3.0mm.',
+    title: `Placa / Painel ${w}x${h}mm (${textLabel})`,
+    description: `Placa paramétrica de ${w}x${h}mm com cantos arredondados R${cornerR}, 4 furos M${holeR * 2} em corte passante (#FF0000) e gravação de texto (#0000FF).`,
     widthMm: w,
     heightMm: h,
     svgContent: svg,
-    recommendedMaterial: 'Acrílico Cristal 3mm ou MDF 3mm/6mm',
-    recommendedThicknessMm: 3.0,
-    materialThickness_mm: 3.0,
-    metadata: createStandardMetadataBlock(3.0, 0.15),
-    cutLengthMm: 680,
-    engraveAreaCm2: 48,
-    estimatedLaserTimeSec: 36,
+    recommendedMaterial: `Acrílico Cristal ou MDF ${t}mm`,
+    recommendedThicknessMm: t,
+    materialThickness_mm: t,
+    metadata: createStandardMetadataBlock(t, 0.15),
+    cutLengthMm: Math.round(2 * (w + h) + 8 * Math.PI * holeR),
+    engraveAreaCm2: Math.round((w * h) / 100),
+    estimatedLaserTimeSec: Math.round((w + h) / 8) + 16,
     layers: [
-      { name: 'Corte Perímetro e Furos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: 680 },
-      { name: 'Gravação Textos e Moldura (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 110 }
+      { name: 'Corte Perímetro e Furos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (w + h) + 8 * Math.PI * holeR) },
+      { name: 'Gravação Moldura e Textos (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 80 }
     ]
   };
 }
 
 /**
- * Generate vector using Gemini API model 'gemini-1.5-pro-002' or rich deterministic fallback
+ * Strips markdown code blocks like ```json ... ``` from an LLM response string
+ */
+function cleanJsonOutput(raw: string): string {
+  let cleaned = raw.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+  return cleaned.trim();
+}
+
+/**
+ * Generate vector using Gemini API model or rich parametric procedural fallback
  * Forces semantic layers: red (#FF0000) for cut, blue (#0000FF) for engrave, and default material thickness metadata
  */
 export async function generateCncVector(
   prompt: string,
   style: 'cut_engrave' | 'cut_only' | 'relief_3d' = 'cut_engrave',
-  targetMachine: 'laser' | 'router' = 'laser'
+  targetMachine: 'laser' | 'router' = 'laser',
+  overrideWidth?: number,
+  overrideHeight?: number
 ): Promise<GeneratedCncVector> {
   const apiKey = getApiKey();
 
   if (!apiKey) {
-    // Return high fidelity geometric procedural vector
-    return generateProceduralVector(prompt, style);
+    // Return high fidelity geometric procedural vector matching user prompt
+    return generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const targetW = overrideWidth || 100;
+    const targetH = overrideHeight || 100;
+
     const systemInstruction = `Você é um engenheiro sênior especialista em CAD/CAM para corte a Laser CO2 e CNC Router industrial.
 O usuário fornecerá uma descrição em Português do Brasil para um vetor/projeto CNC.
-Você deve responder ESTRITAMENTE em formato JSON (sem blocos markdown soltos fora do json) com a seguinte estrutura completa:
+Você deve responder ESTRITAMENTE em formato JSON (sem markdown fora do json) com a seguinte estrutura completa:
 {
   "title": "Nome do Projeto em Português",
   "description": "Explicação técnica detalhada do design industrial",
-  "widthMm": 150,
-  "heightMm": 100,
+  "widthMm": ${targetW},
+  "heightMm": ${targetH},
   "recommendedMaterial": "MDF Cru 3mm ou Acrílico Cast",
   "recommendedThicknessMm": 3.0,
   "materialThickness_mm": 3.0,
@@ -361,7 +881,7 @@ Você deve responder ESTRITAMENTE em formato JSON (sem blocos markdown soltos fo
   "cutLengthMm": 450,
   "engraveAreaCm2": 25,
   "estimatedLaserTimeSec": 26,
-  "svgContent": "<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 150 100\\" width=\\"150mm\\" height=\\"100mm\\" data-thickness-mm=\\"3.0\\"><metadata id=\\"cnc-metadata\\"><cnc:metadata xmlns:cnc=\\"https://cncminas.com.br/schema/v1\\"><cnc:materialThickness_mm>3.0</cnc:materialThickness_mm><cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm><cnc:units>mm</cnc:units><cnc:layers><cnc:layer name=\\"corte\\" color=\\"#FF0000\\" operation=\\"cut\\"/><cnc:layer name=\\"gravacao\\" color=\\"#0000FF\\" operation=\\"engrave\\"/></cnc:layers></cnc:metadata></metadata><!-- Camadas de corte e gravacao --></svg>",
+  "svgContent": "<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 ${targetW} ${targetH}\\" width=\\"${targetW}mm\\" height=\\"${targetH}mm\\" data-thickness-mm=\\"3.0\\"><metadata id=\\"cnc-metadata\\"><cnc:metadata xmlns:cnc=\\"https://cncminas.com.br/schema/v1\\"><cnc:materialThickness_mm>3.0</cnc:materialThickness_mm><cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm><cnc:units>mm</cnc:units><cnc:layers><cnc:layer name=\\"corte\\" color=\\"#FF0000\\" operation=\\"cut\\"/><cnc:layer name=\\"gravacao\\" color=\\"#0000FF\\" operation=\\"engrave\\"/></cnc:layers></cnc:metadata></metadata><!-- Camadas de corte fechado em #FF0000 e gravacao em #0000FF --></svg>",
   "layers": [
     {"name": "Corte Perimetral (#FF0000)", "type": "cut", "color": "#FF0000", "cutLengthMm": 450},
     {"name": "Gravação Vetorial (#0000FF)", "type": "engrave", "color": "#0000FF", "cutLengthMm": 30}
@@ -372,14 +892,13 @@ REGRAS TÉCNICAS MANDATÓRIAS:
 1. SEPARAÇÃO SEMÂNTICA RIGOROSA DE CAMADAS:
    - CAMADA DE CORTE: TODAS as linhas e contornos vazados que devem ser cortados passantes através do material DEVEM usar estritamente stroke="#FF0000" (vermelho puro #FF0000), fill="none", stroke-width entre 0.4 e 0.8, e atributo data-layer="cut" ou id="corte-...".
    - CAMADA DE GRAVAÇÃO: TODOS os elementos decorativos, marcações, hachuras, logos ou textos que devem ser apenas gravados superficialmente DEVEM usar estritamente stroke="#0000FF" (azul puro #0000FF) ou fill="#0000FF", stroke-width entre 0.3 e 0.6, e atributo data-layer="engrave" ou id="gravacao-...".
-2. BLOCO DE METADADOS DE ESPESSURA DE MATERIAL:
+2. CONTORNOS DE CORTE RIGOROSAMENTE FECHADOS:
+   - Os elementos de corte (#FF0000) devem ser loops geométricos perfeitamente fechados (<circle>, <rect>, <polygon> ou caminhos <path d="... Z">) para que a extrusão sólida 3D funcione perfeitamente.
+3. BLOCO DE METADADOS DE ESPESSURA DE MATERIAL:
    - Forneça por padrão "materialThickness_mm": 3.0 e "recommendedThicknessMm": 3.0.
-   - Forneça o objeto "metadata" com "materialThickness_mm": 3.0, "defaultKerf_mm": 0.15, "units": "mm" e camadas de operação.
    - No SVG gerado, inclua a tag <metadata id="cnc-metadata"> definindo a espessura de 3.0mm e inclua o atributo data-thickness-mm="3.0" na tag raiz <svg>.
-3. ESCALA E DIMENSÕES REAIS EM MILÍMETROS:
+4. ESCALA E DIMENSÕES REAIS EM MILÍMETROS:
    - O SVG DEVE possuir viewBox="0 0 W H" width="Wmm" height="Hmm".
-4. GEOMETRIA DE QUALIDADE CNC INDUSTRIAL:
-   - O SVG gerado DEVE ser limpo, válido e perfeitamente fechado para corte CNC sem auto-interseções.
 5. MÁQUINA ALVO: ${targetMachine === 'router' ? 'CNC Router (compensação de fresa e percursos mecânicos)' : 'Laser CO2 (foco óptico kerf 0.15mm)'}.
 6. ESTILO SOLICITADO: ${style}.`;
 
@@ -390,7 +909,7 @@ REGRAS TÉCNICAS MANDATÓRIAS:
           role: 'user',
           parts: [
             {
-              text: `Gere um vetor completo para CNC industrial baseado neste prompt: "${prompt}". Priorize camadas semanticamente separadas (corte passante estritamente em vermelho #FF0000, gravação em azul #0000FF) e metadados de espessura de material (padrão 3.0mm) tanto no objeto JSON quanto no bloco <metadata> do SVG. Estilo: ${style}. Máquina: ${targetMachine}.`
+              text: `Gere um vetor completo para CNC industrial baseado estritamente neste prompt: "${prompt}". Dimensões sugeridas: ${targetW}x${targetH}mm. Priorize camadas semanticamente separadas (corte passante fechado estritamente em vermelho #FF0000, gravação em azul #0000FF) e metadados de espessura de material (padrão 3.0mm) tanto no objeto JSON quanto no bloco <metadata> do SVG. Estilo: ${style}. Máquina: ${targetMachine}.`
             }
           ]
         }
@@ -403,7 +922,8 @@ REGRAS TÉCNICAS MANDATÓRIAS:
 
     const text = response.text?.trim() || '';
     if (text) {
-      const parsed = JSON.parse(text);
+      const cleaned = cleanJsonOutput(text);
+      const parsed = JSON.parse(cleaned);
       if (parsed.svgContent && parsed.widthMm && parsed.heightMm) {
         const thickness = parsed.materialThickness_mm || parsed.recommendedThicknessMm || 3.0;
         parsed.materialThickness_mm = thickness;
@@ -424,10 +944,10 @@ REGRAS TÉCNICAS MANDATÓRIAS:
       }
     }
   } catch (error) {
-    console.warn('Falha na chamada Gemini API (usando motor geométrico determinístico):', error);
+    console.warn('Falha na chamada Gemini API (usando motor paramétrico procedural):', error);
   }
 
-  return generateProceduralVector(prompt, style);
+  return generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
 }
 
 /**

@@ -387,22 +387,37 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         finalSvg = ensureSvgMetadataBlock(rawSvg, thickness, kerfCompensation);
         generatedTitle = `Vetorizado: ${uploadedFileName.replace(/\.[^/.]+$/, '')}`;
       } else {
-        setProcessingStep('2/3 Gerando camadas de corte (#FF0000) e gravação (#0000FF) com Gemini 1.5 Pro (002)...');
+        setProcessingStep('2/3 Gerando camadas de corte (#FF0000) e gravação (#0000FF) com IA...');
         const result = await generateCncVector(
           promptText,
           includeEngraving ? 'cut_engrave' : 'cut_only',
-          selectedMachine.type === 'Router' ? 'router' : 'laser'
+          selectedMachine.type === 'Router' ? 'router' : 'laser',
+          targetWidth,
+          targetHeight
         );
         artifactThickness = result.materialThickness_mm || result.recommendedThicknessMm || selectedMaterial?.thickness_mm || 3.0;
         finalSvg = ensureSvgMetadataBlock(result.svgContent, artifactThickness, kerfCompensation);
         generatedTitle = result.title;
         calculatedWidth = result.widthMm;
         calculatedHeight = result.heightMm;
+        setTargetWidth(result.widthMm);
+        setTargetHeight(result.heightMm);
         artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation);
       }
 
       setProcessingStep('3/3 Calculando métricas de corte, kerf e G-code...');
       const metrics = calculateSvgMetrics(finalSvg);
+      const lowerPrompt = promptText.toLowerCase();
+      const detectedModel3d = lowerPrompt.includes('luminaria')
+        ? 'luminaria-geometrica'
+        : lowerPrompt.includes('caixa') || lowerPrompt.includes('organizador')
+        ? 'caixa-fingerjoint'
+        : lowerPrompt.includes('mandala') || lowerPrompt.includes('flor') || lowerPrompt.includes('porta-copo') || lowerPrompt.includes('hexagon')
+        ? 'mandala-camadas'
+        : lowerPrompt.includes('trofeu') || lowerPrompt.includes('troféu')
+        ? 'trofeu-acrilico'
+        : 'padrao';
+
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
@@ -413,7 +428,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         cutLength_mm: metrics.totalCutLengthMm,
         engraveArea_cm2: metrics.engraveAreaCm2,
         materialName: selectedMaterial.name,
-        model3dType: promptText.toLowerCase().includes('luminaria') ? 'luminaria-geometrica' : promptText.toLowerCase().includes('caixa') ? 'caixa-fingerjoint' : promptText.toLowerCase().includes('porta-copo') ? 'mandala-camadas' : 'padrao',
+        model3dType: detectedModel3d,
         partsCount: metrics.elementCount,
         svgString: finalSvg,
         estimatedLaserSeconds: Math.round(metrics.totalCutLengthMm / 25) + 15,

@@ -38,7 +38,7 @@ import { initializeSreTelemetry } from './services/telemetry';
 import { useFirebase } from './services/firebase/FirebaseContext';
 import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes } from './services/firebase/firebase';
 import { Info } from 'lucide-react';
-import { convertQuote, entityId, documentNumber, money } from './utils/quoteEngine';
+import { entityId, documentNumber, money } from './utils/quoteEngine';
 import { TARIFA_ENERGIA_POR_UF } from './utils/calculations';
 
 // Inicialização imediata dos interceptores e manipuladores SRE
@@ -60,8 +60,8 @@ export default function App() {
     syncProductMutation,
     deleteProductMutation,
     salesOrders: remoteSalesOrders,
-    syncSalesOrderMutation,
     createCatalogOrderMutation,
+    convertQuoteMutation,
     deleteSalesOrderMutation,
     machines: remoteMachines,
     syncMachineMutation,
@@ -362,22 +362,16 @@ export default function App() {
   };
 
   // The conversion is validated before any local or remote mutation.
-  const handleConvertQuoteToOrder = (quote: Quote) => {
-    if (conversionInProgress.current.has(quote.id)) return;
+  const handleConvertQuoteToOrder = async (quote: Quote) => {
+    if (conversionInProgress.current.has(quote.id)) throw new Error('A conversão deste orçamento já está em andamento.');
+    conversionInProgress.current.add(quote.id);
     try {
-      const converted = convertQuote(quote, { materials, machines, fixedCosts, monthlyRevenueTarget, taxes, company }, salesOrders);
-      conversionInProgress.current.add(quote.id);
-      setSalesOrders(prev => [converted.order, ...prev]);
-      setProductionOrders(prev => [...converted.productionOrders, ...prev]);
-      setQuotes(prev => [converted.quote, ...prev.filter(q => q.id !== quote.id)]);
-      void syncQuoteMutation(converted.quote).catch(() => {});
-      void syncSalesOrderMutation(converted.order).catch(() => {});
-      converted.productionOrders.forEach(op => { void syncOrderMutation(op).catch(() => {}); });
+      await convertQuoteMutation(quote, { materials, machines, fixedCosts, monthlyRevenueTarget, taxes, company });
       setActionError(null);
       setActiveTab('production');
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Não foi possível converter o orçamento.');
-    }
+      throw error instanceof Error ? error : new Error('Não foi possível converter o orçamento.');
+    } finally { conversionInProgress.current.delete(quote.id); }
   };
 
   // Transfer from Design Studio to Nesting
@@ -386,10 +380,10 @@ export default function App() {
     setActiveTab('nesting');
   };
 
-  const handleCreateProduct = (newProduct: ProductInventory) => {
-    if (inventory.some(item => item.sku.toUpperCase() === newProduct.sku.toUpperCase())) { setActionError('Já existe um produto com este SKU.'); return; }
-    setInventory(prev => [newProduct, ...prev]);
-    void syncProductMutation(newProduct).catch(() => {});
+  const handleCreateProduct = async (newProduct: ProductInventory) => {
+    if (!user) throw new Error('Entre na sua conta para cadastrar produtos.');
+    if (inventory.some(item => item.sku.toUpperCase() === newProduct.sku.toUpperCase())) throw new Error('Já existe um produto com este SKU.');
+    await syncProductMutation(newProduct, true);
   };
 
   const handleUpdateMachines = (newMachines: Machine[]) => {
@@ -407,7 +401,7 @@ export default function App() {
     quotes: { title: 'Gerador de Orçamentos', subtitle: 'Propostas comerciais com envio e mensagem para WhatsApp' },
     production: { title: 'Chão de Fábrica & Kanban CNC', subtitle: 'Fluxo visual de ordens, bipagem de código de barras e tempos de máquina' },
     inventory: { title: 'Controle de Estoque por SKU', subtitle: 'Saldo Físico, Comprometido, Disponível e Ponto de Pedido' },
-    catalog: { title: 'Catálogo & Loja Online', subtitle: 'Checkout simulado com Asaas Pix e sincronização de marketplaces' },
+    catalog: { title: 'Catálogo & Pedidos', subtitle: 'Produtos e registro de pedidos com pagamento pendente' },
     fiscal: { title: 'Documentos & Expedição', subtitle: 'Resumo dos pedidos e identificação interna em ZPL' },
     observability: { title: 'Centro de Observabilidade & SRE', subtitle: 'Telemetria ponta a ponta, Request ID, logs estruturados e rollback automático' },
     settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, custos fixos e CEMIG (MG)' }
@@ -567,7 +561,7 @@ export default function App() {
           )}
 
           {activeTab === 'quotes' && technicalReady && (
-            <QuotesView
+            <QuotesView key={user?.uid || 'guest'}
               newQuoteToken={newQuoteToken}
               quotes={quotes}
               materials={materials}
@@ -594,7 +588,7 @@ export default function App() {
           )}
 
           {activeTab === 'inventory' && (
-            <InventoryView
+            <InventoryView key={user?.uid || 'guest'}
               inventory={inventory}
               onUpdateStock={handleUpdateStock}
               onCreateProduct={handleCreateProduct}

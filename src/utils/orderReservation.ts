@@ -9,7 +9,11 @@ export interface ReservationTransaction {
   createOrder(order: SalesOrder, ownerId: string): void;
   updateStock(id: string, committedStock: number): void;
 }
-export const productDocumentId = (sku: string) => sku.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+export async function productDocumentId(ownerId: string, sku: string): Promise<string> {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(ownerId) || !sku.trim() || sku.length > 64) throw new Error('Conta ou SKU inválido.');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sku.trim().toUpperCase()));
+  return `${ownerId}_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
+}
 const signature = (order: SalesOrder) => JSON.stringify([
   order.id, order.orderNumber, order.channel, order.customerName, order.customerDoc || '',
   order.customerCity, order.customerUf, order.subtotal, order.shippingCost, order.discount, order.total,
@@ -30,7 +34,7 @@ export async function reserveCatalogOrder(tx: ReservationTransaction, order: Sal
   const quantities = new Map<string, { sku: string; quantity: number; unitPrice: number }>();
   for (const item of order.items) {
     if (item.sku.length > 64 || item.quantity > 10000 || !Number.isFinite(item.laserTimeSeconds) || item.laserTimeSeconds < 0) throw new Error('Revise o SKU, quantidade e tempo de fabricação.');
-    const id = productDocumentId(item.sku);
+    const id = await productDocumentId(ownerId, item.sku);
     const prior = quantities.get(id);
     if (prior && (prior.sku !== item.sku || prior.unitPrice !== item.unitPrice)) throw new Error('SKUs conflitantes no pedido.');
     const quantity = (prior?.quantity || 0) + item.quantity;

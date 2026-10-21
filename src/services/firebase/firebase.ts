@@ -12,6 +12,7 @@ import {
   runTransaction,
   doc,
   getDoc,
+  getDocs,
   getDocFromServer,
   setDoc,
   updateDoc,
@@ -24,7 +25,10 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
-import { reserveCatalogOrder } from '../../utils/orderReservation';
+import { reserveCatalogOrder, productDocumentId } from '../../utils/orderReservation';
+import { convertQuoteInTransaction } from '../../utils/quoteConversion';
+import type { PricingContext } from '../../utils/quoteEngine';
+import { selectOwnedProduct, planProductSave, assertProductDeletable } from '../../utils/productIdentity';
 import { ProductionOrder, Material, Quote, CompanyProfile, UF, ProductInventory, SalesOrder, Machine } from '../../types';
 
 // Inicialização oficial do Firebase
@@ -662,12 +666,19 @@ export function subscribeToProducts(
   );
 }
 
-export async function saveProductToFirestore(product: ProductInventory, userId: string): Promise<void> {
-  const cleanId = (product.sku || 'sku-custom').toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+async function resolveOwnedProduct(userId: string, sku: string) {
+  const id = await productDocumentId(userId, sku);
+  const snapshots = await getDocs(query(collection(db, 'products'), where('ownerId', '==', userId), where('sku', '==', sku)));
+  const candidate = selectOwnedProduct(userId, sku, snapshots.docs.map(snapshot => ({ id: snapshot.id, ownerId: snapshot.data().ownerId, sku: snapshot.data().sku })));
+  return { target: doc(db, 'products', id), candidate: candidate ? doc(db, 'products', candidate.id) : doc(db, 'products', id) };
+}
+
+export async function saveProductToFirestore(product: ProductInventory, userId: string, createOnly = false): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para salvar produtos.');
+  const cleanId = await productDocumentId(userId, product.sku);
   const path = `products/${cleanId}`;
   try {
-    const docRef = doc(db, 'products', cleanId);
-    const existingSnap = await getDoc(docRef);
+    const refs = await resolveOwnedProduct(userId, product.sku);
 
     const dataToSave: Record<string, any> = {
       sku: product.sku,
@@ -688,28 +699,43 @@ export async function saveProductToFirestore(product: ProductInventory, userId: 
       updatedAt: serverTimestamp()
     };
 
-    if (existingSnap.exists()) {
-      await updateDoc(docRef, dataToSave);
-    } else {
-      await setDoc(docRef, {
-        id: cleanId,
-        ownerId: userId,
-        ...dataToSave,
-        createdAt: serverTimestamp()
-      });
-    }
+    await runTransaction(db, async transaction => {
+      if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+      const target = await transaction.get(refs.target);
+      const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+      if (createOnly && (target.exists() || candidate.exists())) throw new Error('Este SKU já está cadastrado. Atualize a lista de produtos.');
+      const plan = planProductSave(userId, product.sku, cleanId, target.exists() ? target.data() : undefined,
+        candidate.exists() && refs.candidate.path !== refs.target.path ? { id: candidate.id, data: candidate.data() } : undefined,
+        dataToSave, serverTimestamp());
+      if (plan.create) transaction.set(refs.target, plan.data);
+      else transaction.update(refs.target, plan.data);
+      if (plan.deleteId) transaction.delete(doc(db, 'products', plan.deleteId));
+    });
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    if (!(error as { code?: string })?.code) throw error;
+    throw new Error('Não foi possível salvar o produto. Verifique a conexão e as permissões.');
   }
 }
 
-export async function deleteProductFromFirestore(sku: string): Promise<void> {
-  const cleanId = sku.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+export async function deleteProductFromFirestore(sku: string, userId: string): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para excluir produtos.');
+  const cleanId = await productDocumentId(userId, sku);
   const path = `products/${cleanId}`;
   try {
-    await deleteDoc(doc(db, 'products', cleanId));
+    const refs = await resolveOwnedProduct(userId, sku);
+    await runTransaction(db, async transaction => {
+      if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+      const target = await transaction.get(refs.target);
+      const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+      if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados. Revise os registros antes de excluir.');
+      const existing = candidate.exists() ? candidate : target;
+      if (!existing.exists()) return;
+      assertProductDeletable(userId, sku, existing.data());
+      transaction.delete(existing.ref);
+    });
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    if (!(error as { code?: string })?.code) throw error;
+    throw new Error('Não foi possível excluir o produto. Verifique a conexão e as permissões.');
   }
 }
 
@@ -761,24 +787,68 @@ export function subscribeToSalesOrders(
   );
 }
 
+export async function convertQuoteInFirestore(quote: Quote, context: PricingContext, userId: string): Promise<void> {
+  if (!userId || auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para converter orçamentos.');
+  try {
+    await runTransaction(db, async transaction => {
+      if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela antes de converter.');
+      const read = async (collection: string, id: string) => {
+        const snapshot = await transaction.get(doc(db, collection, id));
+        return snapshot.exists() ? snapshot.data() : undefined;
+      };
+      const clean = (value: object) => Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
+      await convertQuoteInTransaction({
+        getQuote: async id => await read('quotes', id) as Quote & { ownerId: string } | undefined,
+        getSale: async id => await read('sales_orders', id) as SalesOrder & { ownerId: string } | undefined,
+        getProduction: id => read('orders', id),
+        writeQuote: (value, exists) => {
+          const ref = doc(db, 'quotes', value.id);
+          if (exists) transaction.update(ref, { status: value.status, updatedAt: serverTimestamp() });
+          else transaction.set(ref, { ...clean(value), items: value.items.map(clean), ownerId: userId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        },
+        createSale: value => transaction.set(doc(db, 'sales_orders', value.id), { ...clean(value), items: value.items.map(clean), ownerId: userId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+        createProduction: value => transaction.set(doc(db, 'orders', value.id), { ...clean(value), ownerId: userId, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+      }, quote, context, userId);
+    });
+  } catch (error) {
+    if ((error as { code?: string })?.code) throw new Error('Não foi possível confirmar a conversão na nuvem. Verifique a conexão e as permissões e tente novamente.');
+    throw error;
+  }
+}
+
 export async function createCatalogOrderInFirestore(order: SalesOrder, userId: string): Promise<void> {
   if (!userId || auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para registrar pedidos.');
   try {
+    const productRefs = new Map(await Promise.all([...new Set(order.items.map(item => item.sku))].map(async sku => {
+      const refs = await resolveOwnedProduct(userId, sku);
+      return [refs.target.id, refs] as const;
+    })));
     await runTransaction(db, async transaction => {
       if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Entre novamente antes de confirmar.');
+      const stockRefs = new Map<string, ReturnType<typeof doc>>();
       await reserveCatalogOrder({
         getOrder: async id => {
           const snapshot = await transaction.get(doc(db, 'sales_orders', id));
           return snapshot.exists() ? snapshot.data() as SalesOrder & { ownerId: string } : undefined;
         },
         getProduct: async id => {
-          const snapshot = await transaction.get(doc(db, 'products', id));
+          const refs = productRefs.get(id);
+          if (!refs) throw new Error('Produto não localizado nesta conta. Atualize o catálogo.');
+          const target = await transaction.get(refs.target);
+          const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+          if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados. Revise os registros antes de confirmar.');
+          const snapshot = candidate.exists() ? candidate : target;
+          stockRefs.set(id, snapshot.ref);
           return snapshot.exists() ? snapshot.data() as ProductInventory & { ownerId: string } : undefined;
         },
         createOrder: (value, ownerId) => transaction.set(doc(db, 'sales_orders', value.id), {
           ...value, ownerId, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         }),
-        updateStock: (id, committedStock) => transaction.update(doc(db, 'products', id), { committedStock, updatedAt: serverTimestamp() })
+        updateStock: (id, committedStock) => {
+          const ref = stockRefs.get(id);
+          if (!ref) throw new Error('A reserva não possui produto correspondente.');
+          transaction.update(ref, { committedStock, updatedAt: serverTimestamp() });
+        }
       }, order, userId);
     });
   } catch (error) {

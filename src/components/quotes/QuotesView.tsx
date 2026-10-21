@@ -31,7 +31,7 @@ interface QuotesViewProps {
   taxes: TaxConfig[];
   company: CompanyProfile;
   onSaveQuote: (quote: Quote) => void | Promise<void>;
-  onConvertToOrder?: (quote: Quote) => void;
+  onConvertToOrder?: (quote: Quote) => void | Promise<void>;
   onDeleteQuote?: (quoteId: string) => void;
 }
 
@@ -65,6 +65,7 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   const [items, setItems] = useState<QuoteItem[]>(activeQuote?.items || []);
 
   const handleSelectQuote = (q: Quote) => {
+    if (isSaving) return;
     setSelectedQuoteId(q.id);
     setIsCreatingNew(false);
     setFormError(null);
@@ -80,6 +81,8 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const converting = React.useRef(false);
   const newQuoteId = React.useRef(entityId('orc'));
   const resetQuote = () => {
     newQuoteId.current = entityId('orc');
@@ -141,12 +144,16 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
     } finally { setIsSaving(false); }
   };
 
-  const handleConvertOrder = () => {
+  const handleConvertOrder = async () => {
+    if (converting.current || isSaving || !onConvertToOrder) return;
     if (!priced.isValid || isConverted || !customerName.trim()) { setFormError(priced.errors.join(' ') || 'Revise o cliente e o status do orçamento.'); return; }
-    onConvertToOrder?.(buildQuote());
+    converting.current = true; setIsSaving(true); setIsConverting(true); setFormError(null);
+    try { await onConvertToOrder(buildQuote()); }
+    catch (error) { setFormError(error instanceof Error ? error.message : 'Não foi possível converter. Tente novamente.'); }
+    finally { converting.current = false; setIsSaving(false); setIsConverting(false); }
   };
 
-  const whatsappMessage = `*ORÇAMENTO CNC - ${company.tradeName.toUpperCase()} (JUIZ DE FORA)*
+  const whatsappMessage = `*ORÇAMENTO CNC - ${company.tradeName.toUpperCase()} *
 Olá ${customerName || 'Cliente'}! Segue a proposta técnica de corte e usinagem:
 
 📄 Proposta: *${activeQuote?.quoteNumber || documentNumber('ORC', newQuoteId.current)}*
@@ -163,22 +170,24 @@ ${calculatedItems
   .join('\n')}
 
 💰 *VALOR TOTAL: R$ ${quoteSubtotal.toFixed(2)}*
-⚙️ *Prazo de Produção:* 3 a 4 dias úteis no galpão de Juiz de Fora / MG
-💳 *Pagamento:* Pix Asaas ou Cartão parcelado
+⚙️ *Prazo de produção:* a combinar
+💳 *Pagamento:* a combinar
 
 Podemos aprovar o corte para entrarmos na fila de produção?`;
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(whatsappMessage);
-    setCopiedSuccess(true);
-    setTimeout(() => setCopiedSuccess(false), 2000);
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(whatsappMessage);
+      setCopiedSuccess(true);
+      setTimeout(() => setCopiedSuccess(false), 2000);
+    } catch { setFormError('Não foi possível copiar. Selecione e copie o texto da mensagem.'); }
   };
 
   const cleanPhone = customerPhone.replace(/\D/g, '');
   const whatsappUrl = `https://wa.me/${cleanPhone.startsWith('55') && cleanPhone.length >= 12 ? cleanPhone : '55' + cleanPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-y-auto">
+    <fieldset disabled={isSaving} aria-busy={isSaving} className="flex flex-col min-w-0 h-full bg-slate-50 text-slate-900 overflow-y-auto">
       {/* Top Banner */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
         <div className="flex items-center gap-3">
@@ -219,7 +228,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
               className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
             >
               <CheckCheck className="w-4 h-4" />
-              <span>Aprovar & Converter em Pedido</span>
+              <span>{isConverting ? 'Confirmando conversão…' : 'Aprovar & Converter em Pedido'}</span>
             </button>
           )}
 
@@ -316,6 +325,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
         {/* Right Column: Active Quote Details & Editor */}
         <div className="lg:col-span-8 space-y-5">
+          <fieldset disabled={isConverted} className="min-w-0 space-y-5">
           {/* Customer & General Settings */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -450,7 +460,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                       <label className="text-[10px] text-slate-500 block mb-0.5">Largura (mm)</label>
                       <input
                         type="number"
-                        value={item.width_mm || 150}
+                        value={item.width_mm ?? ''}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, width_mm: Number(e.target.value) } : entry));
                         }}
@@ -462,7 +472,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                       <label className="text-[10px] text-slate-500 block mb-0.5">Altura (mm)</label>
                       <input
                         type="number"
-                        value={item.height_mm || 100}
+                        value={item.height_mm ?? ''}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, height_mm: Number(e.target.value) } : entry));
                         }}
@@ -528,6 +538,7 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
             </div>
           </div>
 
+          </fieldset>
           {/* WhatsApp Message */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
@@ -553,7 +564,8 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                 </button>
 
                 <a
-                  href={whatsappUrl}
+                  href={!isSaving && priced.isValid && /^(?:\d{10,11}|55\d{10,11})$/.test(cleanPhone) ? whatsappUrl : undefined}
+                  aria-disabled={isSaving || !priced.isValid || !/^(?:\d{10,11}|55\d{10,11})$/.test(cleanPhone)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
@@ -569,6 +581,6 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
           </div>
         </div>
       </div>
-    </div>
+    </fieldset>
   );
 };

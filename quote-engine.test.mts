@@ -20,6 +20,12 @@ const quote: Quote = { id: 'q1', quoteNumber: 'ORC-1', customerName: 'Cliente', 
   items: [{ id: 'item1', description: 'Peça', materialId: 'mdf', machineId: 'laser',
     width_mm: 100, height_mm: 100, cutLength_mm: 1200, engraveArea_cm2: 0, quantity: 3, additionalCost: 0 }] };
 
+test('dimensões ausentes não são substituídas por uma peça fictícia', () => {
+  const missing = { ...quote, items: [{ ...quote.items[0], width_mm: undefined, height_mm: undefined }] };
+  assert.equal(priceQuote(missing, context).isValid, false);
+  assert.throws(() => convertQuote(missing, context));
+});
+
 test('preço real preservado na conversão, taxa única e pagamento pendente', () => {
   const priced = priceQuote(quote, context);
   assert.equal(priced.isValid, true);

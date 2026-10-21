@@ -40,6 +40,7 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
     if (!selectedProduct || submitting.current) return;
     submitting.current = true;
     setSaving(true);
+    setError('');
     try {
       const order = createCatalogOrder(selectedProduct, quantity, { name: customerName, doc: customerDoc, city: customerCity, uf: customerUf as UF });
       order.id = requestId.current;

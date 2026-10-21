@@ -12,6 +12,10 @@ service cloud.firestore {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidProductId(id) {
+      return id is string && id.size() > 0 && id.size() <= 256 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -135,8 +139,8 @@ service cloud.firestore {
 
     function isValidProduct(data) {
       return data.keys().hasAll(['id', 'ownerId', 'sku', 'name', 'category', 'physicalStock', 'unitPrice', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'ownerId', 'sku', 'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'createdAt', 'updatedAt']) &&
-        data.id is string && isValidId(data.id) &&
+        data.keys().hasOnly(['id', 'ownerId', 'sku', 'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'createdAt', 'updatedAt', 'legacyId', 'legacyCreatedAt']) &&
+        data.id is string && isValidProductId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.sku is string && data.sku.size() > 0 && data.sku.size() <= 64 &&
         data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
@@ -152,7 +156,9 @@ service cloud.firestore {
         (!('costPrice' in data) || (data.costPrice is number && data.costPrice >= 0)) &&
         (!('materialId' in data) || (data.materialId is string && data.materialId.size() <= 64)) &&
         (!('estimatedLaserTimeSeconds' in data) || (data.estimatedLaserTimeSeconds is number && data.estimatedLaserTimeSeconds >= 0)) &&
-        (!('dimensions_mm' in data) || data.dimensions_mm is map);
+        (!('dimensions_mm' in data) || data.dimensions_mm is map) &&
+        (!('legacyId' in data) || isValidId(data.legacyId)) &&
+        (!('legacyCreatedAt' in data) || data.legacyCreatedAt is timestamp);
     }
 
     function isValidSalesOrder(data) {
@@ -318,19 +324,20 @@ service cloud.firestore {
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow get: if isVerified() && isValidId(productId) && (!exists(/databases/$(database)/documents/products/$(productId)) || resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get: if isVerified() && isValidProductId(productId) && (!exists(/databases/$(database)/documents/products/$(productId)) || resource.data.ownerId == request.auth.uid || isAdmin());
       allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
-      allow create: if isVerified() && isValidId(productId) && isValidProduct(incoming()) &&
+      allow create: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
         incoming().ownerId == request.auth.uid && incoming().id == productId &&
+        productId.matches('^' + request.auth.uid + '_[a-f0-9]{64}$') &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(productId) && isValidProduct(incoming()) &&
+      allow update: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
         (existing().ownerId == request.auth.uid || isAdmin()) &&
         incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
         (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'updatedAt'
         ]));
-      allow delete: if isVerified() && isValidId(productId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow delete: if isVerified() && isValidProductId(productId) && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
 
     // SALES ORDERS COLLECTION

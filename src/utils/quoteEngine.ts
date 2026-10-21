@@ -25,8 +25,8 @@ export function priceQuote(quote: Pick<Quote, 'items' | 'desiredProfitMarginPct'
   const items = quote.items.map(item => {
     const mat = context.materials.find(m => m.id === item.materialId);
     const mach = context.machines.find(m => m.id === item.machineId);
-    const pieceWidth = item.width_mm ?? 150;
-    const pieceHeight = item.height_mm ?? 100;
+    const pieceWidth = item.width_mm ?? 0;
+    const pieceHeight = item.height_mm ?? 0;
     const validNumbers = [pieceWidth, pieceHeight, item.quantity].every(n => Number.isFinite(n) && n > 0)
       && Number.isSafeInteger(item.quantity)
       && [item.cutLength_mm, item.engraveArea_cm2, item.additionalCost].every(n => Number.isFinite(n) && n >= 0);
@@ -58,14 +58,14 @@ export function priceQuote(quote: Pick<Quote, 'items' | 'desiredProfitMarginPct'
 }
 
 /** One pricing implementation for the editor, saved proposal and sales conversion. */
-export function convertQuote(quote: Quote, context: PricingContext, existingOrders: SalesOrder[] = []) {
+export function convertQuote(quote: Quote, context: PricingContext, existingOrders: SalesOrder[] = [], ids?: { orderId: string; productionId: (index: number) => string }) {
   if (quote.status === 'Convertido em Pedido' || existingOrders.some(order => order.sourceQuoteId === quote.id)) {
     throw new Error('Este orçamento já foi convertido em pedido.');
   }
   const priced = priceQuote(quote, context);
   if (!priced.isValid) throw new Error(priced.errors.join(' '));
   if (!quote.customerName.trim()) throw new Error('Informe o nome do cliente.');
-  const id = entityId('ped');
+  const id = ids?.orderId ?? entityId('ped');
   const now = new Date().toISOString();
   const orderItems: OrderItem[] = priced.items.map(item => ({ sku: `SKU-${item.id}`, productName: item.description,
     quantity: item.quantity, unitPrice: item.unitPrice, totalPrice: item.totalPrice, laserTimeSeconds: item.totalLaserSeconds }));
@@ -73,9 +73,9 @@ export function convertQuote(quote: Quote, context: PricingContext, existingOrde
     channel: 'Balcão/Direto', customerName: quote.customerName, customerDoc: quote.customerDoc,
     customerCity: context.company.city, customerUf: context.company.uf, items: orderItems,
     subtotal: priced.subtotal, shippingCost: quote.fixedExtraFee, discount: 0, total: priced.total,
-    paymentMethod: 'Pix Asaas', paymentStatus: 'Pendente', fulfillmentStatus: 'Em Produção', createdAt: now };
+    paymentMethod: 'A definir', paymentStatus: 'Pendente', fulfillmentStatus: 'Em Produção', createdAt: now };
   const productionOrders: ProductionOrder[] = priced.items.map((item, index) => {
-    const opId = entityId('op');
+    const opId = ids?.productionId(index) ?? entityId('op');
     return { id: opId, orderNumber: documentNumber('OP', opId), sku: orderItems[index].sku,
       productName: item.description, quantityRequested: item.quantity, quantityIdealCalculated: item.quantity,
       status: 'Aguardando Corte', createdAt: now, dueDate: new Date(Date.now() + 3 * 864e5).toISOString(), priority: 'Alta',

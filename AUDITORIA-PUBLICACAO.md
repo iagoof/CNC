@@ -5,6 +5,34 @@
 
 ## Atualização da revisão
 
+### Identidade de produtos por conta — revisão adicional
+
+- Documentos novos de produto usam UID + SHA-256 do SKU normalizado. O mesmo SKU em contas diferentes tem identificadores distintos; caracteres como barra e hífen não são mais reduzidos ao mesmo identificador. As regras locais exigem o prefixo do proprietário em novas criações e aceitam o tamanho necessário para UIDs longos.
+- Resolução de produtos antigos usa consulta com proprietário e SKU. Reserva, gravação e exclusão conferem novamente os dados dentro da transação. A reserva continua aceitando o registro legado da própria conta; salvar o produto migra o documento em uma única transação, preservando a data antiga em `legacyCreatedAt` e o ID antigo em `legacyId`. Não foi executada migração em produção.
+- Duplicatas são recusadas, sem somar saldos automaticamente. Edições e migrações preservam o comprometido lido no servidor, mesmo se o editor tinha valor antigo. Exclusão pelo serviço recusa reservas ou produção em andamento. Estas proteções do serviço cliente ainda exigem reforço/homologação das invariantes no backend e nas regras.
+- Cadastro de novo produto usa criação exclusiva, aguarda a nuvem e não inclui um registro local ou mensagem de sucesso antes da confirmação. Falhas mantêm o formulário aberto. Valores iniciais de estoque e preços passaram a zero; material e dimensões não recebem dados fictícios. O formulário técnico ainda precisa ser completado para informar esses parâmetros.
+- Seis testes de identidade/migração/exclusão e um teste de reserva de mesmo SKU entre contas passaram, além dos testes anteriores de concorrência. O componente real de estoque foi testado com callback isolado: primeira tentativa falhou com zero registros e a segunda confirmou um produto. Evidência: `tests/evidence/product-registration.png`.
+- Ainda não há evidência de execução dessas regras no emulador ou no Firestore real. `firebase-tools` e `@firebase/rules-unit-testing` não estão instalados neste projeto. As novas regras precisam ser validadas e publicadas antes de usar o novo formato em produção; permissões e eventual índice da consulta por proprietário/SKU devem ser homologados. Materiais, máquinas e outros dados iniciais também precisam de revisão de identidade por conta.
+
+### Conversão de orçamento — revisão adicional
+
+- `convertQuoteInFirestore` lê orçamento, pedido e identificadores das OPs numa transação antes de gravar qualquer um deles. O App aguarda a confirmação, não acrescenta registros locais antecipadamente e libera o bloqueio de tentativa no `finally`, inclusive em falhas.
+- Pedido e OPs recebem identificadores determinísticos vinculados ao orçamento. Confirmações repetidas e simultâneas não criam outro conjunto. Orçamento de outra conta, conteúdo salvo diferente do formulário e colisão de identificadores são recusados. Conversões antigas com outros identificadores exigem revisão do vínculo, sem criação automática de duplicatas.
+- Durante a confirmação, o editor fica bloqueado. Falhas aparecem na própria proposta. Depois de convertido, os campos ficam bloqueados; Novo Orçamento continua disponível. Forma de pagamento permanece a definir, sem data ou confirmação de pagamento.
+- Removido o uso silencioso de dimensões de 150 × 100 mm quando o orçamento não informa medidas. A precificação e a conversão agora rejeitam dimensões ausentes. A mensagem comercial deixou de prometer cobrança Asaas/cartão e prazo fixo; a cópia aguarda a API e mostra falha quando necessário.
+- Seis testes de transação em `quote-conversion.test.mts` e um teste adicional de dimensões passaram. O adaptador de teste modela commit, rollback e disputa de versões; não substitui homologação do SDK e das regras do Firestore.
+- O componente real em `tests/quote-conversion-workflow.html` foi exercitado com commit simulado: primeira tentativa falhou sem confirmar registros; a segunda confirmou um pedido e duas OPs. A proposta ficou convertida e com edição bloqueada. Evidência: `tests/evidence/quote-conversion.png`.
+- A transação usa o contexto de preços fornecido pela tela. Ainda é necessário persistir/homologar uma revisão de preços aceita, validar parâmetros autoritativos no servidor, os limites das regras e o comportamento em rede real antes de lançamento. Esta conversão cria peças sob encomenda; não reserva automaticamente SKUs do catálogo.
+
+### Pedido do catálogo e reserva — revisão adicional
+
+- A confirmação do catálogo agora aguarda `createCatalogOrderInFirestore`: uma transação lê o pedido e todos os produtos antes de gravar o pedido e atualizar o estoque comprometido. O App não acrescenta um pedido local nem altera estoque antes dessa confirmação; as assinaturas da nuvem atualizam a tela.
+- As leituras conferem proprietário, SKU, preço vigente e quantidade de estoque válida. Itens do mesmo SKU são agrupados. O mesmo identificador com os mesmos dados não reserva novamente; reutilização com outro conteúdo é recusada. Novos pedidos permanecem pendentes de pagamento e expedição.
+- Durante a confirmação, formulário e fechamento ficam bloqueados. Falhas mantêm os dados e exibem erro. A nova tentativa conserva o identificador enquanto o formulário estiver aberto; recarregar a página ou fechar/reabrir inicia outro formulário. Ainda falta recuperação durável de operações pendentes após recarga.
+- Seis testes de `order-reservation.test.mts` passaram, exercitando a lógica real de reserva com um adaptador de banco otimista: commit falho, concorrência, confirmação repetida, preço alterado, conta indevida, SKU ausente e agrupamento. O adaptador permite verificar retry/rollback, mas não substitui testes do SDK ou das regras no emulador/ambiente real.
+- Em `tests/catalog-workflow.html`, um callback assíncrono isolado simulou falha seguida de sucesso. Foram observados campos desabilitados durante a espera, erro sem sucesso antecipado e duas tentativas com um único identificador, resultando em um pedido de R$ 128,70. Evidência: `tests/evidence/catalog-reservation-retry.png`.
+- A implementação segue a [documentação de transações do Firestore](https://firebase.google.com/docs/firestore/manage-data/transactions). Ainda é necessário homologar permissões, falhas de rede reais e concorrência no Firestore. A conversão de orçamento também recebeu uma transação. A revisão de identidade acima implementa IDs de produtos por conta e migração ao salvar, ainda sem execução/homologação em produção.
+
 ### Documentos e expedição — revisão adicional
 
 - Removidos a geração local de chave fiscal, o protocolo fixo de autorização, a classificação fiscal fixa, o rastreamento inventado, o peso/volume de exemplo e os desenhos que simulavam códigos de barras/QR Code.
@@ -19,7 +47,7 @@
 
 - Removidos o QR Code fictício, o botão de aprovação simulada e a promessa de pagamento instantâneo. O catálogo registra pedidos com pagamento e expedição pendentes, forma de pagamento a definir e sem data de pagamento.
 - Nome, cidade, UF, quantidade inteira, preço e tempo de fabricação são validados. Documento opcional permanece vazio; não é substituído por CPF fictício. O número do pedido usa identificador único e o ano corrente.
-- A confirmação informa o registro do pedido; não afirma cobrança, criação de OP ou sincronização concluída. Há proteção contra envio repetido no mesmo formulário. A persistência e a reserva de estoque ainda dependem de operações separadas no App, sem transação atômica homologada.
+- A confirmação informa o registro do pedido e não afirma cobrança ou criação de OP. Há proteção contra envio repetido no mesmo formulário. A revisão adicional de pedido/reserva acima substitui as operações separadas do catálogo por uma transação, ainda sem homologação no Firestore real.
 - Marketplaces mostram “Integração não configurada”. Foram removidos os status de conexão inventados, comissões fixas e botões de sincronização sem ação. As integrações continuam pendentes de implementação/configuração real.
 - Dois testes de domínio aprovados em `catalog-order.test.mts`: conservação dos valores/estados e bloqueio de entradas inválidas. No componente real em ambiente isolado, 3 × R$ 42,90 geraram um único pedido de R$ 128,70, pagamento e expedição pendentes. Evidência: `tests/evidence/catalog-order.png`.
 - Após estas alterações: 13 testes Node aprovados (catálogo, nesting e orçamento), TypeScript e build Vite aprovados. Isto não substitui testes de integração em homologação.
