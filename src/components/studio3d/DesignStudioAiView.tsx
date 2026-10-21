@@ -1,3 +1,4 @@
+import type { NestingTransfer } from '../../utils/nestingEngine';
 import { calcLaserCutTimeAndCost } from '../../utils/calculations';
 import { sanitizeSvg } from '../../utils/sanitizeSvg';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
@@ -68,7 +69,7 @@ interface DesignStudioAiViewProps {
   materials: Material[];
   machines: Machine[];
   onSendTo3D?: (modelType: string) => void;
-  onSendToNesting?: (part: { name: string; width: number; height: number; cutLength_mm: number }) => void;
+  onSendToNesting?: (part: NestingTransfer) => void;
   onSendToCam?: (gcode: string, machineType: 'laser' | 'router') => void;
   onSendToQuote?: (item: {
     description: string;
@@ -446,15 +447,13 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   };
 
   const handleSendToNestingAction = () => {
-    if (onSendToNesting) {
-      onSendToNesting({
-        name: currentArtifact.title,
-        width: currentArtifact.width_mm,
-        height: currentArtifact.height_mm,
-        cutLength_mm: currentArtifact.cutLength_mm
-      });
-    }
-    triggerToast('Peça enviada para o Nesting de Chapas!');
+    try {
+      if (!onSendToNesting) throw new Error('Nesting indisponível.');
+      const svgContent = buildFabricationSvg();
+      const metrics = calculateSvgMetrics(svgContent);
+      onSendToNesting({ name: currentArtifact.title, width: metrics.widthMm, height: metrics.heightMm,
+        cutLength_mm: metrics.totalCutLengthMm, svgContent, quantity: 1 });
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao enviar o desenho para o nesting.'); }
   };
 
   const buildFabricationSvg = () => applyKerfToSvg(currentArtifact.svgString, kerfCompensation);

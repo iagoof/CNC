@@ -1,3 +1,4 @@
+import type { NestingTransfer } from '../../utils/nestingEngine';
 import { sanitizeSvg } from '../../utils/sanitizeSvg';
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -14,7 +15,8 @@ import {
   buildHeadphoneStand
 } from './LaserModel3D';
 import { generateCncVector } from '../../services/geminiCncService';
-import { convertSvgToDxf, calculateSvgMetrics } from '../../utils/cncExporters';
+import { convertSvgToDxf, calculateSvgMetrics, exportSceneGroupToStl } from '../../utils/cncExporters';
+import { buildRouterHeightmapRelief } from './LaserModel3D';
 import { useFirebase } from '../../services/firebase/FirebaseContext';
 import { FirestoreProject } from '../../services/firebase/firebase';
 import {
@@ -39,7 +41,7 @@ import {
 
 interface DesignStudioProps {
   initialModel?: string;
-  onSendToNesting?: (part: { name: string; width: number; height: number; cutLength_mm: number }) => void;
+  onSendToNesting?: (part: NestingTransfer) => void;
   onSendToQuote?: (part: { description: string; cutLength_mm: number; materialCategory: string }) => void;
 }
 
@@ -61,6 +63,10 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
   const [showKerf, setShowKerf] = useState<boolean>(true);
   const [isDockCollapsed, setIsDockCollapsed] = useState<boolean>(false);
   const [activeCameraView, setActiveCameraView] = useState<'iso' | 'top' | 'front' | 'side'>('iso');
+  const [isAutoRotating, setIsAutoRotating] = useState(false);
+  const [wireframeMode, setWireframeMode] = useState(false);
+  const [showGridFloor, setShowGridFloor] = useState(true);
+  const [lightIntensity, setLightIntensity] = useState(2.5);
 
   // AI Vectorizer State
   const [aiPrompt, setAiPrompt] = useState<string>('Caixa decorativa com encaixes finger joint e tampa de correr vazada');
@@ -147,6 +153,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
 
     // Studio Lighting Rig
     const warmKeyLight = new THREE.DirectionalLight(0xfff8ee, 2.5);
+    warmKeyLight.name = "studio-key-light";
     warmKeyLight.position.set(16, 28, 18);
     warmKeyLight.castShadow = !isSoftwareGl;
     warmKeyLight.shadow.mapSize.width = 1024;
@@ -164,6 +171,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
 
     // Light Floor Grid
     const gridHelper = new THREE.GridHelper(40, 40, 0x94a3b8, 0xe2e8f0);
+    gridHelper.name = "studio-grid-helper";
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
@@ -382,6 +390,68 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadStl = () => {
+    if (!sceneRef.current) return;
+    const modelRoot = sceneRef.current.getObjectByName('laser-model-root');
+    if (!modelRoot) {
+      triggerToast('Nenhum modelo 3D carregado para exportar.');
+      return;
+    }
+    exportSceneGroupToStl(modelRoot, `modelo_3d_${selectedModel}.stl`);
+    triggerToast('Modelo 3D exportado em formato STL binário com sucesso!');
+  };
+
+  const handleCaptureScreenshot = () => {
+    if (!rendererRef.current) return;
+    const dataUrl = rendererRef.current.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `render_3d_${selectedModel}_${finish}.png`;
+    a.click();
+    triggerToast('Screenshot HD do modelo 3D baixada com sucesso!');
+  };
+
+  const toggleAutoRotate = () => {
+    setIsAutoRotating(prev => !prev);
+    if (controlsRef.current) {
+      controlsRef.current.autoRotate = !isAutoRotating;
+      controlsRef.current.autoRotateSpeed = 2.0;
+    }
+  };
+
+  const toggleWireframe = () => {
+    const nextWireframe = !wireframeMode;
+    setWireframeMode(nextWireframe);
+    if (sceneRef.current) {
+      sceneRef.current.traverse(child => {
+        if (child instanceof THREE.Mesh && child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => { m.wireframe = nextWireframe; });
+          } else {
+            child.material.wireframe = nextWireframe;
+          }
+        }
+      });
+    }
+  };
+
+  const toggleGridFloor = () => {
+    const nextGrid = !showGridFloor;
+    setShowGridFloor(nextGrid);
+    if (sceneRef.current) {
+      const grid = sceneRef.current.getObjectByName('studio-grid-helper');
+      if (grid) grid.visible = nextGrid;
+    }
+  };
+
+  const handleUpdateLightIntensity = (val: number) => {
+    setLightIntensity(val);
+    if (sceneRef.current) {
+      const light = sceneRef.current.getObjectByName('studio-key-light') as THREE.DirectionalLight;
+      if (light) light.intensity = val;
+    }
+  };
+
   const handleDownloadDxf = () => {
     const svgContent = getActiveSvgString();
     const dxfString = convertSvgToDxf(svgContent);
@@ -525,14 +595,14 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
           </button>
           {onSendToNesting && (
             <button
-              onClick={() =>
-                onSendToNesting({
-                  name: currentDesignTitle,
-                  width: 220,
-                  height: 160,
-                  cutLength_mm: 2450
-                })
-              }
+              onClick={() => {
+                try {
+                  const svgContent = getActiveSvgString();
+                  const metrics = calculateSvgMetrics(svgContent);
+                  onSendToNesting({ name: currentDesignTitle, width: metrics.widthMm, height: metrics.heightMm,
+                    cutLength_mm: metrics.totalCutLengthMm, svgContent, quantity: 1 });
+                } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao transferir o desenho.'); }
+              }}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
             >
               <Scissors className="w-3.5 h-3.5" />

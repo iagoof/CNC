@@ -1,5 +1,10 @@
+import { money } from '../../utils/quoteEngine';
+import { packNesting, nestingTransform, type NestingItem, type NestingTransfer } from '../../utils/nestingEngine';
+import { prepareNestingItem, buildNestingSvg } from '../../utils/nestingSvg';
+import { sanitizeSvg } from '../../utils/sanitizeSvg';
+import { useLocalStorageState } from '../../utils/useLocalStorageState';
 import React, { useState, useMemo, useEffect } from 'react';
-import { Material, Machine } from '../../types';
+import { Material, Machine, UF } from '../../types';
 import { calcMaterialM2Cost, calcLaserCutTimeAndCost, calcMachineCostRates } from '../../utils/calculations';
 import { convertSvgToDxf } from '../../utils/cncExporters';
 import {
@@ -16,49 +21,25 @@ import {
   Sparkles
 } from 'lucide-react';
 
-interface NestingItem {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  quantity: number;
-  color: string;
-  cutLength_mm: number;
-}
-
-interface PlacedBox {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  color: string;
-  rotated: boolean;
-}
-
-interface FreeRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
 interface NestingViewProps {
   materials: Material[];
   machines: Machine[];
-  initialPart?: { name: string; width: number; height: number; cutLength_mm: number } | null;
+  initialPart?: NestingTransfer | null;
+  uf?: UF;
+  accountId?: string;
 }
 
-export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, initialPart }) => {
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>(materials[0]?.id || '');
-  const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id || '');
-  const [sheetWidth, setSheetWidth] = useState<number>(900);
-  const [sheetLength, setSheetLength] = useState<number>(600);
-  const [margin, setMargin] = useState<number>(5);
-  const [gap, setGap] = useState<number>(2.5);
+export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, initialPart, uf = 'MG', accountId = 'guest' }) => {
+  const storagePrefix = `user:${accountId}:nesting`;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useLocalStorageState<string>(`${storagePrefix}:material`, materials[0]?.id || '');
+  const [selectedMachineId, setSelectedMachineId] = useLocalStorageState<string>(`${storagePrefix}:machine`, machines[0]?.id || '');
+  const [sheetWidth, setSheetWidth] = useLocalStorageState<number>(`${storagePrefix}:sheetWidth`, 900);
+  const [sheetLength, setSheetLength] = useLocalStorageState<number>(`${storagePrefix}:sheetLength`, 600);
+  const [margin, setMargin] = useLocalStorageState<number>(`${storagePrefix}:margin`, 5);
+  const [gap, setGap] = useLocalStorageState<number>(`${storagePrefix}:gap`, 2.5);
 
-  const [items, setItems] = useState<NestingItem[]>([]);
+  const [items, setItems] = useLocalStorageState<NestingItem[]>(`${storagePrefix}:items`, []);
 
   const [newPartName, setNewPartName] = useState<string>('');
   const [newPartWidth, setNewPartWidth] = useState<number>(100);
@@ -68,228 +49,85 @@ export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, i
   const selectedMaterial = materials.find(m => m.id === selectedMaterialId) || materials[0];
   const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
   const colorPalette = ['#f59e0b', '#3b82f6', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316'];
-
-  // Unpack initialPart transferred from Design Studio / AI View
   useEffect(() => {
-    if (initialPart && initialPart.name && initialPart.width > 0 && initialPart.height > 0) {
-      setItems(prev => {
-        const exists = prev.some(p => p.name === initialPart.name);
-        if (exists) return prev;
-        const newItem: NestingItem = {
-          id: 'item-transferred-' + Date.now(),
-          name: initialPart.name,
-          width: Math.round(initialPart.width),
-          height: Math.round(initialPart.height),
-          quantity: 2,
-          color: '#f59e0b',
-          cutLength_mm: initialPart.cutLength_mm || Math.round((initialPart.width + initialPart.height) * 2)
-        };
-        return [newItem, ...prev];
-      });
-    }
-  }, [initialPart]);
+    if (materials.length && !materials.some(material => material.id === selectedMaterialId)) setSelectedMaterialId(materials[0].id);
+    if (machines.length && !machines.some(machine => machine.id === selectedMachineId)) setSelectedMachineId(machines[0].id);
+  }, [materials, machines, selectedMaterialId, selectedMachineId]);
+
+  useEffect(() => {
+    if (!initialPart || (initialPart.accountId && initialPart.accountId !== accountId)) return;
+    try {
+      const item = prepareNestingItem(initialPart, '#f59e0b');
+      const validation = packNesting([item], Math.max(item.width + 10, 100), Math.max(item.height + 10, 100), 0, 0);
+      if (validation.errors.length) throw new Error(validation.errors.join(' '));
+      setItems(prev => prev.some(existing => existing.id === item.id) ? prev : [item, ...prev]);
+      setActionError(null);
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Falha ao receber o desenho.'); }
+  }, [initialPart, accountId]);
 
   const handleAddPart = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPartName) return;
-    const cutEst = (newPartWidth + newPartHeight) * 2;
-    const newItem: NestingItem = {
-      id: 'item-' + Date.now(),
-      name: newPartName,
-      width: Number(newPartWidth),
-      height: Number(newPartHeight),
-      quantity: Number(newPartQuantity),
-      color: colorPalette[items.length % colorPalette.length],
-      cutLength_mm: cutEst
+    const item: NestingItem = {
+      id: `item-${crypto.randomUUID()}`, name: newPartName.trim(), width: newPartWidth, height: newPartHeight,
+      quantity: newPartQuantity, color: colorPalette[items.length % colorPalette.length],
+      cutLength_mm: 2 * (newPartWidth + newPartHeight), engraveArea_cm2: 0
     };
-    setItems([...items, newItem]);
-    setNewPartName('');
+    const validation = packNesting([item], 100000, 100000, 0, 0);
+    if (validation.errors.length || items.reduce((sum, current) => sum + current.quantity, 0) + item.quantity > 1000) {
+      setActionError(validation.errors.join(' ') || 'Limite de 1.000 unidades por plano.'); return;
+    }
+    setItems(prev => [...prev, item]); setNewPartName(''); setActionError(null);
   };
 
   const handleRemovePart = (id: string) => {
     setItems(items.filter(i => i.id !== id));
   };
 
-  // MaxRects 2D Bin Packing (Best Short Side Fit) algorithm
-  const nestingResult = useMemo(() => {
-    const usableW = sheetWidth - margin * 2;
-    const usableH = sheetLength - margin * 2;
-
-    if (usableW <= 0 || usableH <= 0) {
-      return { placed: [], unplacedCount: 0, sheetAreaM2: 0, usedAreaM2: 0, utilizationPct: 0, totalCutLength_mm: 0 };
-    }
-
-    interface ExpandedPiece {
-      id: string;
-      name: string;
-      w: number;
-      h: number;
-      color: string;
-      cutLength_mm: number;
-    }
-
-    const pieces: ExpandedPiece[] = [];
-    items.forEach(item => {
-      for (let q = 0; q < item.quantity; q++) {
-        pieces.push({
-          id: `${item.id}-${q}`,
-          name: item.name,
-          w: item.width,
-          h: item.height,
-          color: item.color,
-          cutLength_mm: item.cutLength_mm
-        });
-      }
-    });
-
-    // Sort descending by area and perimeter for tighter packing
-    pieces.sort((a, b) => b.w * b.h - a.w * a.h || (b.w + b.h) - (a.w + a.h));
-
-    // Initialize free rectangles pool with usable bounds
-    let freeRects: FreeRect[] = [{ x: margin, y: margin, w: usableW, h: usableH }];
-    const placed: PlacedBox[] = [];
-    let unplacedCount = 0;
-    let totalCutLength_mm = 0;
-
-    for (const piece of pieces) {
-      let bestRectIdx = -1;
-      let bestShortSideFit = Infinity;
-      let bestLongSideFit = Infinity;
-      let bestRotated = false;
-      let bestW = piece.w;
-      let bestH = piece.h;
-
-      // Try placing piece in each free rectangle (both non-rotated and rotated 90 deg)
-      for (let rIdx = 0; rIdx < freeRects.length; rIdx++) {
-        const fr = freeRects[rIdx];
-
-        // Orientation 1: normal
-        if (fr.w >= piece.w && fr.h >= piece.h) {
-          const leftoverW = fr.w - piece.w;
-          const leftoverH = fr.h - piece.h;
-          const shortSideFit = Math.min(leftoverW, leftoverH);
-          const longSideFit = Math.max(leftoverW, leftoverH);
-
-          if (shortSideFit < bestShortSideFit || (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
-            bestRectIdx = rIdx;
-            bestShortSideFit = shortSideFit;
-            bestLongSideFit = longSideFit;
-            bestRotated = false;
-            bestW = piece.w;
-            bestH = piece.h;
-          }
-        }
-
-        // Orientation 2: rotated 90 degrees
-        if (fr.w >= piece.h && fr.h >= piece.w) {
-          const leftoverW = fr.w - piece.h;
-          const leftoverH = fr.h - piece.w;
-          const shortSideFit = Math.min(leftoverW, leftoverH);
-          const longSideFit = Math.max(leftoverW, leftoverH);
-
-          if (shortSideFit < bestShortSideFit || (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
-            bestRectIdx = rIdx;
-            bestShortSideFit = shortSideFit;
-            bestLongSideFit = longSideFit;
-            bestRotated = true;
-            bestW = piece.h;
-            bestH = piece.w;
-          }
-        }
-      }
-
-      if (bestRectIdx >= 0) {
-        const chosen = freeRects[bestRectIdx];
-        const px = chosen.x;
-        const py = chosen.y;
-
-        placed.push({
-          id: piece.id,
-          name: piece.name,
-          x: px,
-          y: py,
-          w: bestW,
-          h: bestH,
-          color: piece.color,
-          rotated: bestRotated
-        });
-
-        totalCutLength_mm += piece.cutLength_mm;
-
-        // Guillotine split free rectangle into 2 sub-rectangles with gap
-        const placedWWithGap = bestW + gap;
-        const placedHWithGap = bestH + gap;
-
-        const newFreeRects: FreeRect[] = [];
-
-        for (let i = 0; i < freeRects.length; i++) {
-          const fr = freeRects[i];
-          // Check intersection with placed piece
-          if (
-            px < fr.x + fr.w &&
-            px + placedWWithGap > fr.x &&
-            py < fr.y + fr.h &&
-            py + placedHWithGap > fr.y
-          ) {
-            // Right split
-            if (px + placedWWithGap < fr.x + fr.w) {
-              newFreeRects.push({
-                x: px + placedWWithGap,
-                y: fr.y,
-                w: fr.x + fr.w - (px + placedWWithGap),
-                h: fr.h
-              });
-            }
-            // Bottom split
-            if (py + placedHWithGap < fr.y + fr.h) {
-              newFreeRects.push({
-                x: fr.x,
-                y: py + placedHWithGap,
-                w: fr.w,
-                h: fr.y + fr.h - (py + placedHWithGap)
-              });
-            }
-          } else {
-            newFreeRects.push(fr);
-          }
-        }
-
-        // Filter out zero or negative size rects
-        freeRects = newFreeRects.filter(r => r.w > 10 && r.h > 10);
-      } else {
-        unplacedCount++;
-      }
-    }
-
-    const sheetAreaM2 = (sheetWidth * sheetLength) / 1_000_000;
-    const usedAreaM2 = placed.reduce((acc, p) => acc + (p.w * p.h) / 1_000_000, 0);
-    const utilizationPct = sheetAreaM2 > 0 ? (usedAreaM2 / sheetAreaM2) * 100 : 0;
-
-    return { placed, unplacedCount, sheetAreaM2, usedAreaM2, utilizationPct, totalCutLength_mm };
-  }, [items, sheetWidth, sheetLength, margin, gap]);
+  const nestingResult = useMemo(() => packNesting(items, sheetWidth, sheetLength, margin, gap),
+    [items, sheetWidth, sheetLength, margin, gap]);
+  const configurationErrors = [...nestingResult.errors];
+  if (!selectedMachine || ![selectedMachine.workAreaX_mm, selectedMachine.workAreaY_mm,
+    selectedMachine.monthlyWorkHours, selectedMachine.depreciationYears].every(n => Number.isFinite(n) && n > 0)
+    || ![selectedMachine.purchasePrice, selectedMachine.energyConsumptionKwh, selectedMachine.monthlyMaintenanceCosts,
+      selectedMachine.tubeSpareCost].every(n => Number.isFinite(n) && n >= 0)) {
+    configurationErrors.push('Revise as dimensões e os custos cadastrados da máquina.');
+  }
+  if (!selectedMaterial || ![selectedMaterial.sheetWidth_mm, selectedMaterial.sheetLength_mm].every(n => Number.isFinite(n) && n > 0)
+    || ![selectedMaterial.unitCost, selectedMaterial.shippingCost, selectedMaterial.lossPercentage].every(n => Number.isFinite(n) && n >= 0)) {
+    configurationErrors.push('Revise as dimensões e os custos cadastrados do material.');
+  } else if (!((sheetWidth <= selectedMaterial.sheetWidth_mm && sheetLength <= selectedMaterial.sheetLength_mm)
+    || (sheetWidth <= selectedMaterial.sheetLength_mm && sheetLength <= selectedMaterial.sheetWidth_mm))) {
+    configurationErrors.push('As dimensões do plano excedem a chapa cadastrada para este material.');
+  }
+  if (selectedMachine && (sheetWidth > selectedMachine.workAreaX_mm || sheetLength > selectedMachine.workAreaY_mm)) {
+    configurationErrors.push('A chapa excede a mesa da máquina selecionada. Ajuste as dimensões ou selecione outra máquina.');
+  }
+  const speedConfig = selectedMaterial?.speedsByMachine.find(speed => speed.machineId === selectedMachine?.id);
+  if (!speedConfig || ![speedConfig.cutSpeed_mms, speedConfig.engraveSpeed_mms, speedConfig.lineInterval_mm].every(n => Number.isFinite(n) && n > 0)) {
+    configurationErrors.push('Cadastre velocidades e intervalo de gravação do material para esta máquina.');
+  }
+  if (selectedMaterial && items.some(item => item.thicknessMm !== undefined && Math.abs(item.thicknessMm - selectedMaterial.thickness_mm) > 0.001)) {
+    configurationErrors.push('A espessura do desenho difere do material selecionado. Selecione a chapa correspondente.');
+  }
+  const canExport = !configurationErrors.length && nestingResult.placed.length > 0;
 
   const calculations = useMemo(() => {
     if (!selectedMaterial || !selectedMachine) return null;
 
     const { costPerM2 } = calcMaterialM2Cost(selectedMaterial);
-    const sheetCost = nestingResult.sheetAreaM2 * costPerM2;
-    const usedMaterialCost = nestingResult.usedAreaM2 * costPerM2;
-    const scrapMaterialCost = Math.max(0, sheetCost - usedMaterialCost);
+    const sheetCost = money(nestingResult.sheetAreaM2 * costPerM2);
+    const usedMaterialCost = money(nestingResult.usedAreaM2 * costPerM2);
+    const scrapMaterialCost = money(Math.max(0, sheetCost - usedMaterialCost));
 
-    const speedConfig = selectedMaterial.speedsByMachine.find(s => s.machineId === selectedMachine.id) || {
-      cutSpeed_mms: 20
-    };
-
-    // Real machine cost rate calculation via calcMachineCostRates with Juiz de Fora / MG CEMIG rate
-    const machineRates = calcMachineCostRates(selectedMachine, 'MG');
-
-    const { cutSeconds, totalCost: laserCost } = calcLaserCutTimeAndCost(
-      nestingResult.totalCutLength_mm,
-      speedConfig.cutSpeed_mms,
-      machineRates.perSecond
+    if (!speedConfig || ![speedConfig.cutSpeed_mms, speedConfig.engraveSpeed_mms, speedConfig.lineInterval_mm].every(n => Number.isFinite(n) && n > 0)) return null;
+    const machineRates = calcMachineCostRates(selectedMachine, uf);
+    const { totalSeconds: cutSeconds, totalCost: rawLaserCost } = calcLaserCutTimeAndCost(
+      nestingResult.totalCutLength_mm, speedConfig.cutSpeed_mms, machineRates.perSecond,
+      nestingResult.totalEngraveArea_cm2, speedConfig.engraveSpeed_mms, speedConfig.lineInterval_mm
     );
 
-    const totalBatchCost = usedMaterialCost + laserCost;
+    const laserCost = money(rawLaserCost);
+    const totalBatchCost = money(usedMaterialCost + laserCost);
     const costPerPiece = nestingResult.placed.length > 0 ? totalBatchCost / nestingResult.placed.length : 0;
 
     return {
@@ -303,27 +141,15 @@ export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, i
       costPerPiece,
       hourlyMachineRate: machineRates.hourly
     };
-  }, [selectedMaterial, selectedMachine, nestingResult]);
+  }, [selectedMaterial, selectedMachine, nestingResult, uf]);
 
   const buildNestingSvgString = () => {
-    const svgRects = nestingResult.placed
-      .map(
-        p => `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="#ef4444" stroke-width="0.3" data-layer="cut" />
-  <text data-layer="guide" x="${p.x + 4}" y="${p.y + 12}" fill="#0f172a" font-size="7" font-family="sans-serif">${p.name} ${p.rotated ? '(90°)' : ''}</text>`
-      )
-      .join('\n');
-
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetWidth} ${sheetLength}" width="${sheetWidth}mm" height="${sheetLength}mm">
-  <rect data-layer="guide" x="0" y="0" width="${sheetWidth}" height="${sheetLength}" fill="#ffffff" stroke="#94a3b8" stroke-width="0.5" />
-  <rect data-layer="guide" x="${margin}" y="${margin}" width="${sheetWidth - margin * 2}" height="${sheetLength - margin * 2}" fill="none" stroke="#cbd5e1" stroke-dasharray="2 2" stroke-width="0.3" />
-  <g id="CORTE_EXTERNO">
-${svgRects}
-  </g>
-</svg>`;
+    if (!canExport) throw new Error(configurationErrors.join(' ') || 'Adicione peças que caibam na chapa antes de exportar.');
+    return buildNestingSvg(nestingResult, sheetWidth, sheetLength, margin);
   };
 
   const handleExportNestingSvg = () => {
+    try {
     const svgContent = buildNestingSvgString();
     const blob = new Blob([svgContent], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -332,9 +158,12 @@ ${svgRects}
     a.download = `plano_de_corte_nesting_${sheetWidth}x${sheetLength}mm.svg`;
     a.click();
     URL.revokeObjectURL(url);
+    setActionError(null);
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Falha ao exportar o plano.'); }
   };
 
   const handleExportNestingDxf = () => {
+    try {
     const svgContent = buildNestingSvgString();
     const dxfString = convertSvgToDxf(svgContent);
     const blob = new Blob([dxfString], { type: 'application/dxf' });
@@ -344,6 +173,8 @@ ${svgRects}
     a.download = `plano_de_corte_nesting_${sheetWidth}x${sheetLength}mm.dxf`;
     a.click();
     URL.revokeObjectURL(url);
+    setActionError(null);
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Falha ao exportar o plano.'); }
   };
 
   return (
@@ -369,15 +200,17 @@ ${svgRects}
 
         <div className="flex items-center gap-2">
           <button
+            disabled={!canExport}
             onClick={handleExportNestingSvg}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl border border-slate-200 transition cursor-pointer"
+            className="disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl border border-slate-200 transition cursor-pointer"
           >
             <Download className="w-4 h-4 text-slate-600" />
             .SVG
           </button>
           <button
+            disabled={!canExport}
             onClick={handleExportNestingDxf}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
+            className="disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
           >
             <Download className="w-4 h-4 text-white" />
             Exportar DXF (R12)
@@ -385,6 +218,7 @@ ${svgRects}
         </div>
       </div>
 
+      {(actionError || configurationErrors.length > 0) && <div role="alert" className="mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{[...new Set([actionError, ...configurationErrors].filter(Boolean))].join(' ')}</div>}
       <div className="p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Side: Parameters & Quick Presets */}
         <div className="lg:col-span-5 space-y-5">
@@ -465,8 +299,8 @@ ${svgRects}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Material</label>
-                <select
+                <label htmlFor="nesting-material" className="text-[11px] font-semibold text-slate-500 block mb-1">Material</label>
+                <select id="nesting-material"
                   value={selectedMaterialId}
                   onChange={e => setSelectedMaterialId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
@@ -480,8 +314,8 @@ ${svgRects}
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Máquina</label>
-                <select
+                <label htmlFor="nesting-machine" className="text-[11px] font-semibold text-slate-500 block mb-1">Máquina</label>
+                <select id="nesting-machine"
                   value={selectedMachineId}
                   onChange={e => setSelectedMachineId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
@@ -497,39 +331,39 @@ ${svgRects}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div>
-                <label className="text-[10px] font-semibold text-slate-500 block mb-1">Largura (mm)</label>
-                <input
+                <label htmlFor="nesting-sheet-width" className="text-[10px] font-semibold text-slate-500 block mb-1">Largura (mm)</label>
+                <input id="nesting-sheet-width"
                   type="number"
                   value={sheetWidth}
-                  onChange={e => setSheetWidth(Math.max(100, Number(e.target.value)))}
+                  onChange={e => setSheetWidth(Number(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-semibold text-slate-500 block mb-1">Comprimento (mm)</label>
-                <input
+                <label htmlFor="nesting-sheet-length" className="text-[10px] font-semibold text-slate-500 block mb-1">Comprimento (mm)</label>
+                <input id="nesting-sheet-length"
                   type="number"
                   value={sheetLength}
-                  onChange={e => setSheetLength(Math.max(100, Number(e.target.value)))}
+                  onChange={e => setSheetLength(Number(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-semibold text-slate-500 block mb-1">Margem Borda</label>
-                <input
+                <label htmlFor="nesting-margin" className="text-[10px] font-semibold text-slate-500 block mb-1">Margem Borda</label>
+                <input id="nesting-margin"
                   type="number"
                   value={margin}
-                  onChange={e => setMargin(Math.max(0, Number(e.target.value)))}
+                  onChange={e => setMargin(Number(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-semibold text-slate-500 block mb-1">Gap / Kerf (mm)</label>
-                <input
+                <label htmlFor="nesting-gap" className="text-[10px] font-semibold text-slate-500 block mb-1">Distância (mm)</label>
+                <input id="nesting-gap"
                   type="number"
                   step="0.5"
                   value={gap}
-                  onChange={e => setGap(Math.max(0.1, Number(e.target.value)))}
+                  onChange={e => setGap(Number(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
                 />
               </div>
@@ -545,8 +379,8 @@ ${svgRects}
 
             <form onSubmit={handleAddPart} className="space-y-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nome da Peça</label>
-                <input
+                <label htmlFor="nesting-part-name" className="text-[11px] font-semibold text-slate-600 block mb-1">Nome da Peça</label>
+                <input id="nesting-part-name"
                   type="text"
                   placeholder="Ex: Painel Cobogó 30x30"
                   value={newPartName}
@@ -557,8 +391,8 @@ ${svgRects}
 
               <div className="grid grid-cols-3 gap-2.5">
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">Largura (mm)</label>
-                  <input
+                  <label htmlFor="nesting-part-width" className="text-[10px] font-semibold text-slate-500 block mb-1">Largura (mm)</label>
+                  <input id="nesting-part-width" min="0.001" step="any"
                     type="number"
                     value={newPartWidth}
                     onChange={e => setNewPartWidth(Number(e.target.value))}
@@ -566,8 +400,8 @@ ${svgRects}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">Altura (mm)</label>
-                  <input
+                  <label htmlFor="nesting-part-height" className="text-[10px] font-semibold text-slate-500 block mb-1">Altura (mm)</label>
+                  <input id="nesting-part-height" min="0.001" step="any"
                     type="number"
                     value={newPartHeight}
                     onChange={e => setNewPartHeight(Number(e.target.value))}
@@ -575,8 +409,8 @@ ${svgRects}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">Quantidade</label>
-                  <input
+                  <label htmlFor="nesting-quantity" className="text-[10px] font-semibold text-slate-500 block mb-1">Quantidade</label>
+                  <input id="nesting-quantity"
                     type="number"
                     min="1"
                     value={newPartQuantity}
@@ -628,6 +462,7 @@ ${svgRects}
                       </div>
                     </div>
                     <button
+                      aria-label={`Remover ${item.name}`}
                       onClick={() => handleRemovePart(item.id)}
                       className="text-slate-400 hover:text-red-500 p-1 cursor-pointer transition"
                     >
@@ -685,8 +520,8 @@ ${svgRects}
                 <rect
                   x={margin}
                   y={margin}
-                  width={sheetWidth - margin * 2}
-                  height={sheetLength - margin * 2}
+                  width={Math.max(0, sheetWidth - margin * 2)}
+                  height={Math.max(0, sheetLength - margin * 2)}
                   fill="none"
                   stroke="#94a3b8"
                   strokeDasharray="4 4"
@@ -696,29 +531,20 @@ ${svgRects}
                 {/* Placed Pieces */}
                 {nestingResult.placed.map(p => (
                   <g key={p.id}>
+                    <title>{p.name}</title>
                     <rect
                       x={p.x}
                       y={p.y}
                       width={p.w}
                       height={p.h}
                       fill={p.color}
-                      fillOpacity="0.25"
-                      stroke={p.color}
-                      strokeWidth="1.2"
-                      rx="2"
+                      fillOpacity={p.pathsMarkup ? 0.04 : 0.25}
+                      stroke={p.pathsMarkup ? '#cbd5e1' : p.color}
+                      strokeWidth={p.pathsMarkup ? 0.2 : 1.2}
+                      strokeDasharray={p.pathsMarkup ? '1 1' : undefined}
                     />
-                    <text
-                      x={p.x + p.w / 2}
-                      y={p.y + p.h / 2}
-                      fill="#0f172a"
-                      fontSize={Math.max(6, Math.min(10, p.w / 8))}
-                      fontWeight="bold"
-                      fontFamily="sans-serif"
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                    >
-                      {p.name.slice(0, 14)}
-                    </text>
+                    {p.pathsMarkup && <g transform={nestingTransform(p)} dangerouslySetInnerHTML={{ __html: sanitizeSvg(`<svg xmlns="http://www.w3.org/2000/svg">${p.pathsMarkup}</svg>`).replace(/^<svg[^>]*>|<\/svg>$/g, '') }} />}
+
                   </g>
                 ))}
               </svg>
@@ -726,7 +552,7 @@ ${svgRects}
           </div>
 
           {/* Financial Calculations Strip */}
-          {calculations && (
+          {calculations && !configurationErrors.length && (
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
               <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-emerald-600" />
@@ -765,7 +591,7 @@ ${svgRects}
 
               <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                 <span>Taxa horária da máquina: R$ {calculations.hourlyMachineRate.toFixed(2)}/h</span>
-                <span>Tempo de corte estimado: {Math.round(calculations.cutSeconds / 60)} min {Math.round(calculations.cutSeconds % 60)} s</span>
+                <span>Tempo de operação estimado: {Math.round(calculations.cutSeconds / 60)} min {Math.round(calculations.cutSeconds % 60)} s</span>
               </div>
             </div>
           )}

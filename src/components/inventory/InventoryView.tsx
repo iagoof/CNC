@@ -187,16 +187,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
-                {filteredItems.map(item => {
-                  const available = Math.max(0, item.physicalStock - item.committedStock);
-                  const isDeficit = item.physicalStock < item.committedStock;
-                  const isBelowMin = available <= item.minStock;
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <Package className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="font-semibold text-slate-700">Nenhum produto cadastrado no estoque</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Clique em "+ Novo SKU" ou sincronize com o Firestore para carregar seus produtos.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map(item => {
+                    const available = Math.max(0, item.physicalStock - item.committedStock);
+                    const isDeficit = item.physicalStock < item.committedStock;
+                    const isBelowMin = available <= item.minStock;
 
-                  return (
-                    <tr key={item.sku} className="hover:bg-slate-50/70 transition">
-                      <td className="py-3.5 px-4">
-                        <div className="space-y-0.5">
-                          <span className="font-mono font-bold text-amber-700 block text-[11px]">
+                    return (
+                      <tr key={item.sku} className="hover:bg-slate-50/70 transition">
+                        <td className="py-3.5 px-4">
+                          <div className="space-y-0.5">
+                            <span className="font-mono font-bold text-amber-700 block text-[11px]">
                             {item.sku}
                           </span>
                           <span className="font-semibold text-slate-900 block text-xs">{item.name}</span>
@@ -272,7 +281,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
               </tbody>
             </table>
           </div>

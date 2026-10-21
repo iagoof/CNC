@@ -1,14 +1,8 @@
+import type { NestingTransfer } from './utils/nestingEngine';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  INITIAL_COMPANY,
-  INITIAL_MACHINES,
-  INITIAL_MATERIALS,
   INITIAL_FIXED_COSTS,
-  INITIAL_TAXES,
-  INITIAL_PRODUCTS,
-  INITIAL_PRODUCTION_ORDERS,
-  INITIAL_SALES_ORDERS,
-  INITIAL_QUOTES
+  INITIAL_TAXES
 } from './data/initialData';
 import {
   CompanyProfile,
@@ -61,7 +55,16 @@ export default function App() {
     syncQuoteMutation,
     deleteQuoteMutation,
     syncMaterialMutation,
-    deleteMaterialMutation
+    deleteMaterialMutation,
+    products: remoteProducts,
+    syncProductMutation,
+    deleteProductMutation,
+    salesOrders: remoteSalesOrders,
+    syncSalesOrderMutation,
+    deleteSalesOrderMutation,
+    machines: remoteMachines,
+    syncMachineMutation,
+    deleteMachineMutation
   } = useFirebase();
 
   const storageKey = (key: string) => user ? `user:${user.uid}:${key}` : key;
@@ -102,21 +105,41 @@ export default function App() {
   const conversionInProgress = useRef(new Set<string>());
   const [camTransfer, setCamTransfer] = useState<CamTransferData | null>(null);
   const [studioModel, setStudioModel] = useState<string>('caixa-fingerjoint');
-  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), INITIAL_COMPANY);
-  const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), INITIAL_MACHINES);
-  const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), INITIAL_MATERIALS);
+  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), {
+    name: '',
+    tradeName: '',
+    cnpj: '',
+    ie: '',
+    uf: 'MG',
+    city: 'Juiz de Fora',
+    address: '',
+    cep: '',
+    phone: '',
+    email: '',
+    whatsappMessageTemplate: 'Olá {cliente}! Seu orçamento #{numero} para corte e usinagem CNC ficou em {valor}. Prazo estimado de produção: {prazo} dias úteis.'
+  });
+  const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), []);
+  const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), []);
   const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), INITIAL_FIXED_COSTS);
   const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 35000);
   const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), INITIAL_TAXES);
-  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), user ? [] : INITIAL_PRODUCTS);
-  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), user ? [] : INITIAL_PRODUCTION_ORDERS);
-  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), user ? [] : INITIAL_SALES_ORDERS);
-  const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), user ? [] : INITIAL_QUOTES);
+  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), []);
+  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), []);
+  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), []);
+  const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), []);
   const [currentPlan, setCurrentPlan] = useLocalStorageState<PlanType>(storageKey('cnc_current_plan'), 'Crescer');
 
   // Sincronização em tempo real com Firestore quando autenticado
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setProductionOrders([]);
+      setMaterials([]);
+      setQuotes([]);
+      setInventory([]);
+      setSalesOrders([]);
+      setMachines([]);
+      return;
+    }
     const unsubOrders = subscribeToOrders(user.uid, remoteOrders => {
       if (remoteOrders) {
         setProductionOrders(remoteOrders);
@@ -139,6 +162,25 @@ export default function App() {
       unsubQuotes();
     };
   }, [user]);
+
+  // Sincroniza produtos, pedidos de venda e máquinas vindos do Firestore
+  useEffect(() => {
+    if (user && remoteProducts && remoteProducts.length > 0) {
+      setInventory(remoteProducts);
+    }
+  }, [user, remoteProducts]);
+
+  useEffect(() => {
+    if (user && remoteSalesOrders && remoteSalesOrders.length > 0) {
+      setSalesOrders(remoteSalesOrders);
+    }
+  }, [user, remoteSalesOrders]);
+
+  useEffect(() => {
+    if (user && remoteMachines && remoteMachines.length > 0) {
+      setMachines(remoteMachines);
+    }
+  }, [user, remoteMachines]);
 
   // Sincroniza configurações da empresa vindas da nuvem Firestore
   useEffect(() => {
@@ -188,12 +230,7 @@ export default function App() {
   };
 
   // Stored part for transfer between Studio and Nesting
-  const [nestingTransferPart, setNestingTransferPart] = useState<{
-    name: string;
-    width: number;
-    height: number;
-    cutLength_mm: number;
-  } | null>(null);
+  const [nestingTransferPart, setNestingTransferPart] = useState<NestingTransfer | null>(null);
 
   // Handlers for Stock updates
   const handleUpdateStock = (sku: string, delta: number) => {
@@ -201,7 +238,9 @@ export default function App() {
       prev.map(item => {
         if (item.sku === sku) {
           const nextPhysical = Math.max(0, item.physicalStock + delta);
-          return { ...item, physicalStock: nextPhysical };
+          const updated = { ...item, physicalStock: nextPhysical };
+          void syncProductMutation(updated).catch(() => {});
+          return updated;
         }
         return item;
       })
@@ -215,10 +254,18 @@ export default function App() {
     if (order.status === 'Pronto/Embalado') { setActionError('Ordens concluídas não podem voltar ao processo.'); return; }
     const updated = { ...order, status: newStatus };
     if (newStatus === 'Pronto/Embalado') {
-      setInventory(prev => prev.map(inv => inv.sku === order.sku ? {
-        ...inv, physicalStock: inv.physicalStock + order.quantityRequested,
-        inProductionStock: Math.max(0, inv.inProductionStock - order.quantityRequested)
-      } : inv));
+      setInventory(prev => prev.map(inv => {
+        if (inv.sku === order.sku) {
+          const updatedInv = {
+            ...inv,
+            physicalStock: inv.physicalStock + order.quantityRequested,
+            inProductionStock: Math.max(0, inv.inProductionStock - order.quantityRequested)
+          };
+          void syncProductMutation(updatedInv).catch(() => {});
+          return updatedInv;
+        }
+        return inv;
+      }));
     }
     setProductionOrders(prev => prev.map(o => o.id === orderId ? updated : o));
     void syncOrderMutation(updated).catch(() => {});
@@ -257,11 +304,14 @@ export default function App() {
     // Increment inProductionStock for the SKU
     if (orderData.sku) {
       setInventory(prev =>
-        prev.map(item =>
-          item.sku === orderData.sku
-            ? { ...item, inProductionStock: (item.inProductionStock || 0) + qty }
-            : item
-        )
+        prev.map(item => {
+          if (item.sku === orderData.sku) {
+            const updatedInv = { ...item, inProductionStock: (item.inProductionStock || 0) + qty };
+            void syncProductMutation(updatedInv).catch(() => {});
+            return updatedInv;
+          }
+          return item;
+        })
       );
     }
 
@@ -300,10 +350,12 @@ export default function App() {
         prev.map(inv => {
           if (inv.sku === item.sku) {
             const nextCommitted = inv.committedStock + item.quantity;
-            return {
+            const updated = {
               ...inv,
               committedStock: nextCommitted
             };
+            void syncProductMutation(updated).catch(() => {});
+            return updated;
           }
           return inv;
         })
@@ -311,6 +363,7 @@ export default function App() {
     });
 
     setSalesOrders(prev => [fullOrder, ...prev]);
+    void syncSalesOrderMutation(fullOrder).catch(() => {});
   };
 
   // Quotes handlers com Sincronização Cloud
@@ -333,6 +386,7 @@ export default function App() {
       setProductionOrders(prev => [...converted.productionOrders, ...prev]);
       setQuotes(prev => [converted.quote, ...prev.filter(q => q.id !== quote.id)]);
       void syncQuoteMutation(converted.quote).catch(() => {});
+      void syncSalesOrderMutation(converted.order).catch(() => {});
       converted.productionOrders.forEach(op => { void syncOrderMutation(op).catch(() => {}); });
       setActionError(null);
       setActiveTab('production');
@@ -342,14 +396,20 @@ export default function App() {
   };
 
   // Transfer from Design Studio to Nesting
-  const handleSendToNesting = (part: { name: string; width: number; height: number; cutLength_mm: number }) => {
-    setNestingTransferPart(part);
+  const handleSendToNesting = (part: NestingTransfer) => {
+    setNestingTransferPart({ ...part, transferId: crypto.randomUUID(), accountId: user?.uid || 'guest' });
     setActiveTab('nesting');
   };
 
   const handleCreateProduct = (newProduct: ProductInventory) => {
     if (inventory.some(item => item.sku.toUpperCase() === newProduct.sku.toUpperCase())) { setActionError('Já existe um produto com este SKU.'); return; }
     setInventory(prev => [newProduct, ...prev]);
+    void syncProductMutation(newProduct).catch(() => {});
+  };
+
+  const handleUpdateMachines = (newMachines: Machine[]) => {
+    setMachines(newMachines);
+    newMachines.forEach(m => { void syncMachineMutation(m).catch(() => {}); });
   };
 
   const tabTitles: Record<string, { title: string; subtitle: string }> = {
@@ -506,6 +566,8 @@ export default function App() {
               materials={materials}
               machines={machines}
               initialPart={nestingTransferPart}
+              uf={company.uf}
+              accountId={user?.uid || 'guest'}
             />
           )}
 
@@ -585,7 +647,7 @@ export default function App() {
               company={company}
               currentPlanId={currentPlan}
               onUpdateCompany={handleUpdateCompany}
-              onUpdateMachines={setMachines}
+              onUpdateMachines={handleUpdateMachines}
               onUpdateMaterials={handleUpdateMaterials}
               onRemoveMaterial={handleRemoveMaterial}
               onUpdateFixedCosts={setFixedCosts}

@@ -261,6 +261,13 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
           </h3>
 
           <div className="space-y-2">
+            {quotes.length === 0 && (
+              <div className="p-6 text-center bg-white border border-slate-200 rounded-2xl text-xs text-slate-500">
+                <FileText className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                <p className="font-semibold text-slate-700">Nenhum orçamento emitido</p>
+                <p className="text-[11px] text-slate-400 mt-1">Clique em "Novo Orçamento" para criar sua proposta.</p>
+              </div>
+            )}
             {quotes.map(q => (
               <div
                 key={q.id}

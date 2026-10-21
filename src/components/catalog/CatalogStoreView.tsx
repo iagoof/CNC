@@ -113,6 +113,17 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
 
       <div className="p-6 max-w-7xl mx-auto w-full">
         {activeTab === 'storefront' ? (
+          products.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center max-w-md mx-auto space-y-3 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+                <Store className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">Nenhum Produto no Catálogo</h3>
+              <p className="text-xs text-slate-500">
+                Cadastre SKUs no módulo de Estoque ou sincronize sua conta do Firestore para exibir sua vitrine de produtos.
+              </p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {products.map(prod => (
               <div
@@ -133,19 +144,19 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
                     <p>
                       Dimensões:{' '}
                       <strong className="text-slate-800">
-                        {prod.dimensions_mm.width} × {prod.dimensions_mm.depth} × {prod.dimensions_mm.height} mm
+                        {prod.dimensions_mm?.width || 0} × {prod.dimensions_mm?.depth || 0} × {prod.dimensions_mm?.height || 0} mm
                       </strong>
                     </p>
                     <p>
                       Disponível em Estoque:{' '}
                       <strong className="text-emerald-700 font-mono">
-                        {Math.max(0, prod.physicalStock - prod.committedStock)} unidades
+                        {Math.max(0, prod.physicalStock - (prod.committedStock || 0))} unidades
                       </strong>
                     </p>
                     <p>
                       Tempo de corte laser:{' '}
                       <strong className="text-indigo-700 font-mono">
-                        {Math.round(prod.estimatedLaserTimeSeconds / 60)} min
+                        {Math.round((prod.estimatedLaserTimeSeconds || 0) / 60)} min
                       </strong>
                     </p>
                   </div>
@@ -170,6 +181,7 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
               </div>
             ))}
           </div>
+          )
         ) : (
           /* Marketplaces Tab */
           <div className="space-y-6">

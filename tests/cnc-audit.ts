@@ -5,6 +5,8 @@ import studioSource from '../src/services/firebase/seedData.ts?raw';
 import { build3DFromSvg, createLaserMaterials } from '../src/components/studio3d/LaserModel3D';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import * as THREE from 'three';
+import { packNesting } from '../src/utils/nestingEngine';
+import { prepareNestingItem, buildNestingSvg } from '../src/utils/nestingSvg';
 
 const results: { name: string; pass: boolean; detail?: string }[] = [];
 function assert(condition: unknown, message = 'Asserção falhou'): asserts condition { if (!condition) throw new Error(message); }
@@ -146,6 +148,44 @@ test('STL usa milímetros, espessura real e preserva volume do furo', () => {
   near(Math.abs(volume), (100 * 80 - 20 * 10) * 3, 0.1);
   geometry.dispose();
   model.group.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+});
+test('Transferência e nesting rotacionado preservam triângulo, furo e gravação', () => {
+  const input = svg('<path data-layer="cut" fill="none" d="M0 0H70L35 40Z"/><circle data-layer="cut" cx="35" cy="10" r="2" fill="none"/><line data-layer="engrave" x1="25" y1="10" x2="30" y2="10" stroke="blue"/>',
+    'viewBox="0 0 70 40" width="70mm" height="40mm"');
+  const prepared = prepareNestingItem({ name: 'Peça & <rótulo>', width: 1, height: 1, cutLength_mm: 1, svgContent: input, quantity: 2, transferId: 'test' }, '#f59e0b');
+  near(prepared.width, 70); near(prepared.height, 40);
+  const plan = packNesting([prepared], 50, 150, 5, 0);
+  assert(plan.placed.length === 2 && plan.placed.every(p => p.rotated), `Rotação/quantidade: ${JSON.stringify(plan)}`);
+  const exported = buildNestingSvg(plan, 50, 150, 5);
+  const original = calculateSvgMetrics(input), metrics = calculateSvgMetrics(exported);
+  near(metrics.totalCutLengthMm, original.totalCutLengthMm * 2, 0.05);
+  near(metrics.engraveAreaCm2, original.engraveAreaCm2 * 2, 0.001);
+  const geometry = readSvgGeometry(exported);
+  assert(geometry.contours.filter(c => c.layer === 'cut').length === 4, 'Quantidade de contornos de corte mudou');
+  near(geometry.contours[0].points[0].x, 45); near(geometry.contours[0].points[0].y, 5);
+  assert(geometry.contours.every(c => c.points.every(p => p.x >= 4.99999 && p.x <= 45.00001 && p.y >= 4.99999 && p.y <= 145.00001)), 'Percurso fora da margem após rotação');
+  assert(exported.includes('Peça &amp; &lt;rótulo&gt;'), 'Rótulo XML não escapado');
+  assert(convertSvgToDxf(exported).endsWith('EOF\n'));
+});
+test('Exportação do nesting inclui somente colocadas e nenhuma borda ou etiqueta', () => {
+  const item = prepareNestingItem({ name: 'Retângulo', width: 20, height: 10, cutLength_mm: 99999, quantity: 3 }, '#fff');
+  const plan = packNesting([item], 20, 20, 0, 0);
+  assert(plan.placed.length === 2 && plan.unplacedCount === 1);
+  const output = buildNestingSvg(plan, 20, 20, 0);
+  const metrics = calculateSvgMetrics(output);
+  near(metrics.totalCutLengthMm, 120); assert(metrics.elementCount === 2);
+  assert(output.includes('data-unplaced-count="1"'));
+  let failed = false;
+  try { buildNestingSvg(packNesting([], 20, 20, 0, 0), 20, 20, 0); } catch { failed = true; }
+  assert(failed);
+});
+test('Nesting mantém sinalização de kerf já aplicado', () => {
+  const input = applyKerfToSvg(svg('<rect x="10" y="10" width="80" height="80" fill="none"/>'), 0.15);
+  const item = prepareNestingItem({ name: 'Compensado', width: 100, height: 100, cutLength_mm: 0, svgContent: input }, '#fff');
+  const output = buildNestingSvg(packNesting([item], 110, 110, 5, 0), 110, 110, 5);
+  near(calculateSvgMetrics(output).totalCutLengthMm, 80.15 * 4, 0.01);
+  let failed = false; try { applyKerfToSvg(output, 0.15); } catch { failed = true; }
+  assert(failed, 'Plano compensado não pode receber kerf novamente');
 });
 for (const result of results) {
   const li = document.createElement('li'); li.textContent = `${result.pass ? 'PASS' : 'FAIL'}: ${result.name}${result.detail ? ` — ${result.detail}` : ''}`;

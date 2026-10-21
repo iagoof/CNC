@@ -5,6 +5,18 @@
 
 ## Atualização da revisão
 
+### Nesting — revisão adicional
+
+- As duas telas de estúdio enviam o SVG completo e suas dimensões reais ao nesting. Não substituem o desenho por um retângulo nem arredondam suas dimensões. O recebimento preserva corte, furos, gravação e compensação já aplicada.
+- O encaixe MaxRects usa divisão nos quatro lados, remove espaços redundantes e reserva a distância entre peças em todas as direções. Quantidades inválidas, margem sem área útil, mais de 1.000 unidades e vetores excessivamente complexos são bloqueados antes da expansão do lote.
+- SVG e DXF exportam somente as peças colocadas. Bordas, margens e nomes são guias. Uma exportação parcial registra a quantidade que não coube, também visível na tela.
+- O rascunho, as dimensões e as seleções de material/máquina ficam no navegador, separados por conta. Trocar de conta e sair/voltar à tela foram verificados em ambiente isolado, sem duplicar a transferência. Isso não comprova sincronização do plano entre dispositivos.
+- Custos incluem corte e gravação com as velocidades cadastradas, tarifa da UF da empresa e arredondamento consistente em centavos. A exportação é bloqueada se a chapa excede a máquina/material ou a espessura do desenho não corresponde ao material.
+- Sete testes do motor passaram com `node --test nesting-engine.test.mts`, incluindo 100 lotes variados, medidas decimais, rotação, margens, espaçamento e conservação de contagem.
+- A suíte no navegador agora tem 21 verificações aprovadas. Os três casos adicionais verificam transferência/rotação com triângulo e furo, gravação preservada, exportação parcial sem bordas e proteção contra aplicar kerf novamente.
+- O componente real foi exercitado em `tests/nesting-workflow.html`, com dados isolados: transferência, rotação obrigatória, inclusão decimal, troca de conta, saída/retorno e bloqueio de máquina incompatível. O DXF baixado pelo botão continha 36 segmentos de corte/gravação dentro da margem de 5 mm.
+- Evidência visual: `tests/evidence/nesting-workflow.png`. A visualização mostra os contornos reais; os nomes completos ficam na fila e ao apontar a peça.
+
 ### Arquivos CNC — revisão adicional
 
 - G-code e DXF agora usam os contornos reais, com curvas discretizadas em tolerância de 0,025 mm, transformações, origem e escala física do SVG. Percursos de gravação são executados antes dos cortes e furos antes dos exteriores.
@@ -15,7 +27,7 @@
 - 18 verificações no navegador aprovadas em `http://127.0.0.1:3001/tests/cnc-audit.html`, incluindo curvas, subcaminhos, transformações, escala, furos, laser, passes Router, preenchimentos, textos, tracejados, sanitização, kerf, todos os exemplos atuais e volume/dimensões do STL. Evidência em `tests/evidence/cnc-audit.png`.
 - Download do botão .NC verificado e conteúdo lido: começa com G21/G90/M05 e contém percursos de gravação reais com potência e avanço cadastrados.
 - TypeScript e build aprovados. Nove verificações numéricas passaram com `node audit-checks.mts`, além dos quatro testes de orçamento com `node --test quote-engine.test.mts`.
-- Limites: os testes não constituem comissionamento físico das máquinas. Texto com tspan/posicionamento por caractere, imagens raster, máscaras e recortes requerem conversão em caminhos; Plasma ainda requer perfil próprio. O nesting ainda precisa preservar os contornos recebidos na transferência, e há exemplos de galeria com caminhos abertos que impedem compensação automática/geração de sólidos.
+- Limites: os testes não constituem comissionamento físico das máquinas. Texto com tspan/posicionamento por caractere, imagens raster, máscaras e recortes requerem conversão em caminhos; Plasma ainda requer perfil próprio. A transferência de contornos do nesting foi corrigida na revisão acima. Há exemplos de galeria com caminhos abertos que impedem compensação automática/geração de sólidos.
 
 As integrações reais, a persistência transacional e os demais fluxos da auditoria continuam pendentes. O parecer de não liberar operacionalmente permanece.
 
@@ -67,7 +79,7 @@ As integrações reais, a persistência transacional e os demais fluxos da audit
 | Design Studio AI | Abre; galeria e ações visíveis. IA externa não homologada; transferência e arquivos têm bloqueios acima. |
 | Estúdio 3D | Abre; visualização disponível. Arquivos CAD/CAM dependem das limitações dos exportadores. |
 | Otimizador CAM | Abre; diagnóstico usa regras locais e substituições de texto, sem IA externa. Não homologado em controlador CNC. |
-| Nesting | Abre e calcula plano; estrutura empacota retângulos e não conserva contornos das peças. Não homologado como plano de corte final. |
+| Nesting | Preserva os contornos transferidos e exporta SVG/DXF, com rotação, margem e espaçamento testados. Usa envelopes retangulares para encaixe; o plano fica salvo localmente por conta. Falta homologação física em máquina. |
 | Mark-up Divisor | Caso normal e divisor inválido passaram; validações de NaN/negativos falharam. |
 | Orçamentos | Abre e calcula proposta; conversão incorreta reproduzida. Persistência incompleta identificada no código. |
 | Produção & Kanban | Quadro e abas abrem; OPs geradas por conversão aparecem. Sincronização/estoque não homologados com múltiplos usuários. |

@@ -48,7 +48,8 @@ export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, 
     : 'Venda de Produção Própria (Interna MG)';
 
   // Build 44-digit SEFAZ key with valid modulo 11 check digit
-  const base43 = `312610${company.cnpj.replace(/\D/g, '')}55001000000${(activeOrder?.orderNumber || '0482').replace(/\D/g, '')}100876123`.slice(0, 43).padEnd(43, '0');
+  const cleanCnpj = (company.cnpj || '').replace(/\D/g, '').padEnd(14, '0');
+  const base43 = `312610${cleanCnpj}55001000000${(activeOrder?.orderNumber || '0482').replace(/\D/g, '')}100876123`.slice(0, 43).padEnd(43, '0');
   const checkDigit = calculateNfeCheckDigit(base43);
   const accessKey = activeOrder?.invoiceKey || `${base43}${checkDigit}`;
 
@@ -56,13 +57,13 @@ export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, 
   const zplCode = `^XA
 ^PW800
 ^LL1200
-^FO50,40^A0N,32,32^FD${company.tradeName.toUpperCase()}^FS
-^FO50,80^A0N,22,22^FDCNPJ: ${company.cnpj} - ${company.city}/${company.uf}^FS
+^FO50,40^A0N,32,32^FD${(company.tradeName || 'OFICINA CNC').toUpperCase()}^FS
+^FO50,80^A0N,22,22^FDCNPJ: ${company.cnpj || ''} - ${company.city || ''}/${company.uf || 'MG'}^FS
 ^FO50,115^GB700,2,2^FS
 ^FO50,140^A0N,28,28^FDDados do Destinatario:^FS
-^FO50,180^A0N,24,24^FD${activeOrder?.customerName.toUpperCase()}^FS
-^FO50,210^A0N,20,20^FDDOC: ${activeOrder?.customerDoc}^FS
-^FO50,240^A0N,20,20^FDCidade: ${activeOrder?.customerCity} - ${activeOrder?.customerUf}^FS
+^FO50,180^A0N,24,24^FD${(activeOrder?.customerName || 'CLIENTE').toUpperCase()}^FS
+^FO50,210^A0N,20,20^FDDOC: ${activeOrder?.customerDoc || ''}^FS
+^FO50,240^A0N,20,20^FDCidade: ${activeOrder?.customerCity || ''} - ${activeOrder?.customerUf || ''}^FS
 ^FO50,280^GB700,2,2^FS
 ^FO50,310^A0N,30,30^FDRastreamento: ${activeOrder?.trackingCode || 'ME-JF-984218-BR'}^FS
 ^FO100,360^BY3,3,100^BCN,100,Y,N,N
@@ -132,6 +133,17 @@ export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, 
         </div>
       </div>
 
+      {orders.length === 0 ? (
+        <div className="p-12 text-center max-w-md mx-auto my-auto space-y-4">
+          <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+            <ShieldCheck className="w-8 h-8" />
+          </div>
+          <h2 className="text-base font-bold text-slate-800">Nenhum Pedido para Emissão</h2>
+          <p className="text-xs text-slate-500">
+            Não há pedidos de venda pendentes de emissão fiscal ou etiquetas de expedição. Os pedidos recebidos via Loja Própria, WhatsApp ou Marketplaces sincronizados no Firestore aparecerão aqui.
+          </p>
+        </div>
+      ) : (
       <div className="p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Side: Order Picker */}
         <div className="lg:col-span-4 space-y-3">
@@ -402,6 +414,7 @@ export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, 
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

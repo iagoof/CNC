@@ -299,6 +299,72 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
+  const syncProductMutation = async (product: ProductInventory) => {
+    if (!user) return;
+    try {
+      await saveProductToFirestore(product, user.uid);
+    } catch (err) {
+      console.warn('Erro ao persistir produto no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
+  const deleteProductMutation = async (sku: string) => {
+    if (!user) return;
+    try {
+      await deleteProductFromFirestore(sku);
+    } catch (err) {
+      console.warn('Erro ao excluir produto no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
+  const syncSalesOrderMutation = async (order: SalesOrder) => {
+    if (!user) return;
+    try {
+      await saveSalesOrderToFirestore(order, user.uid);
+    } catch (err) {
+      console.warn('Erro ao persistir pedido de venda no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
+  const deleteSalesOrderMutation = async (orderId: string) => {
+    if (!user) return;
+    try {
+      await deleteSalesOrderFromFirestore(orderId);
+    } catch (err) {
+      console.warn('Erro ao excluir pedido de venda no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
+  const syncMachineMutation = async (machine: Machine) => {
+    if (!user) return;
+    try {
+      await saveMachineToFirestore(machine, user.uid);
+    } catch (err) {
+      console.warn('Erro ao persistir máquina no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
+  const deleteMachineMutation = async (machineId: string) => {
+    if (!user) return;
+    try {
+      await deleteMachineFromFirestore(machineId);
+    } catch (err) {
+      console.warn('Erro ao excluir máquina no Firestore:', err);
+      reportError();
+      throw err;
+    }
+  };
+
   const seedInitialDataMutation = async (): Promise<SeedResult> => {
     if (!user) throw new Error('Usuário precisa estar autenticado para sincronizar dados no Firestore');
     setIsSeeding(true);
@@ -336,7 +402,16 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         syncProjectMutation,
         deleteProjectMutation,
         companySettings,
-        syncCompanySettingsMutation
+        syncCompanySettingsMutation,
+        products,
+        syncProductMutation,
+        deleteProductMutation,
+        salesOrders,
+        syncSalesOrderMutation,
+        deleteSalesOrderMutation,
+        machines,
+        syncMachineMutation,
+        deleteMachineMutation
       }}
     >
       {syncError && <div role="alert" className="fixed bottom-4 right-4 z-50 max-w-md rounded-xl border border-red-200 bg-white p-4 text-sm text-red-800 shadow-lg"><p>{syncError}</p><button onClick={() => setSyncError(null)} className="mt-2 underline">Fechar aviso</button></div>}
