@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  runTransaction,
   doc,
   getDoc,
   getDocFromServer,
@@ -23,6 +24,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
+import { reserveCatalogOrder } from '../../utils/orderReservation';
 import { ProductionOrder, Material, Quote, CompanyProfile, UF, ProductInventory, SalesOrder, Machine } from '../../types';
 
 // Inicialização oficial do Firebase
@@ -757,6 +759,33 @@ export function subscribeToSalesOrders(
       window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: `Falha ao carregar ${collectionPath}. Verifique a conexão e as permissões da conta.` }));
     }
   );
+}
+
+export async function createCatalogOrderInFirestore(order: SalesOrder, userId: string): Promise<void> {
+  if (!userId || auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para registrar pedidos.');
+  try {
+    await runTransaction(db, async transaction => {
+      if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Entre novamente antes de confirmar.');
+      await reserveCatalogOrder({
+        getOrder: async id => {
+          const snapshot = await transaction.get(doc(db, 'sales_orders', id));
+          return snapshot.exists() ? snapshot.data() as SalesOrder & { ownerId: string } : undefined;
+        },
+        getProduct: async id => {
+          const snapshot = await transaction.get(doc(db, 'products', id));
+          return snapshot.exists() ? snapshot.data() as ProductInventory & { ownerId: string } : undefined;
+        },
+        createOrder: (value, ownerId) => transaction.set(doc(db, 'sales_orders', value.id), {
+          ...value, ownerId, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        }),
+        updateStock: (id, committedStock) => transaction.update(doc(db, 'products', id), { committedStock, updatedAt: serverTimestamp() })
+      }, order, userId);
+    });
+  } catch (error) {
+    const code = (error as { code?: string })?.code;
+    if (code) throw new Error('Não foi possível confirmar pedido e estoque na nuvem. Verifique a conexão e as permissões e tente novamente.');
+    throw error;
+  }
 }
 
 export async function saveSalesOrderToFirestore(order: SalesOrder, userId: string): Promise<void> {

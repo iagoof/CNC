@@ -61,6 +61,7 @@ export default function App() {
     deleteProductMutation,
     salesOrders: remoteSalesOrders,
     syncSalesOrderMutation,
+    createCatalogOrderMutation,
     deleteSalesOrderMutation,
     machines: remoteMachines,
     syncMachineMutation,
@@ -321,13 +322,14 @@ export default function App() {
   };
 
   // Handlers for Sales Orders (Store & Marketplaces)
-  const handlePlaceOrder = (orderData: Partial<SalesOrder>) => {
+  const handlePlaceOrder = async (orderData: Partial<SalesOrder>) => {
+    if (!user) throw new Error('Entre na sua conta para registrar pedidos.');
     if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return false; }
     const items = orderData.items.map(i => ({ ...i, totalPrice: money(i.unitPrice * i.quantity) }));
     const subtotal = money(items.reduce((sum, i) => sum + i.totalPrice, 0));
     const fullOrder: SalesOrder = {
-      id: entityId('ped'),
-      orderNumber: orderData.orderNumber || documentNumber('PED', entityId('ped')),
+      id: orderData.id || entityId('ped'),
+      orderNumber: orderData.orderNumber || documentNumber('PED', orderData.id || entityId('ped')),
       channel: orderData.channel || 'Loja Própria',
       customerName: orderData.customerName || 'Cliente Loja Online',
       customerDoc: orderData.customerDoc || '',
@@ -344,26 +346,8 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    // Commit stock for each item and check for replenishment deficit
-    fullOrder.items.forEach(item => {
-      setInventory(prev =>
-        prev.map(inv => {
-          if (inv.sku === item.sku) {
-            const nextCommitted = inv.committedStock + item.quantity;
-            const updated = {
-              ...inv,
-              committedStock: nextCommitted
-            };
-            void syncProductMutation(updated).catch(() => {});
-            return updated;
-          }
-          return inv;
-        })
-      );
-    });
-
-    setSalesOrders(prev => [fullOrder, ...prev]);
-    void syncSalesOrderMutation(fullOrder).catch(() => {});
+    // Confirm the atomic remote transaction; snapshots update order and stock.
+    await createCatalogOrderMutation(fullOrder);
     return true;
   };
 
@@ -619,7 +603,7 @@ export default function App() {
           )}
 
           {activeTab === 'catalog' && (
-            <CatalogStoreView
+            <CatalogStoreView key={user?.uid || 'guest'}
               products={inventory}
               onPlaceOrder={handlePlaceOrder}
             />

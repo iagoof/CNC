@@ -24,6 +24,7 @@ import {
   deleteProductFromFirestore,
   subscribeToSalesOrders,
   saveSalesOrderToFirestore,
+  createCatalogOrderInFirestore,
   deleteSalesOrderFromFirestore,
   subscribeToMachines,
   saveMachineToFirestore,
@@ -61,6 +62,7 @@ interface FirebaseContextType {
   deleteProductMutation: (sku: string) => Promise<void>;
   salesOrders: SalesOrder[];
   syncSalesOrderMutation: (order: SalesOrder) => Promise<void>;
+  createCatalogOrderMutation: (order: SalesOrder) => Promise<void>;
   deleteSalesOrderMutation: (orderId: string) => Promise<void>;
   machines: Machine[];
   syncMachineMutation: (machine: Machine) => Promise<void>;
@@ -321,6 +323,12 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
+  const createCatalogOrderMutation = async (order: SalesOrder) => {
+    if (!user) throw new Error('Entre na sua conta para registrar pedidos.');
+    try { await createCatalogOrderInFirestore(order, user.uid); }
+    catch (error) { reportError(); throw error; }
+  };
+
   const syncSalesOrderMutation = async (order: SalesOrder) => {
     if (!user) return;
     try {
@@ -408,6 +416,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         deleteProductMutation,
         salesOrders,
         syncSalesOrderMutation,
+        createCatalogOrderMutation,
         deleteSalesOrderMutation,
         machines,
         syncMachineMutation,

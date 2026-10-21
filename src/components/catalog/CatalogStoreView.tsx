@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import type { ProductInventory, SalesOrder, UF } from '../../types';
 import { ShoppingBag, CheckCircle2, Store } from 'lucide-react';
 import { createCatalogOrder } from '../../utils/catalogOrder';
+import { entityId, documentNumber } from '../../utils/quoteEngine';
 
 interface CatalogStoreViewProps {
   products: ProductInventory[];
-  onPlaceOrder: (order: Partial<SalesOrder>) => boolean;
+  onPlaceOrder: (order: Partial<SalesOrder>) => boolean | Promise<boolean>;
 }
 
 const states: UF[] = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -19,6 +20,8 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
   const [customerUf, setCustomerUf] = useState<UF | ''>('');
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const requestId = React.useRef('');
   const submitting = React.useRef(false);
   const dialogRef = React.useRef<HTMLDialogElement>(null);
   React.useEffect(() => {
@@ -29,19 +32,24 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
     setSelectedProduct(product); setQuantity(1); setOrderCompleted(false); setError('');
     setCustomerName(''); setCustomerDoc(''); setCustomerCity(''); setCustomerUf('');
     submitting.current = false;
+    requestId.current = entityId('ped');
+    setSaving(false);
   };
-  const handleRegisterOrder = (event: React.FormEvent) => {
+  const handleRegisterOrder = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedProduct || submitting.current) return;
     submitting.current = true;
+    setSaving(true);
     try {
       const order = createCatalogOrder(selectedProduct, quantity, { name: customerName, doc: customerDoc, city: customerCity, uf: customerUf as UF });
-      if (!onPlaceOrder(order)) throw new Error('Não foi possível registrar o pedido. Revise os dados e tente novamente.');
+      order.id = requestId.current;
+      order.orderNumber = documentNumber('PED', requestId.current);
+      if (!await onPlaceOrder(order)) throw new Error('Não foi possível registrar o pedido. Revise os dados e tente novamente.');
       setOrderCompleted(true); setError('');
     } catch (err) {
       submitting.current = false;
       setError(err instanceof Error ? err.message : 'Não foi possível registrar o pedido.');
-    }
+    } finally { setSaving(false); }
   };
 
   return (
@@ -168,28 +176,28 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
         )}
 
         {selectedProduct && (
-          <dialog ref={dialogRef} onCancel={() => setSelectedProduct(null)} aria-labelledby="catalog-order-title" className="m-auto max-w-lg w-[calc(100%-2rem)] rounded-2xl p-0 backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs">
+          <dialog ref={dialogRef} onCancel={event => { if (saving) event.preventDefault(); else setSelectedProduct(null); }} aria-labelledby="catalog-order-title" className="m-auto max-w-lg w-[calc(100%-2rem)] rounded-2xl p-0 backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs">
             <div className="bg-white border border-slate-200 rounded-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 id="catalog-order-title" className="text-base font-bold">Registrar pedido</h3>
                   <p className="text-xs text-slate-500">{selectedProduct.name}</p>
                 </div>
-                <button autoFocus onClick={() => setSelectedProduct(null)} className="text-sm p-1">Fechar</button>
+                <button autoFocus disabled={saving} onClick={() => setSelectedProduct(null)} className="text-sm p-1">Fechar</button>
               </div>
               {!orderCompleted ? (
-                <form onSubmit={handleRegisterOrder} className="space-y-4 text-sm">
+                <form onSubmit={handleRegisterOrder} aria-busy={saving} className="text-sm"><fieldset disabled={saving} className="space-y-4">
                   {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
                   <div className="space-y-3">
                     <label className="block">Nome completo
-                      <input required maxLength={160} value={customerName} onChange={e => setCustomerName(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                      <input required maxLength={128} value={customerName} onChange={e => setCustomerName(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
                     </label>
                     <label className="block">CPF/CNPJ (opcional)
                       <input maxLength={18} value={customerDoc} onChange={e => setCustomerDoc(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
                     </label>
                     <div className="grid grid-cols-[1fr_5rem] gap-3">
                       <label>Cidade
-                        <input required maxLength={100} value={customerCity} onChange={e => setCustomerCity(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                        <input required maxLength={64} value={customerCity} onChange={e => setCustomerCity(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
                       </label>
                       <label htmlFor="catalog-customer-uf">UF
                         <select id="catalog-customer-uf" aria-label="UF" required value={customerUf} onChange={e => setCustomerUf(e.target.value as UF)} className="mt-1 w-full border border-slate-300 rounded-lg p-2">
@@ -203,13 +211,13 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
                   </div>
                   <p className="font-semibold">Total: {(selectedProduct.unitPrice * quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                   <p className="text-xs text-slate-500">O pedido ficará pendente de pagamento. A cobrança online ainda não está configurada.</p>
-                  <button type="submit" className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 py-3 font-semibold text-white">Registrar pedido pendente</button>
-                </form>
+                  <button type="submit" className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 py-3 font-semibold text-white">{saving ? 'Confirmando pedido…' : 'Registrar pedido pendente'}</button>
+                </fieldset></form>
               ) : (
                 <div role="status" className="py-6 text-center space-y-3">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
                   <h4 className="font-bold">Pedido registrado</h4>
-                  <p className="text-sm text-slate-600">Pagamento e expedição pendentes. Consulte o pedido na Visão Geral. A confirmação da sincronização depende da conexão da sua conta.</p>
+                  <p className="text-sm text-slate-600">Pagamento e expedição pendentes. Consulte o pedido na Visão Geral.</p>
                   <button onClick={() => setSelectedProduct(null)} className="px-4 py-2 bg-amber-500 text-white rounded-xl">Voltar ao catálogo</button>
                 </div>
               )}

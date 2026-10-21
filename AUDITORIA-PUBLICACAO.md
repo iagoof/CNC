@@ -5,6 +5,16 @@
 
 ## Atualização da revisão
 
+### Documentos e expedição — revisão adicional
+
+- Removidos a geração local de chave fiscal, o protocolo fixo de autorização, a classificação fiscal fixa, o rastreamento inventado, o peso/volume de exemplo e os desenhos que simulavam códigos de barras/QR Code.
+- A tela gera um resumo comercial identificado como sem valor fiscal e uma identificação interna do pedido. A chave eventualmente armazenada é exibida somente como informada e não verificada. A emissão de NF-e continua não configurada e depende de um provedor homologado.
+- Prévia e impressão usam os dados do pedido, com itens, quantidades, preços, frete, desconto e total conferidos. Pedidos inconsistentes bloqueiam os documentos com erro visível; lista vazia desabilita impressão.
+- A impressão prepara um documento isolado da navegação, em A4 ou 100 × 150 mm. O código ZPL é gerado para 203 dpi e pode ser copiado ou baixado. Detalhes fiscais e o código bruto ficam recolhidos por padrão.
+- Campos HTML são escapados. Campos ZPL são codificados byte a byte em hexadecimal com UTF-8 para impedir que dados do cliente introduzam comandos de impressora. Barcode Code 128 é incluído apenas para rastreamento fornecido que caiba no formato suportado. Referências de implementação: [Zebra ^FH](https://docs.zebra.com/content/tcm/us/en/printers/software/zpl-pg/zpl-commands/%5Efh.html), [^CI](https://docs.zebra.com/us/en/printers/software/zpl-pg/c-zpl-zpl-commands/r-zpl-ci.html) e [^BC](https://docs.zebra.com/us/en/printers/software/zpl-pg/c-zpl-zpl-commands/r-zpl-bc.html).
+- Seis testes de domínio em `order-documents.test.mts` passaram. O componente real em `tests/documents-workflow.html` foi exercitado com dados isolados: prévias, seleção, lista vazia, total inválido e download real de `identificacao_PED-RASTREIO.zpl`. A cópia retornou confirmação na interface; não houve validação independente do conteúdo da área de transferência do sistema.
+- Dois testes adicionais no navegador exercitaram a função real de preparação de impressão, substituindo somente o diálogo da impressora. Confirmaram conteúdo, exclusão da navegação, formatos e remoção do iframe após `afterprint`. Não comprovam impressão física, leitura por scanner ou homologação da impressora. Evidência: `tests/evidence/order-documents.png`.
+
 ### Catálogo e pedidos — revisão adicional
 
 - Removidos o QR Code fictício, o botão de aprovação simulada e a promessa de pagamento instantâneo. O catálogo registra pedidos com pagamento e expedição pendentes, forma de pagamento a definir e sem data de pagamento.
@@ -18,7 +28,7 @@
 
 1. Backend autenticado para IA e provedores de cobrança, fiscal e canais; confirmar serviços/ambientes contratados. Não armazenar segredos no cliente.
 2. Homologar regras Firestore e isolamento entre contas, falhas de gravação e consistência entre pedido, estoque e produção.
-3. Remover autorização fiscal e rastreamento fictícios da tela fiscal; emissão real depende de retorno confiável do provedor.
+3. Configurar e homologar emissão fiscal com retorno confiável do provedor; a autorização e o rastreamento fictícios foram removidos. Homologar impressão física das etiquetas.
 4. Validar arquivos CNC no controlador e máquina de destino; o perfil atual de G-code não comprova suporte a Ruida ou outros controladores.
 5. Revisar os demais botões e páginas, indicadores de observabilidade e fluxos de IA ainda demonstrativos. Executar validação no domínio de produção antes da liberação.
 
