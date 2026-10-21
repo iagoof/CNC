@@ -1,9 +1,26 @@
 # Revisão para publicação — 21/10/2026
 
 ## Parecer
-**Não publicar como plataforma operacional neste estado.** A navegação funciona, mas há falhas em valores de pedidos, persistência e arquivos CNC, além de integrações simuladas.
+**Ainda não liberar para operação comercial.** As correções abaixo passaram nas verificações locais indicadas. Integrações de cobrança, emissão fiscal, IA no servidor, isolamento/persistência em ambiente real e compatibilidade com os controladores CNC ainda não estão homologados. Google Cloud e o endereço informado pelo usuário não comprovam esses fluxos.
 
 ## Atualização da revisão
+
+### Catálogo e pedidos — revisão adicional
+
+- Removidos o QR Code fictício, o botão de aprovação simulada e a promessa de pagamento instantâneo. O catálogo registra pedidos com pagamento e expedição pendentes, forma de pagamento a definir e sem data de pagamento.
+- Nome, cidade, UF, quantidade inteira, preço e tempo de fabricação são validados. Documento opcional permanece vazio; não é substituído por CPF fictício. O número do pedido usa identificador único e o ano corrente.
+- A confirmação informa o registro do pedido; não afirma cobrança, criação de OP ou sincronização concluída. Há proteção contra envio repetido no mesmo formulário. A persistência e a reserva de estoque ainda dependem de operações separadas no App, sem transação atômica homologada.
+- Marketplaces mostram “Integração não configurada”. Foram removidos os status de conexão inventados, comissões fixas e botões de sincronização sem ação. As integrações continuam pendentes de implementação/configuração real.
+- Dois testes de domínio aprovados em `catalog-order.test.mts`: conservação dos valores/estados e bloqueio de entradas inválidas. No componente real em ambiente isolado, 3 × R$ 42,90 geraram um único pedido de R$ 128,70, pagamento e expedição pendentes. Evidência: `tests/evidence/catalog-order.png`.
+- Após estas alterações: 13 testes Node aprovados (catálogo, nesting e orçamento), TypeScript e build Vite aprovados. Isto não substitui testes de integração em homologação.
+
+### Pendências atuais para lançamento
+
+1. Backend autenticado para IA e provedores de cobrança, fiscal e canais; confirmar serviços/ambientes contratados. Não armazenar segredos no cliente.
+2. Homologar regras Firestore e isolamento entre contas, falhas de gravação e consistência entre pedido, estoque e produção.
+3. Remover autorização fiscal e rastreamento fictícios da tela fiscal; emissão real depende de retorno confiável do provedor.
+4. Validar arquivos CNC no controlador e máquina de destino; o perfil atual de G-code não comprova suporte a Ruida ou outros controladores.
+5. Revisar os demais botões e páginas, indicadores de observabilidade e fluxos de IA ainda demonstrativos. Executar validação no domínio de produção antes da liberação.
 
 ### Nesting — revisão adicional
 
@@ -48,7 +65,9 @@ As integrações reais, a persistência transacional e os demais fluxos da audit
 - Nove verificações adicionais nas funções reais: cinco passaram e quatro falharam. Resultados em audit-results.json; casos em audit-checks.mts. Para reproduzir: `node audit-transpile.mjs` e depois `node audit-checks.mjs`.
 - Console: avisos de APIs obsoletas do Three.js e de precisão de shader; sem erro de renderização capturado durante a navegação inicial.
 
-## Bloqueios prioritários
+## Achados da revisão inicial — histórico
+
+Esta tabela registra o estado anterior às correções. Consulte as atualizações acima para os fluxos já corrigidos e as pendências atuais; as falhas históricas não foram todas reproduzidas novamente após as alterações.
 
 | Prioridade | Problema e evidência | Impacto |
 | --- | --- | --- |

@@ -1,77 +1,47 @@
 import React, { useState } from 'react';
-import { ProductInventory, SalesOrder } from '../../types';
-import {
-  ShoppingBag,
-  CreditCard,
-  QrCode,
-  CheckCircle2,
-  ExternalLink,
-  MessageCircle,
-  Copy,
-  DollarSign,
-  Store,
-  RefreshCw,
-  Tag
-} from 'lucide-react';
+import type { ProductInventory, SalesOrder, UF } from '../../types';
+import { ShoppingBag, CheckCircle2, Store } from 'lucide-react';
+import { createCatalogOrder } from '../../utils/catalogOrder';
 
 interface CatalogStoreViewProps {
   products: ProductInventory[];
-  onPlaceOrder: (order: Partial<SalesOrder>) => void;
+  onPlaceOrder: (order: Partial<SalesOrder>) => boolean;
 }
 
+const states: UF[] = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, onPlaceOrder }) => {
   const [selectedProduct, setSelectedProduct] = useState<ProductInventory | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card' | 'whatsapp'>('pix');
-  const [pixCopied, setPixCopied] = useState(false);
   const [orderCompleted, setOrderCompleted] = useState(false);
   const [activeTab, setActiveTab] = useState<'storefront' | 'marketplaces'>('storefront');
-
-  // Checkout form
   const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
   const [customerDoc, setCustomerDoc] = useState('');
+  const [customerCity, setCustomerCity] = useState('');
+  const [customerUf, setCustomerUf] = useState<UF | ''>('');
   const [quantity, setQuantity] = useState(1);
+  const [error, setError] = useState('');
+  const submitting = React.useRef(false);
+  const dialogRef = React.useRef<HTMLDialogElement>(null);
+  React.useEffect(() => {
+    if (selectedProduct && dialogRef.current && !dialogRef.current.open) dialogRef.current.showModal();
+  }, [selectedProduct]);
 
   const handleOpenCheckout = (product: ProductInventory) => {
-    setSelectedProduct(product);
-    setQuantity(1);
-    setOrderCompleted(false);
+    setSelectedProduct(product); setQuantity(1); setOrderCompleted(false); setError('');
+    setCustomerName(''); setCustomerDoc(''); setCustomerCity(''); setCustomerUf('');
+    submitting.current = false;
   };
-
-  const handleSimulatePayment = () => {
-    if (!selectedProduct) return;
-    const subtotal = selectedProduct.unitPrice * quantity;
-    const orderNum = `PED-2026-0${Math.floor(Math.random() * 900 + 100)}`;
-
-    onPlaceOrder({
-      orderNumber: orderNum,
-      channel: paymentMethod === 'whatsapp' ? 'WhatsApp' : 'Loja Própria',
-      customerName: customerName || 'Cliente Loja Online',
-      customerDoc: customerDoc || '123.456.789-00',
-      customerCity: 'Juiz de Fora',
-      customerUf: 'MG',
-      items: [
-        {
-          sku: selectedProduct.sku,
-          productName: selectedProduct.name,
-          quantity,
-          unitPrice: selectedProduct.unitPrice,
-          totalPrice: subtotal,
-          laserTimeSeconds: selectedProduct.estimatedLaserTimeSeconds * quantity
-        }
-      ],
-      subtotal,
-      shippingCost: 0,
-      discount: 0,
-      total: subtotal,
-      paymentMethod: paymentMethod === 'pix' ? 'Pix Asaas' : paymentMethod === 'card' ? 'Cartão Asaas' : 'Pix Asaas',
-      paymentStatus: 'Pago',
-      paidAt: new Date().toISOString(),
-      fulfillmentStatus: 'Em Produção',
-      createdAt: new Date().toISOString()
-    });
-
-    setOrderCompleted(true);
+  const handleRegisterOrder = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedProduct || submitting.current) return;
+    submitting.current = true;
+    try {
+      const order = createCatalogOrder(selectedProduct, quantity, { name: customerName, doc: customerDoc, city: customerCity, uf: customerUf as UF });
+      if (!onPlaceOrder(order)) throw new Error('Não foi possível registrar o pedido. Revise os dados e tente novamente.');
+      setOrderCompleted(true); setError('');
+    } catch (err) {
+      submitting.current = false;
+      setError(err instanceof Error ? err.message : 'Não foi possível registrar o pedido.');
+    }
   };
 
   return (
@@ -83,9 +53,9 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
             <Store className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-slate-900">Catálogo Digital & Loja Online (Asaas)</h1>
+            <h1 className="text-base font-bold text-slate-900">Catálogo e pedidos</h1>
             <p className="text-xs text-slate-500">
-              Vitrine com Pix instantâneo, parcelamento no cartão e integração de Marketplaces — Polo Juiz de Fora / MG
+              Consulte os produtos e registre pedidos para combinar o pagamento.
             </p>
           </div>
         </div>
@@ -175,7 +145,7 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
                     className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />
-                    Comprar
+                    Registrar pedido
                   </button>
                 </div>
               </div>
@@ -183,224 +153,68 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
           </div>
           )
         ) : (
-          /* Marketplaces Tab */
-          <div className="space-y-6">
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">Conexão de Marketplaces</h3>
-              <p className="text-xs text-slate-500 mb-6">
-                Sincronize pedidos, estoque unificado por SKU e emissão automática de NF-e para os principais canais
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                {[
-                  {
-                    name: 'Mercado Livre',
-                    status: 'Conectado (API Oficial)',
-                    commission: '12% a 17%',
-                    sync: 'Estoque & Pedidos Ativos'
-                  },
-                  {
-                    name: 'Shopee',
-                    status: 'Conectado (Open Platform)',
-                    commission: '14% + R$ 4/item',
-                    sync: 'Estoque Sincronizado'
-                  },
-                  {
-                    name: 'Temu / Bling',
-                    status: 'Configurado via Webhook',
-                    commission: '10% a 15%',
-                    sync: 'Importação de Pedidos'
-                  }
-                ].map((channel, i) => (
-                  <div key={i} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-slate-900 text-sm">{channel.name}</span>
-                      <span className="flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Conectado
-                      </span>
-                    </div>
-                    <div className="space-y-1 text-slate-600 text-[11px]">
-                      <p>Taxa estimada: <strong className="text-slate-800">{channel.commission}</strong></p>
-                      <p>Status: <strong className="text-slate-800">{channel.sync}</strong></p>
-                    </div>
-                    <button className="w-full py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-slate-200 cursor-pointer">
-                      <RefreshCw className="w-3 h-3 text-amber-600" /> Sincronizar Agora
-                    </button>
-                  </div>
-                ))}
-              </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900">Marketplaces</h3>
+            <p className="text-xs text-slate-500">A sincronização estará disponível após configurar e validar as integrações dos canais.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {['Mercado Livre', 'Shopee', 'Temu / Bling'].map(name => (
+                <div key={name} className="rounded-xl border border-slate-200 p-4 text-sm">
+                  <h4 className="font-semibold">{name}</h4>
+                  <p className="mt-2 text-xs text-slate-500">Integração não configurada</p>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Modal Checkout Asaas Simulation */}
         {selectedProduct && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+          <dialog ref={dialogRef} onCancel={() => setSelectedProduct(null)} aria-labelledby="catalog-order-title" className="m-auto max-w-lg w-[calc(100%-2rem)] rounded-2xl p-0 backdrop:bg-slate-900/40 backdrop:backdrop-blur-xs">
+            <div className="bg-white border border-slate-200 rounded-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Checkout Transparente Asaas</h3>
+                  <h3 id="catalog-order-title" className="text-base font-bold">Registrar pedido</h3>
                   <p className="text-xs text-slate-500">{selectedProduct.name}</p>
                 </div>
-                <button
-                  onClick={() => setSelectedProduct(null)}
-                  className="text-slate-400 hover:text-slate-700 text-xs font-bold p-1 cursor-pointer"
-                >
-                  ✕ Fechar
-                </button>
+                <button autoFocus onClick={() => setSelectedProduct(null)} className="text-sm p-1">Fechar</button>
               </div>
-
               {!orderCompleted ? (
-                <>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nome Completo</label>
-                      <input
-                        type="text"
-                        value={customerName}
-                        onChange={e => setCustomerName(e.target.value)}
-                        placeholder="Nome do cliente"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-amber-500"
-                      />
+                <form onSubmit={handleRegisterOrder} className="space-y-4 text-sm">
+                  {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
+                  <div className="space-y-3">
+                    <label className="block">Nome completo
+                      <input required maxLength={160} value={customerName} onChange={e => setCustomerName(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                    </label>
+                    <label className="block">CPF/CNPJ (opcional)
+                      <input maxLength={18} value={customerDoc} onChange={e => setCustomerDoc(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                    </label>
+                    <div className="grid grid-cols-[1fr_5rem] gap-3">
+                      <label>Cidade
+                        <input required maxLength={100} value={customerCity} onChange={e => setCustomerCity(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                      </label>
+                      <label htmlFor="catalog-customer-uf">UF
+                        <select id="catalog-customer-uf" aria-label="UF" required value={customerUf} onChange={e => setCustomerUf(e.target.value as UF)} className="mt-1 w-full border border-slate-300 rounded-lg p-2">
+                          <option value="">UF</option>{states.map(uf => <option key={uf}>{uf}</option>)}
+                        </select>
+                      </label>
                     </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">WhatsApp</label>
-                      <input
-                        type="text"
-                        value={customerPhone}
-                        onChange={e => setCustomerPhone(e.target.value)}
-                        placeholder="(32) 99999-9999"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 font-mono focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
+                    <label className="block">Quantidade
+                      <input type="number" required min={1} max={10000} step={1} value={quantity} onChange={e => setQuantity(Number(e.target.value))} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
+                    </label>
                   </div>
-
-                  <div className="flex items-center gap-4 text-xs">
-                    <label className="text-[11px] font-semibold text-slate-600">Quantidade:</label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-800 font-bold cursor-pointer"
-                      >
-                        -
-                      </button>
-                      <span className="font-mono font-bold text-slate-900">{quantity}</span>
-                      <button
-                        onClick={() => setQuantity(quantity + 1)}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-800 font-bold cursor-pointer"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <span className="text-slate-500 ml-auto">
-                      Total:{' '}
-                      <strong className="text-emerald-700 font-mono text-sm">
-                        R$ {(selectedProduct.unitPrice * quantity).toFixed(2)}
-                      </strong>
-                    </span>
-                  </div>
-
-                  {/* Payment Method Switch */}
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <button
-                      onClick={() => setPaymentMethod('pix')}
-                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition cursor-pointer ${
-                        paymentMethod === 'pix'
-                          ? 'bg-amber-50 border-amber-500 text-amber-800 shadow-xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <QrCode className="w-4 h-4 text-amber-600" />
-                      Pix Asaas
-                    </button>
-                    <button
-                      onClick={() => setPaymentMethod('card')}
-                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition cursor-pointer ${
-                        paymentMethod === 'card'
-                          ? 'bg-amber-50 border-amber-500 text-amber-800 shadow-xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <CreditCard className="w-4 h-4 text-amber-600" />
-                      Cartão até 12x
-                    </button>
-                    <button
-                      onClick={() => setPaymentMethod('whatsapp')}
-                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition cursor-pointer ${
-                        paymentMethod === 'whatsapp'
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      <MessageCircle className="w-4 h-4 text-emerald-600" />
-                      WhatsApp
-                    </button>
-                  </div>
-
-                  {paymentMethod === 'pix' && (
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs text-center">
-                      <div className="w-32 h-32 bg-white rounded-lg mx-auto flex items-center justify-center p-2 border border-slate-200">
-                        {/* Simulated QR Code SVG */}
-                        <svg viewBox="0 0 100 100" className="w-full h-full">
-                          <rect width="100" height="100" fill="#ffffff" />
-                          <rect x="10" y="10" width="30" height="30" fill="#0f172a" />
-                          <rect x="15" y="15" width="20" height="20" fill="#ffffff" />
-                          <rect x="20" y="20" width="10" height="10" fill="#0f172a" />
-                          <rect x="60" y="10" width="30" height="30" fill="#0f172a" />
-                          <rect x="65" y="15" width="20" height="20" fill="#ffffff" />
-                          <rect x="70" y="20" width="10" height="10" fill="#0f172a" />
-                          <rect x="10" y="60" width="30" height="30" fill="#0f172a" />
-                          <rect x="15" y="65" width="20" height="20" fill="#ffffff" />
-                          <rect x="20" y="70" width="10" height="10" fill="#0f172a" />
-                          <rect x="50" y="50" width="40" height="40" fill="#0f172a" fillOpacity="0.8" />
-                        </svg>
-                      </div>
-                      <p className="text-[11px] text-slate-500">Escaneie o QR Code ou copie a chave Pix:</p>
-                      <div className="flex items-center gap-2">
-                        <input
-                          readOnly
-                          value="00020126580014br.gov.bcb.pix0136451238900001445204000053039865802BR"
-                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] text-slate-700 font-mono"
-                        />
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText('00020126580014br.gov.bcb.pix0136451238900001445204000053039865802BR');
-                            setPixCopied(true);
-                            setTimeout(() => setPixCopied(false), 2000);
-                          }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded text-amber-700 border border-slate-200 shrink-0 cursor-pointer"
-                        >
-                          {pixCopied ? 'Copiado!' : 'Copiar'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleSimulatePayment}
-                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
-                  >
-                    Confirmar Pagamento Simulado (Asaas Webhook)
-                  </button>
-                </>
+                  <p className="font-semibold">Total: {(selectedProduct.unitPrice * quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                  <p className="text-xs text-slate-500">O pedido ficará pendente de pagamento. A cobrança online ainda não está configurada.</p>
+                  <button type="submit" className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 py-3 font-semibold text-white">Registrar pedido pendente</button>
+                </form>
               ) : (
-                <div className="py-6 text-center space-y-3">
-                  <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
-                  <h4 className="text-sm font-bold text-slate-900">Pagamento Aprovado Instantaneamente!</h4>
-                  <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
-                    O pedido foi registrado com sucesso, o estoque de <strong>{selectedProduct.sku}</strong> foi
-                    comprometido e a Ordem de Produção já está no Kanban da fábrica em Juiz de Fora / MG.
-                  </p>
-                  <button
-                    onClick={() => setSelectedProduct(null)}
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer"
-                  >
-                    Concluir e Voltar
-                  </button>
+                <div role="status" className="py-6 text-center space-y-3">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                  <h4 className="font-bold">Pedido registrado</h4>
+                  <p className="text-sm text-slate-600">Pagamento e expedição pendentes. Consulte o pedido na Visão Geral. A confirmação da sincronização depende da conexão da sua conta.</p>
+                  <button onClick={() => setSelectedProduct(null)} className="px-4 py-2 bg-amber-500 text-white rounded-xl">Voltar ao catálogo</button>
                 </div>
               )}
             </div>
-          </div>
+          </dialog>
         )}
       </div>
     </div>

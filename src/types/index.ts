@@ -134,7 +134,7 @@ export interface SalesOrder {
   shippingCost: number;
   discount: number;
   total: number;
-  paymentMethod: 'Pix Asaas' | 'Cartão Asaas' | 'Boleto' | 'Dinheiro' | 'Marketplace';
+  paymentMethod: 'A definir' | 'Pix Asaas' | 'Cartão Asaas' | 'Boleto' | 'Dinheiro' | 'Marketplace';
   paymentStatus: 'Pago' | 'Pendente' | 'Cancelado';
   paidAt?: string;
   fulfillmentStatus: 'Pendente' | 'Em Produção' | 'Separado' | 'Nota Emitida' | 'Enviado' | 'Entregue';

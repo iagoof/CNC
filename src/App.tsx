@@ -322,15 +322,15 @@ export default function App() {
 
   // Handlers for Sales Orders (Store & Marketplaces)
   const handlePlaceOrder = (orderData: Partial<SalesOrder>) => {
-    if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return; }
+    if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return false; }
     const items = orderData.items.map(i => ({ ...i, totalPrice: money(i.unitPrice * i.quantity) }));
     const subtotal = money(items.reduce((sum, i) => sum + i.totalPrice, 0));
     const fullOrder: SalesOrder = {
       id: entityId('ped'),
-      orderNumber: orderData.orderNumber || `PED-2026-0${Math.floor(Math.random() * 900 + 100)}`,
+      orderNumber: orderData.orderNumber || documentNumber('PED', entityId('ped')),
       channel: orderData.channel || 'Loja Própria',
       customerName: orderData.customerName || 'Cliente Loja Online',
-      customerDoc: orderData.customerDoc || '123.456.789-00',
+      customerDoc: orderData.customerDoc || '',
       customerCity: orderData.customerCity || 'Juiz de Fora',
       customerUf: orderData.customerUf || 'MG',
       items,
@@ -338,9 +338,9 @@ export default function App() {
       shippingCost: orderData.shippingCost || 0,
       discount: orderData.discount || 0,
       total: money(subtotal + (orderData.shippingCost ?? 0) - (orderData.discount ?? 0)),
-      paymentMethod: orderData.paymentMethod || 'Pix Asaas',
+      paymentMethod: orderData.paymentMethod || 'A definir',
       paymentStatus: 'Pendente',
-      fulfillmentStatus: 'Em Produção',
+      fulfillmentStatus: 'Pendente',
       createdAt: new Date().toISOString()
     };
 
@@ -364,6 +364,7 @@ export default function App() {
 
     setSalesOrders(prev => [fullOrder, ...prev]);
     void syncSalesOrderMutation(fullOrder).catch(() => {});
+    return true;
   };
 
   // Quotes handlers com Sincronização Cloud
