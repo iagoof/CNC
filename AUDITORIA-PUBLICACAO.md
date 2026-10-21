@@ -3,6 +3,16 @@
 ## Parecer
 **Não publicar como plataforma operacional neste estado.** A navegação funciona, mas há falhas em valores de pedidos, persistência e arquivos CNC, além de integrações simuladas.
 
+## Atualização da revisão
+
+- O endereço informado, https://cnc-app.ai.studio/, abriu no navegador. Isso comprova acesso à interface, sem comprovar as integrações ou a configuração de hospedagem.
+- Galeria e indicadores da oficina estão recolhidos por padrão, acessíveis sob solicitação.
+- A conversão passou a usar o cálculo compartilhado do orçamento, preservando valores e mantendo pagamento pendente. Quatro testes reais passaram com `node --test quote-engine.test.mts`: valores/taxa/tempo, duplicidade, entradas inválidas e ausência de velocidade cadastrada.
+- Orçamentos sem velocidades válidas para material/máquina agora impedem conversão.
+- As três inserções de SVG nas prévias usam uma lista permitida de elementos e atributos, removendo conteúdo ativo e referências externas. A proteção ainda precisa de testes específicos de segurança e compatibilidade visual.
+- TypeScript, build Vite e quatro testes do orçamento aprovados ao final desta rodada; permanece o aviso de bundle grande (2,24 MB antes de gzip).
+- As linhas da tabela abaixo registram os achados originais. Correções de cálculo, campos de persistência, isolamento local por conta e transferências já foram implementadas; a validação integrada em nuvem ainda está pendente. G-code, DXF/kerf e integrações reais continuam bloqueando a liberação operacional.
+
 ## Verificações executadas
 - TypeScript sem emissão: aprovado antes da alteração visual e novamente após ela.
 - Build Vite: aprovado; bundle principal de aproximadamente 2,21 MB (566 KB gzip). Avisos de tamanho e de __dirname na configuração.

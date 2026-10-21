@@ -1,3 +1,4 @@
+import { sanitizeSvg } from '../../utils/sanitizeSvg';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -28,6 +29,7 @@ import {
 } from '../../utils/cncExporters';
 import { useFirebase } from '../../services/firebase/FirebaseContext';
 import { FirestoreProject } from '../../services/firebase/firebase';
+import { DEFAULT_PROJECTS_SEED } from '../../services/firebase/seedData';
 import {
   Sparkles,
   UploadCloud,
@@ -1319,7 +1321,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                         transition: 'transform 0.15s ease-out'
                       }}
                       className="max-h-full max-w-full flex items-center justify-center drop-shadow-sm"
-                      dangerouslySetInnerHTML={{ __html: currentArtifact.svgString }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeSvg(currentArtifact.svgString) }}
                     />
 
                     {/* Zoom Bar */}

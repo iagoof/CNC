@@ -33,6 +33,11 @@ export function priceQuote(quote: Pick<Quote, 'items' | 'desiredProfitMarginPct'
     if (!mat || !mach || !validNumbers || !item.description.trim()) errors.push(`Revise os dados da peça: ${item.description || 'sem descrição'}.`);
     const materialCostUnit = mat ? pieceWidth * pieceHeight / 1e6 * calcMaterialM2Cost(mat).costPerM2 : 0;
     const speed = mat?.speedsByMachine.find(s => s.machineId === mach?.id);
+    if (!speed || !Number.isFinite(speed.cutSpeed_mms) || speed.cutSpeed_mms <= 0
+      || !Number.isFinite(speed.engraveSpeed_mms) || speed.engraveSpeed_mms <= 0
+      || !Number.isFinite(speed.lineInterval_mm) || speed.lineInterval_mm <= 0) {
+      errors.push(`Configure velocidades e intervalo de gravação para a peça: ${item.description || 'sem descrição'}.`);
+    }
     const laser = calcLaserCutTimeAndCost(item.cutLength_mm, speed?.cutSpeed_mms ?? 20,
       mach ? calcMachineCostRates(mach, context.company.uf).perSecond : 0,
       item.engraveArea_cm2, speed?.engraveSpeed_mms ?? 250, speed?.lineInterval_mm ?? 0.08);

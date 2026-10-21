@@ -1,3 +1,4 @@
+import { sanitizeSvg } from '../../utils/sanitizeSvg';
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -809,7 +810,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                 {generatedSvgContent ? (
                   <div
                     className="w-full h-full flex items-center justify-center"
-                    dangerouslySetInnerHTML={{ __html: generatedSvgContent }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeSvg(generatedSvgContent) }}
                   />
                 ) : (
                   <svg className="w-full h-full max-h-72" viewBox="0 0 500 300">
@@ -914,7 +915,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                   <div className="h-32 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-center p-2 overflow-hidden">
                     <div
                       className="w-full h-full flex items-center justify-center pointer-events-none"
-                      dangerouslySetInnerHTML={{ __html: proj.svgContent }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeSvg(proj.svgContent) }}
                     />
                   </div>
 

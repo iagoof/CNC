@@ -58,12 +58,7 @@ export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, i
   const [margin, setMargin] = useState<number>(5);
   const [gap, setGap] = useState<number>(2.5);
 
-  const [items, setItems] = useState<NestingItem[]>([
-    { id: 'item-1', name: 'Tampa com Puxador Slide', width: 165, height: 115, quantity: 4, color: '#f59e0b', cutLength_mm: 560 },
-    { id: 'item-2', name: 'Fundo da Caixa c/ Dentes', width: 160, height: 120, quantity: 4, color: '#3b82f6', cutLength_mm: 580 },
-    { id: 'item-3', name: 'Parede Frontal Finger Joint', width: 160, height: 80, quantity: 8, color: '#10b981', cutLength_mm: 490 },
-    { id: 'item-4', name: 'Porta-Copo Hexagonal 95mm', width: 95, height: 95, quantity: 12, color: '#8b5cf6', cutLength_mm: 380 }
-  ]);
+  const [items, setItems] = useState<NestingItem[]>([]);
 
   const [newPartName, setNewPartName] = useState<string>('');
   const [newPartWidth, setNewPartWidth] = useState<number>(100);
@@ -612,28 +607,35 @@ ${svgRects}
             </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {items.map(item => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                    <div>
-                      <span className="font-bold text-slate-800 block text-xs">{item.name}</span>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {item.width} × {item.height} mm • {item.quantity} un
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleRemovePart(item.id)}
-                    className="text-slate-400 hover:text-red-500 p-1 cursor-pointer transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              {items.length === 0 ? (
+                <div className="p-4 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                  <p className="text-xs font-medium text-slate-500">Nenhuma peça na fila de corte</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Adicione peças no formulário acima ou transfira um vetor do Estúdio.</p>
                 </div>
-              ))}
+              ) : (
+                items.map(item => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                      <div>
+                        <span className="font-bold text-slate-800 block text-xs">{item.name}</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {item.width} × {item.height} mm • {item.quantity} un
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemovePart(item.id)}
+                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

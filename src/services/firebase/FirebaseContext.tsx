@@ -22,6 +22,7 @@ import {
   FirestoreProject,
   FirestoreCompanySettings
 } from './firebase';
+import { seedFirestoreIfEmpty, SeedResult } from './seedData';
 import { ProductionOrder, Material, Quote } from '../../types';
 
 interface FirebaseContextType {
@@ -30,8 +31,10 @@ interface FirebaseContextType {
   isAdmin: boolean;
   isLoading: boolean;
   isOnline: boolean;
+  isSeeding: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
+  seedInitialDataMutation: () => Promise<SeedResult>;
   syncOrders: (orders: ProductionOrder[], setOrders: React.Dispatch<React.SetStateAction<ProductionOrder[]>>) => (() => void) | undefined;
   syncOrderMutation: (order: ProductionOrder) => Promise<void>;
   deleteOrderMutation: (orderId: string) => Promise<void>;
@@ -52,6 +55,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [isSeeding, setIsSeeding] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const reportError = () => setSyncError('Não foi possível sincronizar com a nuvem. Os dados locais foram mantidos. Verifique a conexão e as permissões antes de continuar.');
   const [projects, setProjects] = useState<FirestoreProject[]>([]);
@@ -65,10 +69,20 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     const onSyncError = (event: Event) => setSyncError((event as CustomEvent<string>).detail);
     window.addEventListener('cnc-sync-error', onSyncError);
 
-    // Monitoramento do estado de autenticação
-    const unsubscribe = onAuthStateChanged(auth, currentUser => {
+    // Monitoramento do estado de autenticação e seed automático de dados no Firestore
+    const unsubscribe = onAuthStateChanged(auth, async currentUser => {
       setUser(currentUser);
       setIsLoading(false);
+      if (currentUser) {
+        setIsSeeding(true);
+        try {
+          await seedFirestoreIfEmpty(currentUser.uid);
+        } catch (err) {
+          console.warn('Aviso ao semear dados iniciais no Firestore:', err);
+        } finally {
+          setIsSeeding(false);
+        }
+      }
     });
 
     return () => { unsubscribe(); window.removeEventListener('cnc-sync-error', onSyncError); };
@@ -234,6 +248,20 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
+  const seedInitialDataMutation = async (): Promise<SeedResult> => {
+    if (!user) throw new Error('Usuário precisa estar autenticado para sincronizar dados no Firestore');
+    setIsSeeding(true);
+    try {
+      return await seedFirestoreIfEmpty(user.uid);
+    } catch (err) {
+      console.warn('Erro ao semear dados manualmente no Firestore:', err);
+      reportError();
+      throw err;
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   return (
     <FirebaseContext.Provider
       value={{
@@ -242,8 +270,10 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         isAdmin,
         isLoading,
         isOnline,
+        isSeeding,
         login: handleLogin,
         logout: handleLogout,
+        seedInitialDataMutation,
         syncOrders,
         syncOrderMutation,
         deleteOrderMutation,

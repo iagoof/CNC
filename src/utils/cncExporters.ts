@@ -1,3 +1,4 @@
+import { readSvgGeometry, orderedContours, contourLength, engravingIntervalMm, type CncGeometry } from './svgGeometry.ts';
 import * as THREE from 'three';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 
@@ -23,251 +24,39 @@ export interface VectorValidationResult {
   };
 }
 
-function isEngraveElement(el: Element): boolean {
-  const layer = el.getAttribute('data-layer');
-  if (layer === 'engrave' || layer === 'gravacao') return true;
-  if (layer === 'cut' || layer === 'corte') return false;
-  const stroke = (el.getAttribute('stroke') || '').toLowerCase().trim();
-  const fill = (el.getAttribute('fill') || '').toLowerCase().trim();
-  return (
-    stroke === '#0000ff' ||
-    stroke === '#00f' ||
-    stroke === 'blue' ||
-    stroke === '#3b82f6' ||
-    fill === '#0000ff' ||
-    fill === 'blue'
-  );
-}
-
-/**
- * Calculates real geometric cut lengths and engrave areas from an SVG string
- */
+/** Metrics and exports share the same physical geometry. */
 export function calculateSvgMetrics(svgString: string): SvgMetrics {
-  if (!svgString || typeof window === 'undefined') {
-    return {
-      widthMm: 100,
-      heightMm: 100,
-      thicknessMm: 3.0,
-      defaultKerfMm: 0.15,
-      totalCutLengthMm: 400,
-      engraveAreaCm2: 10,
-      elementCount: 1,
-      layersDetected: ['corte']
-    };
-  }
-
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgString, 'image/svg+xml');
-  const svgEl = doc.querySelector('svg');
-
-  let widthMm = 150;
-  let heightMm = 100;
-  let thicknessMm = 3.0;
-  let defaultKerfMm = 0.15;
-
-  if (svgEl) {
-    const dataThickness = svgEl.getAttribute('data-thickness-mm');
-    if (dataThickness) {
-      thicknessMm = parseFloat(dataThickness) || 3.0;
-    }
-    const viewBox = svgEl.getAttribute('viewBox');
-    if (viewBox) {
-      const parts = viewBox.split(/[\s,]+/).map(Number);
-      if (parts.length >= 4 && parts[2] > 0 && parts[3] > 0) {
-        widthMm = parts[2];
-        heightMm = parts[3];
-      }
-    } else {
-      const wAttr = svgEl.getAttribute('width');
-      const hAttr = svgEl.getAttribute('height');
-      if (wAttr) widthMm = parseFloat(wAttr) || widthMm;
-      if (hAttr) heightMm = parseFloat(hAttr) || heightMm;
-    }
-  }
-
-  // Check XML metadata block
-  const metaTag = doc.querySelector('metadata');
-  if (metaTag) {
-    const thickEl = metaTag.querySelector('materialThickness_mm');
-    if (thickEl && thickEl.textContent) {
-      thicknessMm = parseFloat(thickEl.textContent) || thicknessMm;
-    }
-    const kerfEl = metaTag.querySelector('defaultKerf_mm');
-    if (kerfEl && kerfEl.textContent) {
-      defaultKerfMm = parseFloat(kerfEl.textContent) || defaultKerfMm;
-    }
-  }
-
-  let totalCutLengthMm = 0;
-  let engraveAreaCm2 = 0;
-  let elementCount = 0;
-  const layersSet = new Set<string>();
-
-  // Process rectangles
-  const rects = doc.querySelectorAll('rect');
-  rects.forEach(rect => {
-    const w = parseFloat(rect.getAttribute('width') || '0');
-    const h = parseFloat(rect.getAttribute('height') || '0');
-    const isEngrave = isEngraveElement(rect);
-
-    if (isEngrave) {
-      engraveAreaCm2 += (w * h) / 100;
-      layersSet.add('gravação (#0000FF)');
-    } else {
-      totalCutLengthMm += 2 * (w + h);
-      layersSet.add('corte (#FF0000)');
-    }
-    elementCount++;
-  });
-
-  // Process circles
-  const circles = doc.querySelectorAll('circle');
-  circles.forEach(circle => {
-    const r = parseFloat(circle.getAttribute('r') || '0');
-    const isEngrave = isEngraveElement(circle);
-    if (isEngrave) {
-      engraveAreaCm2 += (Math.PI * r * r) / 100;
-      layersSet.add('gravação (#0000FF)');
-    } else {
-      totalCutLengthMm += 2 * Math.PI * r;
-      layersSet.add('corte (#FF0000)');
-    }
-    elementCount++;
-  });
-
-  // Process polygons
-  const polygons = doc.querySelectorAll('polygon');
-  polygons.forEach(poly => {
-    const isEngrave = isEngraveElement(poly);
-    if (isEngrave) {
-      engraveAreaCm2 += 15;
-      layersSet.add('gravação (#0000FF)');
-    } else {
-      totalCutLengthMm += 120;
-      layersSet.add('corte (#FF0000)');
-    }
-    elementCount++;
-  });
-
-  // Process lines
-  const lines = doc.querySelectorAll('line');
-  lines.forEach(line => {
-    const x1 = parseFloat(line.getAttribute('x1') || '0');
-    const y1 = parseFloat(line.getAttribute('y1') || '0');
-    const x2 = parseFloat(line.getAttribute('x2') || '0');
-    const y2 = parseFloat(line.getAttribute('y2') || '0');
-    const len = Math.hypot(x2 - x1, y2 - y1);
-    const isEngrave = isEngraveElement(line);
-    if (isEngrave) {
-      engraveAreaCm2 += (len * 0.5) / 10;
-      layersSet.add('gravação (#0000FF)');
-    } else {
-      totalCutLengthMm += len;
-      layersSet.add('corte (#FF0000)');
-    }
-    elementCount++;
-  });
-
-  // Process paths (approximate length via SVG Path commands)
-  const paths = doc.querySelectorAll('path');
-  paths.forEach(path => {
-    const d = path.getAttribute('d') || '';
-    const isEngrave = isEngraveElement(path);
-    
-    // Parse basic path length: match command letters and numbers
-    const commands = d.match(/[a-df-z][^a-df-z]*/gi) || [];
-    let pathLength = 0;
-    let curX = 0;
-    let curY = 0;
-
-    commands.forEach(cmd => {
-      const type = cmd[0];
-      const numbers = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-      if ((type === 'M' || type === 'L') && numbers.length >= 2) {
-        if (type === 'L') {
-          pathLength += Math.hypot(numbers[0] - curX, numbers[1] - curY);
-        }
-        curX = numbers[0];
-        curY = numbers[1];
-      } else if (type === 'H' && numbers.length >= 1) {
-        pathLength += Math.abs(numbers[0] - curX);
-        curX = numbers[0];
-      } else if (type === 'V' && numbers.length >= 1) {
-        pathLength += Math.abs(numbers[0] - curY);
-        curY = numbers[0];
-      } else if (type === 'h' && numbers.length >= 1) {
-        pathLength += Math.abs(numbers[0]);
-        curX += numbers[0];
-      } else if (type === 'v' && numbers.length >= 1) {
-        pathLength += Math.abs(numbers[0]);
-        curY += numbers[0];
-      } else if (type === 'Z' || type === 'z') {
-        pathLength += 10;
-      } else {
-        pathLength += 25;
-      }
-    });
-
-    if (isEngrave) {
-      engraveAreaCm2 += (pathLength * 0.5) / 10;
-      layersSet.add('gravação (#0000FF)');
-    } else {
-      totalCutLengthMm += Math.max(10, pathLength);
-      layersSet.add('corte (#FF0000)');
-    }
-    elementCount++;
-  });
-
+  const geometry = readSvgGeometry(svgString);
   return {
-    widthMm: Math.round(widthMm),
-    heightMm: Math.round(heightMm),
-    thicknessMm: Number(thicknessMm.toFixed(1)),
-    defaultKerfMm: Number(defaultKerfMm.toFixed(2)),
-    totalCutLengthMm: Math.round(totalCutLengthMm),
-    engraveAreaCm2: Number(engraveAreaCm2.toFixed(1)),
-    elementCount: Math.max(1, elementCount),
-    layersDetected: Array.from(layersSet)
+    widthMm: geometry.widthMm, heightMm: geometry.heightMm,
+    thicknessMm: geometry.thicknessMm, defaultKerfMm: geometry.defaultKerfMm,
+    totalCutLengthMm: geometry.contours.filter(c => c.layer === 'cut').reduce((sum, c) => sum + contourLength(c), 0),
+    engraveAreaCm2: geometry.contours.filter(c => c.layer === 'engrave').reduce((sum, c) => sum + contourLength(c) * engravingIntervalMm / 100, 0),
+    elementCount: geometry.elementCount,
+    layersDetected: [...new Set(geometry.contours.map(c => c.layer === 'cut' ? 'corte (#FF0000)' : 'gravação (#0000FF)'))]
   };
 }
 
-/**
- * Validates CNC vector geometry for production readiness
- */
-export function validateCncVector(
-  svgString: string,
-  machineMaxX = 1300,
-  machineMaxY = 900
-): VectorValidationResult {
-  const issues: string[] = [];
-  const warnings: string[] = [];
-  const metrics = calculateSvgMetrics(svgString);
-
-  if (metrics.widthMm > machineMaxX || metrics.heightMm > machineMaxY) {
-    issues.push(`Dimensões (${metrics.widthMm} x ${metrics.heightMm} mm) excedem a mesa de trabalho da máquina (${machineMaxX} x ${machineMaxY} mm).`);
+export function validateCncVector(svgString: string, machineMaxX = 1300, machineMaxY = 900): VectorValidationResult {
+  const issues: string[] = [], warnings: string[] = [];
+  let geometry: CncGeometry;
+  try { geometry = readSvgGeometry(svgString); }
+  catch (error) {
+    return { isValid: false, issues: [error instanceof Error ? error.message : 'SVG inválido.'], warnings,
+      stats: { cutLengthMm: 0, boundingBox: { width: 0, height: 0 }, totalNodes: 0 } };
   }
-
-  if (metrics.totalCutLengthMm <= 0) {
-    issues.push('Nenhum percurso de corte detectado no arquivo.');
+  if (![machineMaxX, machineMaxY].every(n => Number.isFinite(n) && n > 0)) issues.push('Mesa de trabalho inválida.');
+  if (geometry.widthMm > machineMaxX || geometry.heightMm > machineMaxY) issues.push('Dimensões do SVG excedem a mesa de trabalho.');
+  if (geometry.contours.some(c => c.points.some(p => p.x < -0.001 || p.y < -0.001 || p.x > machineMaxX + 0.001 || p.y > machineMaxY + 0.001))) {
+    issues.push('Há contornos fora da mesa de trabalho.');
   }
-
-  if (svgString.includes('stroke-dasharray')) {
-    warnings.push('Linhas pontilhadas detectadas: certifique-se de que correspondem a vinco/gravação e não corte passante.');
-  }
-
-  if (!svgString.includes('viewBox') && !svgString.includes('width=')) {
-    warnings.push('SVG sem escala declarada explicitamente. Assumida escala 1:1 em milímetros.');
-  }
-
-  return {
-    isValid: issues.length === 0,
-    issues,
-    warnings,
-    stats: {
-      cutLengthMm: metrics.totalCutLengthMm,
-      boundingBox: { width: metrics.widthMm, height: metrics.heightMm },
-      totalNodes: metrics.elementCount * 4
-    }
-  };
+  if (geometry.contours.some(c => c.layer === 'cut' && !c.closed)) warnings.push('Há percursos de corte abertos. Revise os pontos de início e fim.');
+  if (svgString.includes('stroke-dasharray')) warnings.push('Traços pontilhados são exportados como percursos contínuos. Converta os traços em caminhos para manter as interrupções.');
+  return { isValid: !issues.length, issues, warnings, stats: {
+    cutLengthMm: geometry.contours.filter(c => c.layer === 'cut').reduce((sum, c) => sum + contourLength(c), 0),
+    boundingBox: { width: geometry.widthMm, height: geometry.heightMm },
+    totalNodes: geometry.contours.reduce((sum, c) => sum + c.points.length, 0)
+  } };
 }
 
 /**
@@ -286,97 +75,21 @@ export function applyKerfToSvg(svgString: string, kerfMm = 0.15): string {
  * Converts standard SVG geometry into an AutoCAD R12 ASCII DXF file
  */
 export function convertSvgToDxf(svgString: string): string {
-  const metrics = calculateSvgMetrics(svgString);
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgString, 'image/svg+xml');
-
-  let dxf = '';
-
-  // HEADER
-  dxf += '0\nSECTION\n2\nHEADER\n';
-  dxf += '9\n$ACADVER\n1\nAC1009\n'; // AutoCAD R12 standard
-  dxf += '9\n$INSUNITS\n70\n4\n'; // 4 = Millimeters
-  dxf += '0\nENDSEC\n';
-
-  // TABLES (Layers: CORTE_EXTERNO=Red, CORTE_INTERNO=Orange, GRAVACAO=Blue)
-  dxf += '0\nSECTION\n2\nTABLES\n';
-  dxf += '0\nTABLE\n2\nLAYER\n70\n3\n';
-  // Layer CORTE_EXTERNO
-  dxf += '0\nLAYER\n2\nCORTE_EXTERNO\n70\n0\n62\n1\n6\nCONTINUOUS\n'; // Color 1 = Red
-  // Layer CORTE_INTERNO
-  dxf += '0\nLAYER\n2\nCORTE_INTERNO\n70\n0\n62\n40\n6\nCONTINUOUS\n'; // Color 40 = Orange
-  // Layer GRAVACAO
-  dxf += '0\nLAYER\n2\nGRAVACAO\n70\n0\n62\n5\n6\nCONTINUOUS\n'; // Color 5 = Blue
-  dxf += '0\nENDTAB\n';
-  dxf += '0\nENDSEC\n';
-
-  // ENTITIES
+  const geometry = readSvgGeometry(svgString);
+  let dxf = '0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n';
+  dxf += '0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n2\n';
+  dxf += '0\nLAYER\n2\nCORTE\n70\n0\n62\n1\n6\nCONTINUOUS\n';
+  dxf += '0\nLAYER\n2\nGRAVACAO\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n';
   dxf += '0\nSECTION\n2\nENTITIES\n';
-
-  // Export Rectangles as 4 Lines
-  const rects = doc.querySelectorAll('rect');
-  rects.forEach(rect => {
-    const x = parseFloat(rect.getAttribute('x') || '0');
-    const y = parseFloat(rect.getAttribute('y') || '0');
-    const w = parseFloat(rect.getAttribute('width') || '0');
-    const h = parseFloat(rect.getAttribute('height') || '0');
-    const isEngrave = isEngraveElement(rect);
-    const layer = isEngrave ? 'GRAVACAO' : 'CORTE_EXTERNO';
-
-    // Invert Y axis for CAD coordinates (DXF Y points UP, SVG Y points DOWN)
-    const y1 = metrics.heightMm - y;
-    const y2 = metrics.heightMm - (y + h);
-
-    const corners = [
-      [x, y1],
-      [x + w, y1],
-      [x + w, y2],
-      [x, y2],
-      [x, y1]
-    ];
-
-    for (let i = 0; i < 4; i++) {
-      dxf += '0\nLINE\n';
-      dxf += `8\n${layer}\n`;
-      dxf += `10\n${corners[i][0].toFixed(3)}\n20\n${corners[i][1].toFixed(3)}\n30\n0.0\n`;
-      dxf += `11\n${corners[i + 1][0].toFixed(3)}\n21\n${corners[i + 1][1].toFixed(3)}\n31\n0.0\n`;
+  for (const contour of orderedContours(geometry)) {
+    const layer = contour.layer === 'cut' ? 'CORTE' : 'GRAVACAO';
+    for (let i = 1; i < contour.points.length; i++) {
+      const a = contour.points[i - 1], b = contour.points[i];
+      dxf += `0\nLINE\n8\n${layer}\n10\n${a.x.toFixed(4)}\n20\n${(geometry.heightMm - a.y).toFixed(4)}\n30\n0\n`;
+      dxf += `11\n${b.x.toFixed(4)}\n21\n${(geometry.heightMm - b.y).toFixed(4)}\n31\n0\n`;
     }
-  });
-
-  // Export Circles
-  const circles = doc.querySelectorAll('circle');
-  circles.forEach(circle => {
-    const cx = parseFloat(circle.getAttribute('cx') || '0');
-    const cy = parseFloat(circle.getAttribute('cy') || '0');
-    const r = parseFloat(circle.getAttribute('r') || '0');
-    const isEngrave = isEngraveElement(circle);
-    const layer = isEngrave ? 'GRAVACAO' : 'CORTE_INTERNO';
-    const cadY = metrics.heightMm - cy;
-
-    dxf += '0\nCIRCLE\n';
-    dxf += `8\n${layer}\n`;
-    dxf += `10\n${cx.toFixed(3)}\n20\n${cadY.toFixed(3)}\n30\n0.0\n`;
-    dxf += `40\n${r.toFixed(3)}\n`;
-  });
-
-  // Export Lines
-  const lines = doc.querySelectorAll('line');
-  lines.forEach(line => {
-    const x1 = parseFloat(line.getAttribute('x1') || '0');
-    const y1 = metrics.heightMm - parseFloat(line.getAttribute('y1') || '0');
-    const x2 = parseFloat(line.getAttribute('x2') || '0');
-    const y2 = metrics.heightMm - parseFloat(line.getAttribute('y2') || '0');
-    const isEngrave = isEngraveElement(line);
-    const layer = isEngrave ? 'GRAVACAO' : 'CORTE_EXTERNO';
-
-    dxf += '0\nLINE\n';
-    dxf += `8\n${layer}\n`;
-    dxf += `10\n${x1.toFixed(3)}\n20\n${y1.toFixed(3)}\n30\n0.0\n`;
-    dxf += `11\n${x2.toFixed(3)}\n21\n${y2.toFixed(3)}\n31\n0.0\n`;
-  });
-
-  dxf += '0\nENDSEC\n0\nEOF\n';
-  return dxf;
+  }
+  return dxf + '0\nENDSEC\n0\nEOF\n';
 }
 
 /**
@@ -397,72 +110,64 @@ export function exportSceneGroupToStl(object: THREE.Object3D, filename = 'modelo
   URL.revokeObjectURL(url);
 }
 
-/**
- * Generates production-ready CNC G-code from SVG geometry
- */
-export function generateGcodeFromSvg(
-  svgString: string,
-  options: {
-    machineType: 'CO2' | 'Router' | 'Diodo' | 'Fibra' | 'Plasma';
-    feedRate_mms: number;
-    powerOrRpm: number;
-    depthMm: number;
-    stepDownMm?: number;
-    safeZMm?: number;
+export interface GcodeOptions {
+  machineType: 'CO2' | 'Router' | 'Diodo' | 'Fibra' | 'Plasma';
+  feedRate_mms: number;
+  powerOrRpm: number;
+  depthMm: number;
+  stepDownMm?: number;
+  safeZMm?: number;
+  engraveFeedRate_mms?: number;
+  engravePower?: number;
+  engraveDepthMm?: number;
+  maxXmm?: number;
+  maxYmm?: number;
+}
+
+export function generateGcodeFromSvg(svgString: string, options: GcodeOptions): string {
+  return generateGcodeFromGeometry(readSvgGeometry(svgString), options);
+}
+
+/** GRBL-compatible millimetre program; every rapid occurs with laser off or tool retracted. */
+export function generateGcodeFromGeometry(geometry: CncGeometry, options: GcodeOptions): string {
+  const { machineType, feedRate_mms, powerOrRpm, depthMm, stepDownMm = 1.5, safeZMm = 5,
+    engraveFeedRate_mms = feedRate_mms, engravePower = powerOrRpm, engraveDepthMm = 0.2 } = options;
+  if (![feedRate_mms, powerOrRpm, engraveFeedRate_mms, engravePower].every(v => Number.isFinite(v) && v > 0)) throw new Error('Avanço e potência/rotação devem ser positivos e finitos.');
+  if (!['CO2', 'Router', 'Diodo', 'Fibra', 'Plasma'].includes(machineType)) throw new Error('Tipo de máquina inválido.');
+  if (machineType === 'Plasma') throw new Error('Plasma exige perfil de perfuração, atraso e controle de altura configurados.');
+  if (machineType === 'Router' && ![depthMm, stepDownMm, safeZMm, engraveDepthMm].every(v => Number.isFinite(v) && v > 0)) throw new Error('Profundidades, passo e altura segura devem ser positivos e finitos.');
+  const passes = machineType === 'Router' ? Math.ceil(depthMm / stepDownMm) : 1;
+  if (passes > 1000) throw new Error('Número excessivo de passes. Revise a profundidade e o passo.');
+  const contours = orderedContours(geometry);
+  if (!contours.length) throw new Error('Nenhum percurso para exportar.');
+  if (options.maxXmm !== undefined && !(Number.isFinite(options.maxXmm) && options.maxXmm > 0)
+    || options.maxYmm !== undefined && !(Number.isFinite(options.maxYmm) && options.maxYmm > 0)) throw new Error('Dimensões da mesa inválidas.');
+  for (const contour of contours) {
+    if (contour.points.length < 2 || contour.points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y)
+      || p.x < -0.001 || p.y < -0.001 || p.x > (options.maxXmm ?? geometry.widthMm) + 0.001
+      || p.y > (options.maxYmm ?? geometry.heightMm) + 0.001)) throw new Error('Percurso fora da área útil. Revise dimensões, origem e transformações.');
   }
-): string {
-  const { machineType, feedRate_mms, powerOrRpm, depthMm, stepDownMm = 1.5, safeZMm = 5 } = options;
-  const metrics = calculateSvgMetrics(svgString);
-  const feedMmMin = Math.round(feedRate_mms * 60);
-
-  let gcode = `( ========================================== )\n`;
-  gcode += `( CNC APP - Juiz de Fora / MG                )\n`;
-  gcode += `( Percurso gerado para: ${machineType.toUpperCase()} )\n`;
-  gcode += `( Dimensoes: ${metrics.widthMm} x ${metrics.heightMm} mm )\n`;
-  gcode += `( ========================================== )\n\n`;
-
-  // Standard Header
-  gcode += `G21          (Unidades em milimetros)\n`;
-  gcode += `G90          (Posicionamento absoluto)\n`;
-  gcode += `G17          (Plano XY)\n`;
-  gcode += `G94          (Avanco em mm/min)\n\n`;
-
-  if (machineType === 'Router') {
-    // Router multi-pass Z depth
-    const totalPasses = Math.max(1, Math.ceil(depthMm / stepDownMm));
-    gcode += `G00 Z${safeZMm.toFixed(3)}  (Subida para altura segura)\n`;
-    gcode += `M03 S${powerOrRpm}     (Ligar Spindle na rotacao selecionada)\n`;
-    gcode += `G04 P2.0        (Pausa de 2s para spindle estabilizar)\n\n`;
-
-    for (let pass = 1; pass <= totalPasses; pass++) {
-      const currentZ = -Math.min(depthMm, pass * stepDownMm);
-      gcode += `( --- PASSE ${pass}/${totalPasses} : Profundidade Z = ${currentZ.toFixed(2)} mm --- )\n`;
-      gcode += `G00 X0.000 Y0.000\n`;
-      gcode += `G01 Z${currentZ.toFixed(3)} F300 (Mergulho vertical controlado)\n`;
-      // Rectangle perimeter
-      gcode += `G01 X${metrics.widthMm}.000 Y0.000 F${feedMmMin}\n`;
-      gcode += `G01 X${metrics.widthMm}.000 Y${metrics.heightMm}.000\n`;
-      gcode += `G01 X0.000 Y${metrics.heightMm}.000\n`;
-      gcode += `G01 X0.000 Y0.000\n`;
+  const code = ['(CNC APP - contornos SVG em mm)', 'G21', 'G90', 'G17', 'G94', 'M05'];
+  const xy = (p: { x: number; y: number }) => `X${p.x.toFixed(4)} Y${(geometry.heightMm - p.y).toFixed(4)}`;
+  if (machineType === 'Router') code.push(`G00 Z${safeZMm.toFixed(4)}`, `M03 S${Math.round(powerOrRpm)}`, 'G04 P2');
+  for (const contour of contours) {
+    const engraving = contour.layer === 'engrave';
+    const feed = (engraving ? engraveFeedRate_mms : feedRate_mms) * 60;
+    const count = machineType === 'Router' && !engraving ? passes : 1;
+    for (let pass = 1; pass <= count; pass++) {
+      code.push(`(${engraving ? 'GRAVACAO' : 'CORTE'} - passe ${pass}/${count})`);
+      if (machineType === 'Router') code.push(`G00 Z${safeZMm.toFixed(4)}`);
+      else code.push('M05');
+      code.push(`G00 ${xy(contour.points[0])}`);
+      if (machineType === 'Router') {
+        const depth = engraving ? Math.min(engraveDepthMm, depthMm) : Math.min(depthMm, pass * stepDownMm);
+        code.push(`G01 Z${(-depth).toFixed(4)} F${Math.min(feed, 300).toFixed(2)}`);
+      } else code.push(`M03 S${Math.round(engraving ? engravePower : powerOrRpm)}`);
+      for (const p of contour.points.slice(1)) code.push(`G01 ${xy(p)} F${feed.toFixed(2)}`);
+      if (machineType === 'Router') code.push(`G00 Z${safeZMm.toFixed(4)}`);
+      else code.push('M05');
     }
-
-    gcode += `\n( Finalizacao Router )\n`;
-    gcode += `G00 Z${safeZMm.toFixed(3)} (Retorno a altura segura)\n`;
-    gcode += `M05             (Desligar Spindle)\n`;
-    gcode += `G00 X0 Y0       (Retornar ao Home XY)\n`;
-    gcode += `M30             (Fim de programa)\n`;
-  } else {
-    // Laser CO2 / Diodo / Fibra
-    gcode += `G00 X0.000 Y0.000  (Deslocamento rapido para inicio)\n`;
-    gcode += `M03 S${powerOrRpm}       (Disparo Laser)\n`;
-    gcode += `G01 X${metrics.widthMm}.000 Y0.000 F${feedMmMin}\n`;
-    gcode += `G01 X${metrics.widthMm}.000 Y${metrics.heightMm}.000\n`;
-    gcode += `G01 X0.000 Y${metrics.heightMm}.000\n`;
-    gcode += `G01 X0.000 Y0.000\n`;
-    gcode += `M05                (Desligar Laser)\n`;
-    gcode += `G00 X0 Y0          (Retorno a origem)\n`;
-    gcode += `M30                (Fim de programa)\n`;
   }
-
-  return gcode;
+  code.push('M05', 'G00 X0 Y0', 'M30');
+  return code.join('\n') + '\n';
 }
