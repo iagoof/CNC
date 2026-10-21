@@ -1,0 +1,321 @@
+# Plano Mestre de Correção, Arquitetura 2D/3D e Guia de Execução para IA — CNC APP
+
+Este documento funciona como um **Guia de Especificação Técnica e Prompt de Engenharia** para que uma Inteligência Artificial desenvolvedora (AI Coding Agent) corrija os problemas estruturais da plataforma **CNC APP — ERP e Estúdio CAM Industrial com IA** e implemente a geração real de arquivos **2D (SVG/DXF)**, **3D (Three.js/STL)** e **CAM (G-Code `.nc`)** prontos para corte em máquinas CNC Laser e Router.
+
+---
+
+## Diretriz Mestre para a IA Executora (System Prompt)
+
+> **INSTRUÇÃO PARA A IA:**
+> Você deve atuar como um Engenheiro de Software Sênior especialista em CAD/CAM, Three.js, React 19, TypeScript e integração com `@google/genai`.
+> 1. **Proibido usar simulações com `setTimeout`:** Todas as funções de geração de vetores, otimização de G-Code e cálculos geométricos devem executar processamento real.
+> 2. **Unidade de Medida Oficial:** Todo o sistema opera estritamente em **milímetros ($\text{mm}$)** em escala $1:1$.
+> 3. **Conexão 2D $\rightarrow$ 3D $\rightarrow$ CAM:** Qualquer arquivo vetorial 2D gerado ou enviado pelo usuário deve ser convertido dinamicamente em geometria 3D via `SVGLoader` + `ExtrudeGeometry` (usando a espessura real do material em $\text{mm}$) e em trajetórias de corte G-Code reais.
+> 4. **Preservação de Estado:** Nenhum dado transferido entre abas (`Design Studio AI`, `Estúdio 3D`, `Nesting`, `CAM`, `Orçamentos`, `Kanban`) pode ser descartado no `src/App.tsx`.
+> 5. Execute as alterações respeitando a tipagem estrita do TypeScript (`tsc --noEmit` sem erros).
+
+---
+
+## Arquitetura de Referência: Como a Geração 2D, 3D e CNC Deve Funcionar
+
+Antes de aplicar os 50 itens, a IA deve criar dois novos módulos fundamentais na arquitetura do projeto:
+
+1. **`src/services/geminiCncService.ts` (Motor Generativo Multimodal):**
+   * Deve instanciar `GoogleGenAI` do pacote `@google/genai` utilizando `process.env.GEMINI_API_KEY`.
+   * Deve usar `responseMimeType: "application/json"` e um `responseSchema` estrito que obrigue o modelo a devolver:
+     * `svgString`: SVG válido com `viewBox` e dimensões em $\text{mm}$, contendo grupos separados para `<g id="corte_externo" stroke="#ef4444">`, `<g id="corte_interno" stroke="#f97316">` e `<g id="gravacao" stroke="#2563eb">`.
+     * `parts`: Lista de peças individuais contendo nome, largura ($\text{mm}$), altura ($\text{mm}$), `pathData` (atributo `d` do SVG), comprimento de corte em $\text{mm}$ e coordenadas espaciais 3D (`position: [x, y, z]`, `rotation: [rx, ry, rz]`, `explodeVector: [vx, vy, vz]`).
+2. **`src/utils/cncExporters.ts` (Motor de Conversão CAD/CAM Industrial):**
+   * **SVG $\rightarrow$ DXF (R12/AutoCAD):** Converter os elementos `<path>`, `<rect>`, `<circle>`, `<polygon>` do SVG em polilinhas (`POLYLINE` / `LWPOLYLINE`) divididas por camadas (`CORTE_EXTERNO`, `CORTE_INTERNO`, `GRAVACAO`) para leitura direta no LightBurn, RDWorks e Vectric Aspire.
+   * **SVG $\rightarrow$ Malha 3D & STL:** Usar `SVGLoader` e `STLExporter` de `three/examples/jsm/...` para extrudar cada peça na espessura exata do material ($\text{mm}$) e exportar o arquivo binário/ASCII `.stl`.
+   * **SVG $\rightarrow$ G-Code (`.nc` / `.tap`):** Discretizar os caminhos vetoriais em coordenadas $(X, Y, Z)$ gerando comandos reais `G21`, `G90`, `M03`/`M05`, `G00` (deslocamento em vazio) e `G01` (corte com avanço $F$ e potência/rotação $S$).
+
+---
+
+## Lista das 50 Melhorias e Alterações com Instruções para a IA
+
+### Categoria 1: Inteligência Artificial & Geração Vetorial 2D Real (Itens 1 a 10)
+
+#### 1. Integrar a SDK `@google/genai` para geração vetorial real no Design Studio AI
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioAiView.tsx` e novo arquivo `src/services/geminiCncService.ts`
+* **Problema Atual:** A função `handleGenerateVectorAi` usa quatro `setTimeout` encadeados e apenas escolhe um dos 8 itens pré-cadastrados em `READY_EXAMPLES` com base em palavras-chave (`includes('notebook')`, etc.).
+* **Instrução para a IA:** Crie `src/services/geminiCncService.ts` importando `{ GoogleGenAI, Type } from "@google/genai"`. Implemente a função `generateCncProjectWithAi(params)` que envia o prompt do usuário, as dimensões (`targetWidth`, `targetHeight`), a espessura (`thickness_mm`) e o kerf (`kerfCompensation`) ao Gemini e retorna o JSON com o `svgString` inédito, lista de peças 3D e G-Code. Substitua o `setTimeout` em `handleGenerateVectorAi` pela chamada assíncrona real com `try/catch` mantendo `READY_EXAMPLES` apenas como *fallback* offline.
+
+#### 2. Conectar a aba "Vetorizador IA" do Estúdio 3D ao serviço real do Gemini
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** A função `handleGenerateAiVector` (linha 273) apenas executa `setTimeout(() => { setIsGeneratingAi(false); setGenerationSuccess(true); }, 1200)` e exibe sempre o mesmo SVG estático na tela.
+* **Instrução para a IA:** Conecte `handleGenerateAiVector` ao `geminiCncService.ts`, passando `aiPrompt`, `aiThickness` e `aiKerf`. Armazene o SVG retornado em um estado `generatedSvg` e renderize-o dinamicamente no quadro "Prévia Vetorial 2D Gerada".
+
+#### 3. Implementar Upload Funcional de Foto/Rascunho no `DesignStudioView.tsx`
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** Na aba `ai-vectorizer` (linha 517), a área tracejada de upload com o ícone `UploadCloud` é apenas uma `<div>` estática sem `<input type="file">`.
+* **Instrução para a IA:** Adicione um `<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" id="vectorizer-upload" />` envolto por um `<label htmlFor="vectorizer-upload">`. Converta o arquivo selecionado com `FileReader.readAsDataURL`, exiba a miniatura na tela e envie a imagem em Base64 (`inlineData`) para o Gemini vetorizar os contornos.
+
+#### 4. Implementar Vetorização Real de Imagens Enviadas (Foto $\rightarrow$ Contorno SVG)
+* **Arquivo Alvo:** `src/services/geminiCncService.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** No `DesignStudioAiView.tsx`, o upload lê a imagem em `uploadedImage`, mas ao clicar em gerar, o código apenas olha o nome do arquivo (`uploadedFileName.toLowerCase()`) e ignora o conteúdo visual da foto.
+* **Instrução para a IA:** Crie um pipeline de extração de silhueta e bordas em `<canvas>` (limiarização *threshold* + detecção de contorno *Marching Squares*) aliado à análise multimodal do Gemini Vision (enviando `uploadedImage` como `inlineData` no `contents` da chamada `ai.models.generateContent`) para gerar os caminhos `<path d="..." />` reais da imagem enviada.
+
+#### 5. Substituir o Aprimorador de Prompt Estático por Refinamento Técnico via IA
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** A função `handleEnhancePrompt` apenas concatena uma frase fixa no final do `promptText` após um `setTimeout` de $600\text{ ms}$.
+* **Instrução para a IA:** Faça `handleEnhancePrompt` chamar o Gemini com uma instrução de sistema de Engenheiro Projetista CNC, expandindo a ideia do usuário com especificações reais de encaixes (*finger-joint*, *slot*, *mortise and tenon*), raio de alívio de canto (*dogbone* para fresa de Router) e camadas de corte/gravação.
+
+#### 6. Criar Gerador Paramétrico Matemático de Caixas Finger-Joint sob Medida
+* **Arquivo Alvo:** Novo utilitário `src/utils/parametricBoxGenerator.ts` integrado ao `DesignStudioAiView.tsx`
+* **Problema Atual:** A caixa com dentes de encaixe possui medidas fixas no código ($120\text{ mm} \times 160\text{ mm} \times 80\text{ mm}$) e o SVG de exemplo tem retângulos simples que não refletem os dentes reais em todas as bordas.
+* **Instrução para a IA:** Escreva uma função pura `generateFingerJointBoxSvgAnd3D(width_mm, depth_mm, height_mm, thickness_mm, kerf_mm, fingerWidth_mm)` que calcule matematicamente as coordenadas exatas dos dentes macho e fêmea das 6 faces, aplicando a compensação de kerf ($+\text{Kerf}/2$) nos dentes, retornando tanto o SVG planificado para corte quanto os `THREE.Shape` para montagem 3D imediata.
+
+#### 7. Calcular o Comprimento Real de Corte (`cutLength_mm`) a partir da Geometria SVG
+* **Arquivo Alvo:** `src/utils/cncExporters.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** O valor `cutLength_mm` é um número arbitrário fixo (ex: `2840`, `1980`) que não muda quando o usuário altera `targetWidth` ou `targetHeight`.
+* **Instrução para a IA:** Crie uma função `calculateSvgMetrics(svgString, targetWidthMm, targetHeightMm)` que faça o *parse* do SVG via `DOMParser`, instancie um elemento SVG oculto ou percorra os elementos `<path>`, `<rect>`, `<circle>`, `<ellipse>` e `<polygon>`, somando `.getTotalLength()` de todas as linhas de corte escaladas para as dimensões em $\text{mm}$ escolhidas pelo usuário.
+
+#### 8. Calcular a Área Real de Gravação (`engraveArea_cm2`) a partir da Camada de Gravação
+* **Arquivo Alvo:** `src/utils/cncExporters.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** A área de gravação (`engraveArea_cm2`) está chumbada nos objetos estáticos e não responde ao checkbox `includeEngraving`.
+* **Instrução para a IA:** Calcule a soma da área da *bounding box* ($\text{largura} \times \text{altura} / 100$) de todos os elementos pertencentes à camada de gravação (`stroke="#2563eb"` ou `fill="#0f172a"`). Se o estado `includeEngraving` for `false`, remova a camada de gravação do SVG e defina `engraveArea_cm2 = 0`.
+
+#### 9. Implementar Validador de Vetores para Corte CNC (Vetores Abertos e Sobrepostos)
+* **Arquivo Alvo:** `src/utils/cncExporters.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** Não há validação geométrica para avisar se um arquivo SVG possui caminhos abertos (onde a peça não se destaca da chapa) ou linhas duplicadas.
+* **Instrução para a IA:** Crie a função `validateCncVector(svgString)` que verifica se todos os caminhos da camada de corte externo terminam com `Z` (ou têm ponto final igual ao ponto inicial com tolerância de $0.01\text{ mm}$) e detecta segmentos idênticos sobrepostos, exibindo um badge de diagnóstico na tela do estúdio.
+
+#### 10. Tornar Funcional a Aba "Meus Projetos" (`my-designs`) com Histórico Real
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx` e `src/App.tsx`
+* **Problema Atual:** Na linha 596 de `DesignStudioView.tsx`, a aba `my-designs` renderiza um array fixo de 3 itens e o botão "Ver em 3D" apenas muda a aba sem trocar o modelo selecionado.
+* **Instrução para a IA:** Crie um estado global `savedDesigns` em `App.tsx` (persistido em `localStorage`). Sempre que o usuário gerar ou salvar um projeto no `DesignStudioAiView` ou `DesignStudioView`, adicione-o a `savedDesigns`. Na aba `my-designs`, liste todos os projetos salvos permitindo abrir qualquer um deles diretamente no visualizador 3D ou baixar seu SVG/DXF/G-Code.
+
+---
+
+### Categoria 2: Motor CAD 3D, Extrusão Real via SVG & Exportação Industrial (Itens 11 a 20)
+
+#### 11. Converter Automaticamente Qualquer SVG 2D Gerado pela IA em Modelo 3D Extrudado
+* **Arquivo Alvo:** `src/components/studio3d/LaserModel3D.ts`, `src/components/studio3d/DesignStudioAiView.tsx` e `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** O Three.js só sabe renderizar as 6 funções procedurais fixas (`buildFingerJointBox`, `buildTrophyModel`, etc.). Se a IA gerar um vetor novo em SVG, o 3D continua mostrando um dos 6 modelos antigos.
+* **Instrução para a IA:** Em `LaserModel3D.ts`, importe `SVGLoader` de `'three/examples/jsm/loaders/SVGLoader.js'`. Crie a função `build3DFromSvg(svgString: string, thicknessMm: number, materials: ReturnType<typeof createLaserMaterials>)`. Use `SVGLoader.createShapes(path)` para identificar contornos externos e furos internos (`holes`) automaticamente, extrude com `new THREE.ExtrudeGeometry(shapes, { depth: thicknessMm * 0.1, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015 })` e retorne o `group` e `parts` para o visualizador 3D.
+
+#### 12. Sincronizar a Espessura do Modelo 3D com a Espessura do Material Selecionado
+* **Arquivo Alvo:** `src/components/studio3d/LaserModel3D.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** As funções `buildFingerJointBox` (`thickness = 0.35`), `buildLaptopStand` (`thickness = 0.45`) e `buildHeadphoneStand` (`thickness = 0.6`) usam espessuras fixas, ignorando o material selecionado pelo usuário (ex: MDF $3.0\text{ mm}$ ou $6.0\text{ mm}$).
+* **Instrução para a IA:** Altere a assinatura de todas as funções `build...` em `LaserModel3D.ts` para receber `thickness_mm: number` como parâmetro (convertendo para a escala da cena Three.js onde $1\text{ unidade} = 10\text{ mm}$, logo `const thickness = thickness_mm / 10`), atualizando a malha 3D sempre que o usuário trocar o material.
+
+#### 13. Implementar Exportação de Arquivo 3D `.STL` para Impressão 3D e Usinagem Router
+* **Arquivo Alvo:** `src/utils/cncExporters.ts`, `src/components/studio3d/DesignStudioAiView.tsx` e `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** Não há como exportar a geometria 3D exibida na tela.
+* **Instrução para a IA:** Importe `STLExporter` de `'three/examples/jsm/exporters/STLExporter.js'`. Crie uma função `exportSceneGroupToStl(group: THREE.Group, filename: string)` que clone o grupo na posição montada (ou planificada na mesa com $Z = 0$), escale para milímetros reais ($\times 10$) e faça o download do arquivo `.stl` binário. Adicione o botão **"Baixar .STL (3D)"** no painel de downloads do estúdio.
+
+#### 14. Implementar Exportação Real de Arquivo `.DXF` (Padrão Industrial R12)
+* **Arquivo Alvo:** `src/utils/cncExporters.ts`, `src/components/studio3d/DesignStudioAiView.tsx`, `src/components/studio3d/DesignStudioView.tsx` e `src/components/nesting/NestingView.tsx`
+* **Problema Atual:** Os planos de assinatura mencionam `"Exportação SVG/DXF"`, mas o sistema só exporta `.svg`. Oficinas com controladoras Ruida (RDWorks) e CNC Routers dependem de `.dxf`.
+* **Instrução para a IA:** Implemente `convertSvgToDxf(svgString: string): string` em `src/utils/cncExporters.ts` que gere a estrutura ASCII completa de um arquivo AutoCAD DXF (`SECTION`, `HEADER`, `$INSUNITS 4` para milímetros, `TABLES`, `LAYERS` com cores ACI `1` Vermelho para corte e `5` Azul para gravação, `ENTITIES` convertendo caminhos em `LWPOLYLINE`/`LINE`/`CIRCLE`, e `EOF`). Adicione botões **"Baixar .DXF"** no Estúdio e no Nesting.
+
+#### 15. Corrigir o Download de SVG em `DesignStudioView.tsx` para Exportar a Planificação Real
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** A função `handleDownloadSvg` (linha 281) baixa sempre uma string fixa contendo apenas `<rect x="20" y="20" width="160" height="120" />` e `<circle cx="280" cy="80" r="25" />`, qualquer que seja o modelo 3D selecionado.
+* **Instrução para a IA:** Extraia os contornos 2D (`THREE.Shape`) diretamente das peças que compõem o modelo 3D ativo (aplicando o deslocamento de `aiKerf / 2`) e gere dinamicamente o arquivo SVG correspondente a todas as partes planificadas do modelo atual.
+
+#### 16. Aplicar Compensação Geométrica Real de Kerf ($\pm\text{Kerf}/2$) nos Vetores Exportados
+* **Arquivo Alvo:** `src/utils/cncExporters.ts` e `src/utils/calculations.ts`
+* **Problema Atual:** A função `calcKerfOffsets` em `calculations.ts` calcula `+0.075mm` e `-0.075mm`, mas esse valor nunca é aplicado às coordenadas dos caminhos SVG/DXF exportados.
+* **Instrução para a IA:** Implemente uma função de *offset* de polígonos 2D (`applyKerfToSvg(svgString, kerf_mm)`) que desloque os vértices dos contornos externos para fora em $+\text{kerf\_mm}/2$ e os vértices de furos internos para dentro em $-\text{kerf\_mm}/2$ antes de gerar o arquivo final de corte.
+
+#### 17. Exibir Linhas de Compensação de Kerf em Todos os Modelos 3D
+* **Arquivo Alvo:** `src/components/studio3d/LaserModel3D.ts`
+* **Problema Atual:** O objeto `kerf-indicator` (linhas âmbar tracejadas/contínuas mostrando o feixe do laser) só foi adicionado na tampa do modelo `buildFingerJointBox` (linha 269). Nos outros 5 modelos, o checkbox "Linha de Kerf" não faz nada.
+* **Instrução para a IA:** Crie uma função auxiliar `attachKerfIndicators(group: THREE.Group, kerfMaterial: THREE.LineBasicMaterial, visible: boolean)` em `LaserModel3D.ts` que percorra todos os `THREE.Mesh` do grupo, gere `new THREE.EdgesGeometry(mesh.geometry)` e adicione o `THREE.LineSegments` nomeado `'kerf-indicator'` em todas as peças de todos os modelos.
+
+#### 18. Corrigir Vazamento de Memória WebGL (`dispose`) ao Trocar Modelos e Acabamentos 3D
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** No `DesignStudioAiView.tsx` (linha 357), toda vez que o usuário move o slider `explodeSlider`, o `useEffect` destrói e recria inteiramente o `THREE.WebGLRenderer`, a cena, as luzes e as texturas procedurais porque `explodeSlider` está no array de dependências `[activeViewMode, currentArtifact, selectedFinish, explodeSlider]`.
+* **Instrução para a IA:** Remova `explodeSlider` do array de dependências do `useEffect` que cria o `WebGLRenderer` em `DesignStudioAiView.tsx`. Use um `useRef` (`targetExplodeRef.current = explodeSlider`) lido dentro do loop `requestAnimationFrame` (como já é feito em `DesignStudioView.tsx`), e crie uma função `disposeObject3D(obj)` que limpe `.geometry.dispose()`, `.material.dispose()` e `.map?.dispose()` ao desmontar ou trocar modelos.
+
+#### 19. Preservar a Detecção de Renderizador Software (`isSoftwareGl`) na Troca de Materiais
+* **Arquivo Alvo:** `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** Na linha 219, ao atualizar o modelo ou acabamento, é chamado `createLaserMaterials(finish, false)` com `false` fixo, ativando `transmission: 0.92` pesado em GPUs integradas/software.
+* **Instrução para a IA:** Armazene o resultado da verificação `isSoftwareGl` em um `isSoftwareGlRef = useRef<boolean>(false)` na inicialização do WebGL e passe `isSoftwareGlRef.current` para `createLaserMaterials(finish, isSoftwareGlRef.current)`.
+
+#### 20. Adicionar Gerador de Relevo 3D (Mapa de Altura / *Heightmap*) para CNC Router
+* **Arquivo Alvo:** `src/components/studio3d/LaserModel3D.ts` e `src/components/studio3d/DesignStudioAiView.tsx`
+* **Problema Atual:** A plataforma só trabalha com corte 2D extrudado (2.5D) e não gera superfícies esculpidas em 3D (relevo artístico) para usinagem em CNC Router.
+* **Instrução para a IA:** Adicione um modo **"Relevo 3D (Router)"** no Estúdio que converta qualquer imagem (ou mapa de profundidade gerado pela IA) em uma malha `THREE.PlaneGeometry(w, h, 128, 128)` deslocando os vértices no eixo $Z$ proporcionalmente à luminância de cada pixel $(0 \text{ a } Z_{\text{max}})$, permitindo exportar a malha resultante em `.STL` e gerar o G-Code de desbaste/acabamento 3D.
+
+---
+
+### Categoria 3: Otimizador CAM, G-Code Real, Pós-Processadores & Nesting (Itens 21 a 30)
+
+#### 21. Criar Motor Gerador de G-Code Real a partir de Geometrias SVG
+* **Arquivo Alvo:** `src/utils/cncExporters.ts` e `src/components/cam/CamOptimizerAiView.tsx`
+* **Problema Atual:** O G-Code nos exemplos do `DesignStudioAiView.tsx` e no `CamOptimizerAiView.tsx` tem apenas 10 linhas fixas de demonstração.
+* **Instrução para a IA:** Implemente `generateGcodeFromSvg(svgString, options)` em `src/utils/cncExporters.ts`. A função deve extrair os pontos $(X, Y)$ de cada caminho do SVG, ordenar cortes internos antes dos cortes externos (para a peça não se mover antes de furar o miolo) e gerar os blocos `G00` e `G01` completos com base no avanço ($F$), potência/RPM ($S$) e profundidade ($Z$).
+
+#### 22. Substituir o Diagnóstico Simulado de G-Code por Parser + Análise Real com Gemini
+* **Arquivo Alvo:** `src/components/cam/CamOptimizerAiView.tsx`
+* **Problema Atual:** `handleRunAiDiagnostic` usa apenas `rawGcode.replace(/F600/g, 'F450')` dentro de um `setTimeout` de $700\text{ ms}$, não lendo os comandos reais digitados ou colados pelo operador.
+* **Instrução para a IA:** Crie um parser de G-Code que extraia todas as velocidades `F`, rotações/potências `S`, profundidades máximas `Z`, distância total percorrida em corte (`G01`/`G02`/`G03`) e em vazio (`G00`). Em seguida, reescreva programaticamente todas as expressões `F\d+` e `S\d+` do código com os parâmetros ótimos calculados e consulte o Gemini para análise de trajetória e geração de recomendações técnicas específicas para o código inserido.
+
+#### 23. Implementar Geração Automática de Múltiplos Passes em Z (*Stepdown*) para CNC Router
+* **Arquivo Alvo:** `src/components/cam/CamOptimizerAiView.tsx` e `src/utils/cncExporters.ts`
+* **Problema Atual:** Quando o usuário configura corte de MDF $15\text{ mm}$ com fresa de $3.175\text{ mm}$, o sistema apenas mostra um texto recomendando dividir o passe, mas o G-Code gerado continua mergulhando direto em passe único.
+* **Instrução para a IA:** Adicione o parâmetro `totalMaterialThicknessMm` e `stepdownZMm` (passe máximo por camada). Se a espessura total for $15\text{ mm}$ e o passe for $3\text{ mm}$, gere automaticamente 5 loops completos da trajetória no G-Code nas profundidades $Z = -3.0$, $Z = -6.0$, $Z = -9.0$, $Z = -12.0$ e $Z = -15.0$.
+
+#### 24. Adicionar Pós-Processadores Específicos (GRBL Laser, Ruida, Mach3/DSP Router)
+* **Arquivo Alvo:** `src/components/cam/CamOptimizerAiView.tsx`
+* **Problema Atual:** O G-Code mistura sintaxe de Router (`M03 S18000` com `G00 Z5.0000`) quando a máquina selecionada é Laser (onde não há eixo Z motorizado no cabeçote de corte e usa-se `M04` dinâmico com `S0` a `S1000` no GRBL).
+* **Instrução para a IA:** Adicione um seletor de Pós-Processador:
+  1. `GRBL 1.1 Laser` (sem eixo Z, usa `M04 S...` proporcional a $0-1000$ e `M05` nos deslocamentos `G00`).
+  2. `CNC Router Mach3 / DSP A11` (usa `G21 G90 G17`, `M03 S18000`, `G00 Z5.0` de segurança e rampa de mergulho).
+  3. `LinuxCNC / Marlin`.
+
+#### 25. Criar Visualizador Gráfico 2D de Percurso de Ferramenta (*G-Code Toolpath Simulator*)
+* **Arquivo Alvo:** `src/components/cam/CamOptimizerAiView.tsx`
+* **Problema Atual:** O usuário vê apenas o texto bruto do G-Code no `<textarea>`, sem conseguir visualizar o desenho do percurso que a máquina fará.
+* **Instrução para a IA:** Adicione um canvas SVG/HTML5 ao lado do editor de G-Code que interprete em tempo real as linhas `G00` (desenhadas em vermelho tracejado) e `G01`/`G02`/`G03` (desenhadas em azul contínuo), exibindo as dimensões máximas $(X_{\max}, Y_{\max}, Z_{\min})$ e o ponto de origem $(0,0)$.
+
+#### 26. Conectar a Prop `initialPart` no Módulo de Nesting (`NestingView.tsx`)
+* **Arquivo Alvo:** `src/components/nesting/NestingView.tsx`
+* **Problema Atual:** `NestingViewProps` declara `initialPart`, mas a linha 39 (`export const NestingView: React.FC<NestingViewProps> = ({ materials, machines }) =>`) ignora `initialPart`. Quando o usuário clica em "Enviar para Nesting" no Estúdio 3D ou no Design Studio AI, a peça nunca entra na lista.
+* **Instrução para a IA:** Desestruture `initialPart` nos argumentos de `NestingView`. Adicione um `useEffect` que, ao detectar um `initialPart` válido, insira (ou atualize) essa peça no topo do array `items` com quantidade padrão `4` e cor destacada, exibindo um aviso de confirmação na tela.
+
+#### 27. Sincronizar Dimensões da Chapa no Nesting com o Material ou Máquina Selecionada
+* **Arquivo Alvo:** `src/components/nesting/NestingView.tsx`
+* **Problema Atual:** Ao trocar o material ou a máquina nos `<select>`, a largura e o comprimento da chapa permanecem fixos em `900` e `600`.
+* **Instrução para a IA:** Adicione botões rápidos **"Usar Tamanho da Chapa Completa"** (`selectedMaterial.sheetWidth_mm` $\times$ `selectedMaterial.sheetLength_mm`) e **"Limitar à Mesa da Máquina"** (`selectedMachine.workAreaX_mm` $\times$ `selectedMachine.workAreaY_mm`), atualizando automaticamente `sheetWidth` e `sheetLength` ao trocar a máquina se a opção de limitar à mesa estiver ativa.
+
+#### 28. Unificar o Cálculo de Custo Horário de Máquina no `NestingView.tsx`
+* **Arquivo Alvo:** `src/components/nesting/NestingView.tsx` e `src/App.tsx`
+* **Problema Atual:** Nas linhas 165-169 de `NestingView.tsx`, o custo por segundo da máquina é recalculado manualmente com constantes fixas (`5 * 12 * 160`, tarifa `1.02`, manutenção `250`), ignorando `depreciationYears`, `monthlyWorkHours`, `tubeSpareCost` da máquina e a `uf` da empresa.
+* **Instrução para a IA:** Passe `companyUf={company.uf}` para `NestingView` e substitua as linhas 165-169 por `const { perSecond: costPerSecond } = calcMachineCostRates(selectedMachine, companyUf);` importado de `src/utils/calculations.ts`.
+
+#### 29. Aprimorar o Algoritmo de Nesting para *MaxRects* (Empacotamento Bidimensional Real)
+* **Arquivo Alvo:** `src/components/nesting/NestingView.tsx`
+* **Problema Atual:** O algoritmo atual posiciona as peças em uma única linha horizontal (`curX += pw + gap`) e salta para `curY += rowMaxH + gap`, desperdiçando todo o espaço vazio abaixo de peças menores que estejam na mesma fileira de uma peça alta.
+* **Instrução para a IA:** Substitua o loop de posicionamento em linha por um algoritmo **Maximal Rectangles (*MaxRects - Best Short Side Fit*)** que mantém uma lista de retângulos livres (`freeRects`), testa a peça em $0^\circ$ e $90^\circ$, escolhe a posição que minimiza a sobra local e subdivide o espaço livre restante vertical e horizontalmente.
+
+#### 30. Exportar o Plano de Corte do Nesting com a Geometria Vetorial Real de Cada Peça
+* **Arquivo Alvo:** `src/components/nesting/NestingView.tsx` e `src/types/index.ts`
+* **Problema Atual:** `handleExportNestingSvg` exporta apenas `<rect>` vazios do *bounding box* de cada peça, o que não serve para cortar peças com furos internos, dentes finger-joint ou curvas.
+* **Instrução para a IA:** Adicione a propriedade opcional `svgPathOrGroup?: string` na interface `NestingItem`. Quando uma peça vier do Estúdio com geometria SVG própria, renderize e exporte seu grupo vetorial interno posicionado com `<g transform="translate(${p.x}, ${p.y}) ${p.rotated ? ... : ''}">` dentro do SVG/DXF do plano de chapa.
+
+---
+
+### Categoria 4: Integração entre Módulos, Estado Global & Persistência (Itens 31 a 40)
+
+#### 31. Implementar Persistência Automática de Dados (`localStorage`) em `src/App.tsx`
+* **Arquivo Alvo:** `src/App.tsx`
+* **Problema Atual:** Todos os estados (`company`, `machines`, `materials`, `fixedCosts`, `taxes`, `inventory`, `productionOrders`, `salesOrders`, `quotes`) reiniciam para os valores de `initialData.ts` ao recarregar o navegador (`F5`).
+* **Instrução para a IA:** Crie um hook genérico `useLocalStorageState<T>(key: string, defaultValue: T)` em `src/utils/useLocalStorageState.ts` e aplique-o a todos os estados de domínio em `App.tsx`, além de adicionar um botão **"Restaurar Dados de Fábrica"** em `SettingsView.tsx`.
+
+#### 32. Corrigir a Tipagem de Máquinas (`Machine['type']`) para Incluir CNC Router
+* **Arquivo Alvo:** `src/types/index.ts` e `src/data/initialData.ts`
+* **Problema Atual:** Em `src/types/index.ts`, `Machine['type']` permite apenas `'CO2' | 'Diodo' | 'Fibra'`. Por isso, em `initialData.ts` (linha 37), a máquina `"CNC Router Industrial 3 Eixos (1325)"` foi cadastrada como `type: "CO2"`.
+* **Instrução para a IA:** Atualize `Machine['type']` em `src/types/index.ts` para `'CO2' | 'Diodo' | 'Fibra' | 'Router' | 'Plasma'`. Corrija `mach-2` em `initialData.ts` para `type: 'Router'` e adicione um `<select>` de tipo de máquina nos cartões de `SettingsView.tsx`.
+
+#### 33. Conectar a Transferência de Artefatos do `DesignStudioAiView` para o `DesignStudioView`
+* **Arquivo Alvo:** `src/App.tsx`, `src/components/studio3d/DesignStudioAiView.tsx` e `src/components/studio3d/DesignStudioView.tsx`
+* **Problema Atual:** Em `App.tsx` (linha 245), `onSendTo3D={_modelType => { setActiveTab('studio'); }}` ignora o parâmetro `_modelType` e o artefato gerado, abrindo o Estúdio 3D sempre no modelo padrão.
+* **Instrução para a IA:** Crie um estado `activeStudioArtifact` em `App.tsx`. Quando `onSendTo3D` for chamado no `DesignStudioAiView`, salve o `currentArtifact` completo em `activeStudioArtifact`, passe-o como prop para `<DesignStudioView activeArtifact={activeStudioArtifact} />` e carregue automaticamente seu `model3dType` e sua geometria SVG 3D.
+
+#### 34. Conectar a Transferência de G-Code do `DesignStudioAiView` para o `CamOptimizerAiView`
+* **Arquivo Alvo:** `src/App.tsx` e `src/components/cam/CamOptimizerAiView.tsx`
+* **Problema Atual:** Em `App.tsx` (linha 249), `onSendToCam={(_gcode, _machineType) => { setActiveTab('cam-ai'); }}` descarta `_gcode` e `_machineType`.
+* **Instrução para a IA:** Crie o estado `camTransferData: { gcode: string; machineType: 'laser' | 'router'; materialId?: string } | null` em `App.tsx`. Passe-o como prop `initialCamData={camTransferData}` para `<CamOptimizerAiView />` e use um `useEffect` dentro de `CamOptimizerAiView.tsx` para preencher `rawGcode` e `selectedMachineType` e disparar o diagnóstico automaticamente ao receber novos dados.
+
+#### 35. Tornar o Header Principal (`App.tsx`) e a `Sidebar.tsx` 100% Dinâmicos
+* **Arquivo Alvo:** `src/App.tsx` e `src/components/Sidebar.tsx`
+* **Problema Atual:** O topo de `App.tsx` exibe textos fixos `"3 Máquinas Operacionais"` e `"CEMIG: R$ 1,02/kWh"`, e a `Sidebar.tsx` exibe `"Juiz de Fora / MG"` e `"R$ 1,02/kWh"` fixos, mesmo quando o usuário altera a cidade, a UF ou adiciona máquinas em `SettingsView.tsx`.
+* **Instrução para a IA:** Substitua os valores fixos por `{machines.length} Máquinas Operacionais`, `{company.city} / {company.uf}` e `R$ ${(TARIFA_ENERGIA_POR_UF[company.uf] || TARIFA_MEDIA_NACIONAL_KWH).toFixed(2)}/kWh` importando `TARIFA_ENERGIA_POR_UF` de `src/utils/calculations.ts`.
+
+#### 36. Remover ou Integrar o Componente Órfão `src/components/Navbar.tsx`
+* **Arquivo Alvo:** `src/components/Navbar.tsx` e `src/App.tsx`
+* **Problema Atual:** `Navbar.tsx` é um componente de versão anterior (tema escuro, sem as abas `studio-ai` e `cam-ai`) que não é importado em nenhum lugar.
+* **Instrução para a IA:** Remova `src/components/Navbar.tsx` ou converta-o em um menu de navegação inferior/gaveta responsiva (`lg:hidden`) para celulares e tablets, já que a `Sidebar.tsx` atual ocupa $256\text{ px}$ fixos (`w-64`) em telas pequenas.
+
+#### 37. Adicionar Edição de Velocidades de Corte e Gravação por Máquina em `SettingsView.tsx`
+* **Arquivo Alvo:** `src/components/settings/SettingsView.tsx`
+* **Problema Atual:** Na aba `materials` de `SettingsView.tsx`, o usuário edita o preço e dimensões da chapa, mas não consegue editar o array `speedsByMachine` (`cutSpeed_mms`, `cutPower_pct`, `engraveSpeed_mms`, `engravePower_pct`, `lineInterval_mm`), que determina o tempo e o custo de todas as peças.
+* **Instrução para a IA:** Dentro de cada card de material em `SettingsView.tsx`, adicione uma subtabela expansível listando cada máquina cadastrada em `machines` e permitindo editar `cutSpeed_mms`, `cutPower_pct`, `engraveSpeed_mms` e `lineInterval_mm`.
+
+#### 38. Adicionar Botão de Exclusão de Materiais e Impostos em `SettingsView.tsx`
+* **Arquivo Alvo:** `src/components/settings/SettingsView.tsx`
+* **Problema Atual:** O usuário pode criar novos materiais (`handleAddMaterial`), mas não existe botão de excluir material nem botão para adicionar/excluir impostos na aba `taxes`.
+* **Instrução para a IA:** Adicione o botão com ícone `Trash2` para remover materiais (impedindo exclusão se restar apenas 1) e adicione o botão **"+ Novo Imposto / Alíquota"** e exclusão na aba `taxes`.
+
+#### 39. Aplicar as Regras e Limites do Plano Comercial (`currentPlan`) na Interface
+* **Arquivo Alvo:** `src/App.tsx`, `src/components/Sidebar.tsx` e `src/components/settings/SettingsView.tsx`
+* **Problema Atual:** A troca de plano em `SettingsView.tsx` altera `currentPlan`, mas nenhuma funcionalidade verifica os limites definidos em `PLANS` (`hasInvoices`, `hasMarketplaces`, `aiCreditsMonthly`).
+* **Instrução para a IA:** Crie um contador de créditos de IA consumidos no estado global e exiba um alerta de upgrade caso o plano simulado não possua `hasInvoices` (na aba Fiscal) ou `hasMarketplaces` (na aba Catálogo > Marketplaces).
+
+#### 40. Normalizar Dependências no `package.json` para Build Estável
+* **Arquivo Alvo:** `package.json`
+* **Problema Atual:** `package.json` declara versões fora do padrão semântico oficial de pacotes como `"typescript": "^7.0.2"` e `"vite": "^8.3.0"`.
+* **Instrução para a IA:** Mantenha a compatibilidade com o ambiente atual garantindo que os scripts `npm run lint` e `npm run build` executem sem conflitos de tipagem do React 19 e Three.js.
+
+---
+
+### Categoria 5: Engenharia Financeira, Orçamentos, Kanban, Estoque, Loja & Fiscal (Itens 41 a 50)
+
+#### 41. Adicionar Botões "Salvar Proposta" e "Aprovar Orçamento (Gerar Pedido + OP)" em `QuotesView.tsx`
+* **Arquivo Alvo:** `src/components/quotes/QuotesView.tsx` e `src/App.tsx`
+* **Problema Atual:** `QuotesView.tsx` recebe `onSaveQuote` e `onConvertToOrder`, mas **não renderiza nenhum botão para acioná-los**. Qualquer edição feita nos itens ou dados do cliente em um orçamento é perdida ao clicar em outro orçamento na coluna esquerda.
+* **Instrução para a IA:**
+  1. Adicione um `useEffect` que sincronize o formulário quando `quotes` mudar (ex: quando um novo orçamento vem do `DesignStudioAiView`).
+  2. Adicione o botão **"Salvar Orçamento"** no cabeçalho do formulário chamando `onSaveQuote` com todos os dados editados.
+  3. Adicione o botão **"Aprovar & Converter em Pedido"** chamando `onConvertToOrder(quote)`, que em `App.tsx` muda o status do orçamento para `'Convertido em Pedido'`, cria o `SalesOrder` pago/pendente e dispara a `ProductionOrder` no Kanban.
+
+#### 42. Adicionar Largura e Altura Reais (`width_mm`, `height_mm`) no Item de Orçamento (`QuoteItem`)
+* **Arquivo Alvo:** `src/types/index.ts`, `src/components/quotes/QuotesView.tsx` e `src/App.tsx`
+* **Problema Atual:** Em `QuotesView.tsx` (linha 73), a área de material consumida pela peça é estimada por uma fórmula arbitrária baseada no perímetro: `const approxSide = Math.max(100, Math.sqrt(item.cutLength_mm * 15))`. Uma peça pequena muito detalhada (ex: mandala de $150\times 150\text{ mm}$ com $4000\text{ mm}$ de corte) é cobrada como se ocupasse uma chapa gigante.
+* **Instrução para a IA:** Adicione `width_mm?: number` e `height_mm?: number` em `QuoteItem` (`src/types/index.ts`). Inclua os inputs de Largura ($\text{mm}$) e Altura ($\text{mm}$) em cada item de `QuotesView.tsx` e calcule `pieceAreaM2 = ((item.width_mm * item.height_mm) / 1_000_000)`.
+
+#### 43. Utilizar o `whatsappMessageTemplate` Configurável e Adicionar Campo deGravação em `QuotesView.tsx`
+* **Arquivo Alvo:** `src/components/quotes/QuotesView.tsx` e `src/components/settings/SettingsView.tsx`
+* **Problema Atual:** O item do orçamento não possui input para editar `engraveArea_cm2` na interface de `QuotesView.tsx`, e o texto do WhatsApp ignora `company.whatsappMessageTemplate`.
+* **Instrução para a IA:** Adicione o campo numérico `Gravação (cm²)` nos itens de `QuotesView.tsx` e permita que o cabeçalho/rodapé da mensagem do WhatsApp utilize as variáveis `{cliente}`, `{numero}`, `{valor}` e `{prazo}` configuradas no perfil da empresa.
+
+#### 44. Substituir UF Fixa `'MG'` por `company.uf` nos Cálculos de Orçamento e Precificação
+* **Arquivo Alvo:** `src/components/quotes/QuotesView.tsx`, `src/components/pricing/PricingCalculatorView.tsx` e `src/App.tsx`
+* **Problema Atual:** Tanto `QuotesView.tsx` (linha 77) quanto `PricingCalculatorView.tsx` (linha 58) chamam `calcMachineCostRates(mach, 'MG')` com `'MG'` fixo.
+* **Instrução para a IA:** Passe `companyUf={company.uf}` para `PricingCalculatorView` e use `company.uf` em ambos os componentes ao chamar `calcMachineCostRates`.
+
+#### 45. Calcular o Custo Direto Real no Dashboard (`DashboardView.tsx`) em vez de $42\%$ Fixo
+* **Arquivo Alvo:** `src/components/dashboard/DashboardView.tsx`
+* **Problema Atual:** Na linha 57 de `DashboardView.tsx`, os custos diretos são estimados por `const estimatedDirectCosts = actualRevenue * 0.42;`, ignorando o `costPrice` real cadastrado em cada produto do `inventory`.
+* **Instrução para a IA:** Calcule `estimatedDirectCosts` somando, para cada pedido pago em `paidOrders`, o `costPrice * item.quantity` correspondente no `inventory` (usando $0.42 \times \text{totalPrice}$ apenas como *fallback* se o SKU não existir no estoque).
+
+#### 46. Sincronizar Automaticamente `inProductionStock` com o Ciclo de Vida da OP no Kanban
+* **Arquivo Alvo:** `src/App.tsx`
+* **Problema Atual:** Quando uma Ordem de Produção é criada (`handleCreateProductionOrder`) ou concluída (`handleUpdateOrderStatus` para `'Pronto/Embalado'`), o campo `inProductionStock` do produto em `inventory` nunca é atualizado.
+* **Instrução para a IA:** Em `handleCreateProductionOrder`, incremente `inProductionStock` do SKU correspondente em `+newOrder.quantityRequested`. Em `handleUpdateOrderStatus`, quando o status mudar para `'Pronto/Embalado'`, além de somar `quantityRequested` em `physicalStock`, subtraia `quantityRequested` de `inProductionStock` (limitado a $\ge 0$).
+
+#### 47. Disparar Ordem de Produção Automática ao Finalizar Compra sem Saldo Disponível na Loja
+* **Arquivo Alvo:** `src/App.tsx` e `src/components/catalog/CatalogStoreView.tsx`
+* **Problema Atual:** Ao simular uma compra no checkout Asaas (`CatalogStoreView.tsx`), a tela informa que a Ordem de Produção foi enviada para o Kanban, mas `handlePlaceOrder` apenas aumenta `committedStock` sem criar nenhuma OP.
+* **Instrução para a IA:** Dentro de `handlePlaceOrder` em `App.tsx`, verifique para cada item vendido se o novo `committedStock > physicalStock`. Caso haja déficit (ou fique abaixo do `minStock`), chame automaticamente a criação de uma `ProductionOrder` no Kanban dimensionada por `calcProductionOrderQuantity`.
+
+#### 48. Adicionar Modal de Cadastro/Edição de Produto (SKU) e Botão "Gerar OP" em `InventoryView.tsx`
+* **Arquivo Alvo:** `src/components/inventory/InventoryView.tsx` e `src/App.tsx`
+* **Problema Atual:** A tela de estoque (`InventoryView.tsx`) não permite cadastrar novos SKUs, não permite editar preços/estoque mínimo e a prop `onOpenOpModal` declarada na interface `InventoryViewProps` não é usada.
+* **Instrução para a IA:** Adicione um botão **"+ Novo Produto (SKU)"** que abre um modal para cadastrar um novo item em `inventory`, e adicione um botão **"Gerar OP"** ao lado dos itens com status `Déficit` ou `Abaixo do Mín.` para disparar a ordem de produção diretamente da tabela de estoque.
+
+#### 49. Automatizar CFOP ($5101$ vs $6101$) e Cálculo do Dígito Verificador Módulo 11 da Chave SEFAZ
+* **Arquivo Alvo:** `src/components/fiscal/FiscalShippingView.tsx`
+* **Problema Atual:** Na DANFE (`FiscalShippingView.tsx`), todos os itens exibem `CFOP 5101` fixo na tabela, mesmo quando o destinatário é de outro estado (`customerUf !== company.uf`, como o pedido do RJ que exige `6101`), e a chave de acesso usa `.padEnd(44, '9')`.
+* **Instrução para a IA:** Defina dinamicamente `const cfop = activeOrder?.customerUf === company.uf ? '5101' : '6101'` na tabela de itens e no cabeçalho fiscal, e implemente a função oficial de cálculo do dígito verificador Módulo 11 de 44 dígitos da NF-e.
+
+#### 50. Configurar Folha de Estilo de Impressão (`@media print`) para DANFE e Etiqueta Térmica $10\times 15\text{ cm}$
+* **Arquivo Alvo:** `src/index.css` e `src/components/fiscal/FiscalShippingView.tsx`
+* **Problema Atual:** Clicar no botão "Imprimir" (`window.print()`) imprime a barra lateral do aplicativo, os botões de topo e a lista de pedidos cortada.
+* **Instrução para a IA:** Adicione classes utilitárias `print:hidden` na `Sidebar.tsx`, no `<header>` de `App.tsx`, no cabeçalho de `FiscalShippingView.tsx`, na coluna esquerda de seleção de pedidos e no card de código ZPL bruto, garantindo que `window.print()` imprima exclusivamente o documento da DANFE ou a etiqueta térmica $10\times 15\text{ cm}$ limpa em página única.
+
+---
+
+## Roteiro de Execução Passo a Passo para a IA
+
+Para implementar todas as melhorias sem quebrar o sistema, a IA deve seguir exatamente esta ordem de execução:
+
+1. **Fase 1 (Fundação e Tipos):** Executar os itens **32, 42, 31** atualizando `src/types/index.ts`, `src/data/initialData.ts` e criando o hook de persistência em `src/App.tsx`.
+2. **Fase 2 (Motores Geométricos e IA):** Criar `src/services/geminiCncService.ts`, `src/utils/parametricBoxGenerator.ts` e `src/utils/cncExporters.ts` cobrindo os itens **1, 4, 6, 7, 8, 9, 13, 14, 16, 21**.
+3. **Fase 3 (Estúdio 2D e 3D Real):** Atualizar `src/components/studio3d/LaserModel3D.ts`, `DesignStudioAiView.tsx` e `DesignStudioView.tsx` aplicando o `SVGLoader`, `ExtrudeGeometry`, `STLExporter` e corrigindo o ciclo de vida do WebGL (itens **2, 3, 5, 10, 11, 12, 15, 17, 18, 19, 20**).
+4. **Fase 4 (CAM e Nesting):** Atualizar `src/components/cam/CamOptimizerAiView.tsx` e `src/components/nesting/NestingView.tsx` com o simulador de trajetória, múltiplos passes em $Z$, algoritmo *MaxRects* e recepção real das peças transferidas (itens **22, 23, 24, 25, 26, 27, 28, 29, 30**).
+5. **Fase 5 (ERP, Comercial, Fábrica e Fiscal):** Atualizar `App.tsx`, `Sidebar.tsx`, `QuotesView.tsx`, `PricingCalculatorView.tsx`, `DashboardView.tsx`, `InventoryView.tsx`, `CatalogStoreView.tsx`, `FiscalShippingView.tsx` e `SettingsView.tsx` (itens **33 a 41, 43 a 50**).

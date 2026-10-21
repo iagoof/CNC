@@ -1,0 +1,6 @@
+{
+  "name": "CNC APP — ERP e Estúdio CAM Industrial com IA",
+  "description": "Plataforma industrial para corte CNC Laser e Router: Design Studio AI com conversão de fotos e prompts para SVG 2D/3D, estúdio 3D, otimizador CAM de G-code por IA, nesting de chapas, mark-up divisor, controle de estoque por SKU, Kanban de produção e emissão fiscal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

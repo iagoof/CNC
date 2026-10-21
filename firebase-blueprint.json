@@ -1,0 +1,152 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role and identity details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "role": { "type": "string", "enum": ["admin", "operator", "engineer"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "email", "role", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "CNC vector design and parametric project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "svgContent": { "type": "string", "maxLength": 500000 },
+        "widthMm": { "type": "number" },
+        "heightMm": { "type": "number" },
+        "cutLengthMm": { "type": "number" },
+        "engraveAreaCm2": { "type": "number" },
+        "materialCategory": { "type": "string", "maxLength": 64 },
+        "recommendedThicknessMm": { "type": "number" },
+        "source": { "type": "string", "enum": ["ai_prompt", "image_trace", "parametric_box", "catalog"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerId", "svgContent", "widthMm", "heightMm", "createdAt", "updatedAt"]
+    },
+    "ProductionOrder": {
+      "title": "ProductionOrder",
+      "description": "Factory floor CNC production order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "orderNumber": { "type": "string", "maxLength": 32 },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sku": { "type": "string", "maxLength": 64 },
+        "productName": { "type": "string", "maxLength": 128 },
+        "quantityRequested": { "type": "number" },
+        "quantityIdealCalculated": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["Aguardando Corte", "Cortando na Laser", "Acabamento/Pintura", "Montagem", "Pronto/Embalado"]
+        },
+        "priority": { "type": "string", "enum": ["Baixa", "Normal", "Alta", "Urgente"] },
+        "machineId": { "type": "string", "maxLength": 64 },
+        "materialName": { "type": "string", "maxLength": 64 },
+        "laserTimeEstimatedMin": { "type": "number" },
+        "scannedQuantity": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderNumber", "ownerId", "sku", "productName", "quantityRequested", "status", "priority", "createdAt", "updatedAt"]
+    },
+    "Material": {
+      "title": "Material",
+      "description": "Stock sheet and laser parameter item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "enum": ["MDF", "Acrílico", "Compensado", "Madeira Maciça", "EVA", "Papelão", "Couro"] },
+        "thickness_mm": { "type": "number" },
+        "sheetWidth_mm": { "type": "number" },
+        "sheetLength_mm": { "type": "number" },
+        "unitCost": { "type": "number" },
+        "shippingCost": { "type": "number" },
+        "lossPercentage": { "type": "number" },
+        "density_kg_m3": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "category", "thickness_mm", "sheetWidth_mm", "sheetLength_mm", "unitCost", "createdAt", "updatedAt"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "description": "Commercial laser quote for customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "quoteNumber": { "type": "string", "maxLength": 32 },
+        "customerName": { "type": "string", "maxLength": 128 },
+        "customerPhone": { "type": "string", "maxLength": 32 },
+        "customerEmail": { "type": "string", "maxLength": 256 },
+        "customerDoc": { "type": "string", "maxLength": 32 },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["Rascunho", "Enviado", "Aprovado", "Recusado", "Convertido em Pedido"] },
+        "validUntil": { "type": "string", "maxLength": 32 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "quoteNumber", "customerName", "status", "createdAt", "updatedAt"]
+    },
+    "CompanySettings": {
+      "title": "CompanySettings",
+      "description": "Machine specs, hourly costs and rates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "tradeName": { "type": "string", "maxLength": 128 },
+        "cnpj": { "type": "string", "maxLength": 32 },
+        "city": { "type": "string", "maxLength": 64 },
+        "uf": { "type": "string", "maxLength": 2 },
+        "cemigRateKwh": { "type": "number" },
+        "monthlyWorkHours": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "tradeName", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile with role and identity details"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "CNC vector CAD design projects"
+    },
+    "/orders/{orderId}": {
+      "schema": "ProductionOrder",
+      "description": "Production orders on factory floor"
+    },
+    "/materials/{materialId}": {
+      "schema": "Material",
+      "description": "CNC materials and sheet inventory"
+    },
+    "/quotes/{quoteId}": {
+      "schema": "Quote",
+      "description": "Commercial quotes generated with mark-up divisor"
+    },
+    "/settings/{settingId}": {
+      "schema": "CompanySettings",
+      "description": "Machine and workshop parameters"
+    }
+  }
+}

@@ -1,0 +1,249 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY PRIMITIVES ---
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'iagoofss@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'email', 'displayName', 'photoURL', 'role', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.email is string && data.email.size() <= 256 &&
+        data.role in ['admin', 'operator', 'engineer'] &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 512));
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerId', 'svgContent', 'widthMm', 'heightMm', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'ownerId', 'svgContent', 'widthMm', 'heightMm', 'cutLengthMm', 'engraveAreaCm2', 'materialCategory', 'recommendedThicknessMm', 'source', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+        data.svgContent is string && data.svgContent.size() <= 500000 &&
+        data.widthMm is number && data.widthMm > 0 &&
+        data.heightMm is number && data.heightMm > 0 &&
+        (!('cutLengthMm' in data) || (data.cutLengthMm is number && data.cutLengthMm >= 0)) &&
+        (!('engraveAreaCm2' in data) || (data.engraveAreaCm2 is number && data.engraveAreaCm2 >= 0)) &&
+        (!('materialCategory' in data) || (data.materialCategory is string && data.materialCategory.size() <= 64)) &&
+        (!('recommendedThicknessMm' in data) || (data.recommendedThicknessMm is number && data.recommendedThicknessMm >= 0)) &&
+        (!('source' in data) || (data.source in ['ai_prompt', 'image_trace', 'parametric_box', 'catalog']));
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'status', 'priority', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'status', 'priority', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'scannedQuantity', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.orderNumber is string && data.orderNumber.size() <= 32 &&
+        data.sku is string && data.sku.size() <= 64 &&
+        data.productName is string && data.productName.size() <= 128 &&
+        data.quantityRequested is number && data.quantityRequested > 0 &&
+        data.status in ['Aguardando Corte', 'Cortando na Laser', 'Acabamento/Pintura', 'Montagem', 'Pronto/Embalado'] &&
+        data.priority in ['Baixa', 'Normal', 'Alta', 'Urgente'] &&
+        (!('quantityIdealCalculated' in data) || (data.quantityIdealCalculated is number && data.quantityIdealCalculated >= 0)) &&
+        (!('machineId' in data) || (data.machineId is string && data.machineId.size() <= 64)) &&
+        (!('materialName' in data) || (data.materialName is string && data.materialName.size() <= 64)) &&
+        (!('laserTimeEstimatedMin' in data) || (data.laserTimeEstimatedMin is number && data.laserTimeEstimatedMin >= 0)) &&
+        (!('scannedQuantity' in data) || (data.scannedQuantity is number && data.scannedQuantity >= 0));
+    }
+
+    function isValidMaterial(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.category in ['MDF', 'Acrílico', 'Compensado', 'Madeira Maciça', 'EVA', 'Papelão', 'Couro'] &&
+        data.thickness_mm is number && data.thickness_mm > 0 &&
+        data.sheetWidth_mm is number && data.sheetWidth_mm > 0 &&
+        data.sheetLength_mm is number && data.sheetLength_mm > 0 &&
+        data.unitCost is number && data.unitCost >= 0 &&
+        (!('shippingCost' in data) || (data.shippingCost is number && data.shippingCost >= 0)) &&
+        (!('lossPercentage' in data) || (data.lossPercentage is number && data.lossPercentage >= 0)) &&
+        (!('density_kg_m3' in data) || (data.density_kg_m3 is number && data.density_kg_m3 >= 0));
+    }
+
+    function isValidQuote(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'quoteNumber', 'customerName', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'quoteNumber', 'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.quoteNumber is string && data.quoteNumber.size() <= 32 &&
+        data.customerName is string && data.customerName.size() <= 128 &&
+        data.status in ['Rascunho', 'Enviado', 'Aprovado', 'Recusado', 'Convertido em Pedido'] &&
+        (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 32)) &&
+        (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 256)) &&
+        (!('customerDoc' in data) || (data.customerDoc is string && data.customerDoc.size() <= 32)) &&
+        (!('total' in data) || (data.total is number && data.total >= 0)) &&
+        (!('validUntil' in data) || (data.validUntil is string && data.validUntil.size() <= 32)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'tradeName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'tradeName', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.ownerId is string && isValidId(data.ownerId) &&
+        data.tradeName is string && data.tradeName.size() > 0 && data.tradeName.size() <= 128 &&
+        (!('cnpj' in data) || (data.cnpj is string && data.cnpj.size() <= 32)) &&
+        (!('city' in data) || (data.city is string && data.city.size() <= 64)) &&
+        (!('uf' in data) || (data.uf is string && data.uf.size() <= 2)) &&
+        (!('cemigRateKwh' in data) || (data.cemigRateKwh is number && data.cemigRateKwh >= 0)) &&
+        (!('monthlyWorkHours' in data) || (data.monthlyWorkHours is number && data.monthlyWorkHours >= 0));
+    }
+
+    // --- COLLECTION RULES ---
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow get: if isVerified() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isVerified() && isValidId(userId) && request.auth.uid == userId &&
+        isValidUser(incoming()) && incoming().id == userId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time &&
+        (incoming().role != 'admin' || isAdmin());
+      allow update: if isVerified() && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().id == existing().id && incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']))
+        );
+      allow delete: if isAdmin();
+    }
+
+    // PROJECTS COLLECTION
+    match /projects/{projectId} {
+      allow get: if isVerified() && isValidId(projectId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == projectId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'svgContent', 'widthMm', 'heightMm', 'cutLengthMm', 'engraveAreaCm2', 'materialCategory', 'recommendedThicknessMm', 'source', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(projectId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // ORDERS COLLECTION
+    match /orders/{orderId} {
+      allow get: if isVerified() && isValidId(orderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == orderId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            existing().status != 'Pronto/Embalado' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'priority', 'scannedQuantity', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerified() && isValidId(orderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // MATERIALS COLLECTION
+    match /materials/{materialId} {
+      allow get: if isVerified() && isValidId(materialId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == materialId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(materialId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // QUOTES COLLECTION
+    match /quotes/{quoteId} {
+      allow get: if isVerified() && isValidId(quoteId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == quoteId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            existing().status != 'Convertido em Pedido' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerified() && isValidId(quoteId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // SETTINGS COLLECTION
+    match /settings/{settingId} {
+      allow get: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
+        incoming().ownerId == request.auth.uid && incoming().id == settingId &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
+        (existing().ownerId == request.auth.uid || isAdmin()) &&
+        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
+          'tradeName', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
+        ]));
+      allow delete: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // ADMINS COLLECTION
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
