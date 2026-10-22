@@ -12,7 +12,6 @@ import {
   Calculator,
   AlertTriangle,
   Percent,
-  TrendingUp,
   ShieldAlert
 } from 'lucide-react';
 
