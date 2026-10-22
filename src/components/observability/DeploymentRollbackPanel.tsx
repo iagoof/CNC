@@ -1,20 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { deploymentEngine } from '../../services/telemetry/deploymentEngine';
 import type { DeploymentRelease } from '../../services/telemetry/types';
 import {
   Rocket,
   RotateCcw,
   ShieldAlert,
-  ShieldCheck,
   CheckCircle2,
   AlertTriangle,
   Clock,
-  GitCommit,
   User,
   Activity,
-  Zap,
-  ArrowDownCircle,
-  FileText
+  Zap
 } from 'lucide-react';
 
 export const DeploymentRollbackPanel: React.FC = () => {
