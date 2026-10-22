@@ -7,8 +7,6 @@ import {
   Minus,
   Search,
   CheckCircle2,
-  AlertTriangle,
-  Layers,
   Wrench,
   X
 } from 'lucide-react';
