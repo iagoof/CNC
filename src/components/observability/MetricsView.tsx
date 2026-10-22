@@ -1,14 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import {
-  performanceMetrics,
-  cncCalculationCache,
-  gcodeCache,
-  aiResponseCache,
-  queryLogger,
-  QueryLogEntry,
-  CacheTelemetryMetrics,
-  PerformancePercentiles
-} from '../../services/telemetry';
+import { performanceMetrics } from '../../services/telemetry/performanceMetrics';
+import { cncCalculationCache, gcodeCache, aiResponseCache } from '../../services/telemetry/telemetryCache';
+import { queryLogger } from '../../services/telemetry/queryLogger';
+import type { QueryLogEntry, CacheTelemetryMetrics, PerformancePercentiles } from '../../services/telemetry/types';
 import {
   Gauge,
   Activity,

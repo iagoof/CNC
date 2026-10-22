@@ -134,11 +134,3 @@ class PerformanceMetricsCollector {
 
 export const performanceMetrics = new PerformanceMetricsCollector();
 
-// Sementes iniciais de baseline para demonstrabilidade imediata de métricas reais
-performanceMetrics.record('cad_studio', 18.2);
-performanceMetrics.record('cad_studio', 24.5);
-performanceMetrics.record('nesting_engine', 82.1);
-performanceMetrics.record('nesting_engine', 95.4);
-performanceMetrics.record('cam_optimizer', 41.3);
-performanceMetrics.record('pricing_engine', 6.8);
-performanceMetrics.record('pricing_engine', 7.5);

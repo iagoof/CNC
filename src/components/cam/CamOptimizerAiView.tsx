@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Material, Machine, CamTransferData } from '../../types';
+import { CamTransferData } from '../../types';
 import {
   Cpu,
   Play,
@@ -23,8 +23,6 @@ import {
 
 interface CamOptimizerAiViewProps {
   initialProgram?: CamTransferData | null;
-  materials: Material[];
-  machines: Machine[];
 }
 
 interface ToolpathPoint {
@@ -36,49 +34,17 @@ interface ToolpathPoint {
 }
 
 export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
-  materials,
-  initialProgram,
-  machines
+  initialProgram
 }) => {
   // Machine & Material selection
   const [selectedMachineType, setSelectedMachineType] = useState<'laser' | 'router'>('laser');
-  const [postProcessor, setPostProcessor] = useState<'grbl' | 'mach3' | 'linuxcnc'>('grbl');
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>(materials[0]?.id || '');
-  const [spindleRpm, setSpindleRpm] = useState<number>(18000); // For Router
-  const [laserPowerPct, setLaserPowerPct] = useState<number>(65); // For Laser
-  const [feedRateMmMin, setFeedRateMmMin] = useState<number>(1500); // 25 mm/s = 1500 mm/min
-  const [passDepthZMm, setPassDepthZMm] = useState<number>(2.0); // Passe Z
-  const [bitFlutes, setBitFlutes] = useState<number>(2); // 2 cortes para router
-  const [bitDiameterMm, setBitDiameterMm] = useState<number>(3.175); // 1/8"
-
   // Simulator playback state
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackProgress, setPlaybackProgress] = useState<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // G-code editor state
-  const [rawGcode, setRawGcode] = useState<string>(`; CNC APP CAM - Programa de Corte & Usinagem
-G21 ; Unidades em milímetros
-G90 ; Posicionamento absoluto
-M03 S18000 ; Liga spindle / laser
-G00 Z5.0000 ; Altura de segurança
-G00 X10.0000 Y10.0000
-G01 Z-3.0000 F600 ; Mergulho inicial
-G01 X150.0000 Y10.0000 F1500 ; Corte perimetral
-G01 X150.0000 Y90.0000 F1500
-G01 X10.0000 Y90.0000 F1500
-G01 X10.0000 Y10.0000 F1500
-G00 Z5.0000 ; Retração segura
-G00 X40.0000 Y30.0000 ; Deslocamento rápido para ilha interna
-G01 Z-3.0000 F600
-G01 X120.0000 Y30.0000 F1500
-G01 X120.0000 Y70.0000 F1500
-G01 X40.0000 Y70.0000 F1500
-G01 X40.0000 Y30.0000 F1500
-G00 Z5.0000
-M05 ; Desliga ferramenta
-G00 X0.0000 Y0.0000 ; Retorno à origem
-M30 ; Fim do programa`);
+  const [rawGcode, setRawGcode] = useState<string>('');
 
   useEffect(() => {
     if (!initialProgram) return;
@@ -89,58 +55,14 @@ M30 ; Fim do programa`);
     setAnalysisResult(null);
   }, [initialProgram]);
 
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysisResult, setAnalysisResult] = useState<{
-    status: 'optimal' | 'warning' | 'critical';
-    chipLoadMm: number;
-    recommendedFeedMin: number;
-    recommendedRpm: number;
-    burnRisk: string;
-    bitBreakageRisk: string;
-    passesCalculated: number;
-    insights: string[];
-    optimizedGcode: string;
-  } | null>({
-    status: 'optimal',
-    chipLoadMm: 0.041,
-    recommendedFeedMin: 1600,
-    recommendedRpm: 18000,
-    burnRisk: 'Baixo (avanço compatível com dissipação térmica do MDF)',
-    bitBreakageRisk: 'Seguro (profundidade de passe compatível com diâmetro 3.175 mm)',
-    passesCalculated: 2,
-    insights: [
-      'Velocidade de avanço de 1.500 mm/min está dentro da janela recomendada.',
-      'Mergulho em Z a 450 mm/min com rampa helicoidal suave previne impacto mecânico.',
-      'Pós-processador GRBL 1.1 configurado com controle de aceleração dinâmica ($120/$121).',
-      'Tempo de usinagem reduzido em 14% com percursos em sentido concordante (climb milling).'
-    ],
-    optimizedGcode: `; CNC APP CAM - Otimizado por IA (Juiz de Fora / MG)
-G21 ; Milimetros
-G90 ; Absoluto
-M03 S18000
-G00 Z5.0000
-G00 X10.0000 Y10.0000
-G01 Z-1.5000 F450 ; Passe 1/2
-G01 X150.0000 Y10.0000 F1600
-G01 X150.0000 Y90.0000 F1600
-G01 X10.0000 Y90.0000 F1600
-G01 X10.0000 Y10.0000 F1600
-G01 Z-3.0000 F450 ; Passe 2/2
-G01 X150.0000 Y10.0000 F1600
-G01 X150.0000 Y90.0000 F1600
-G01 X10.0000 Y90.0000 F1600
-G01 X10.0000 Y10.0000 F1600
-G00 Z5.0000
-M05
-G00 X0 Y0
-M30`
-  });
-
-  const selectedMaterial = materials.find(m => m.id === selectedMaterialId) || materials[0];
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<{ status: 'clear' | 'warning'; motionCount: number; insights: string[] } | null>(null);
 
   // Parse G-code moves for real 2D Canvas simulator
   const parsedMoves = useMemo<ToolpathPoint[]>(() => {
-    const code = analysisResult?.optimizedGcode || rawGcode;
+    const code = rawGcode;
+    const uncommented = code.toUpperCase().replace(/;[^\n]*/g, '').replace(/\([^)]*\)/g, '');
+    if (!/\bG21\b/.test(uncommented) || !/\bG90\b/.test(uncommented) || /\bG(?:20|91|0?2|0?3)\b/.test(uncommented)) return [];
     const lines = code.split('\n');
     const points: ToolpathPoint[] = [];
 
@@ -180,7 +102,7 @@ M30`
     });
 
     return points;
-  }, [rawGcode, analysisResult]);
+  }, [rawGcode]);
 
   // Render 2D toolpath canvas
   useEffect(() => {
@@ -327,71 +249,41 @@ M30`
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // Run AI Diagnostic
+  // Verificação local do programa fornecido pelo operador. Não altera o arquivo.
   const handleRunAiDiagnostic = () => {
-    setIsAnalyzing(true);
-
-    setTimeout(() => {
-      // Calculate chip load: Chip Load = Feed / (RPM * Flutes)
-      const chipLoad = feedRateMmMin / (spindleRpm * bitFlutes);
-      let status: 'optimal' | 'warning' | 'critical' = 'optimal';
-      const insights: string[] = [];
-
-      let burnRisk = 'Baixo (avanço adequado para evitar carbonização)';
-      let bitBreakageRisk = 'Seguro (taxa de carga mecânica equilibrada)';
-
-      if (chipLoad < 0.02 && selectedMachineType === 'router') {
-        status = 'warning';
-        burnRisk = 'ALTO: Avanço muito lento para a rotação atual. Risco severo de queima de borda e fumaça no MDF.';
-        insights.push('Aumente a velocidade de avanço ou reduza o RPM do spindle para evitar queimar a madeira.');
-      } else if (chipLoad > 0.08 && selectedMachineType === 'router') {
-        status = 'critical';
-        bitBreakageRisk = 'ELEVADO: Carga mecânica por dente excessiva. Risco de deflexão e quebra de fresa em curvas.';
-        insights.push('Reduza o avanço ou aumente o RPM do spindle para aliviar a tensão de corte na ferramenta.');
-      } else {
-        insights.push(`Carga por dente (Chip Load) ideal calibrada em ${chipLoad.toFixed(3)} mm/dente.`);
-      }
-
-      // Router Z-depth multi-pass check
-      const totalDepth = selectedMaterial.thickness_mm;
-      const numPasses = Math.max(1, Math.ceil(totalDepth / passDepthZMm));
-      if (passDepthZMm > bitDiameterMm * 1.5 && selectedMachineType === 'router') {
-        status = 'warning';
-        insights.push(`Profundidade de passe Z (${passDepthZMm}mm) ultrapassa 1.5x o diâmetro da fresa. Calculados ${numPasses} passes seguros.`);
-      }
-
-      insights.push(`Pós-processador selecionado: ${postProcessor.toUpperCase()} com interpolação circular G02/G03 ativada.`);
-      insights.push(`Tarifa CEMIG em Juiz de Fora (R$ 1,02/kWh) incorporada ao custo horário da máquina.`);
-
-      const optCode = rawGcode
-        .replace(/F600/g, 'F450 ; Mergulho suave IA')
-        .replace(/F1500/g, `F${Math.round(feedRateMmMin * 1.05)} ; Avanço calibrado IA`);
-
-      setAnalysisResult({
-        status,
-        chipLoadMm: chipLoad,
-        recommendedFeedMin: Math.round(feedRateMmMin * 1.05),
-        recommendedRpm: spindleRpm,
-        burnRisk,
-        bitBreakageRisk,
-        passesCalculated: numPasses,
-        insights,
-        optimizedGcode: optCode
-      });
-
-      setIsAnalyzing(false);
-      setPlaybackProgress(100);
-    }, 450);
+    if (!rawGcode.trim()) {
+      setDiagnosticError('Cole ou receba um programa G-code antes de diagnosticar.');
+      setAnalysisResult(null);
+      return;
+    }
+    setDiagnosticError(null);
+    const code = rawGcode.toUpperCase().replace(/;[^\n]*/g, '').replace(/\([^)]*\)/g, '');
+    const insights: string[] = [];
+    const feeds = [...code.matchAll(/\bF([-+]?\d+(?:\.\d+)?)/g)].map(match => Number(match[1]));
+    const motionCount = [...code.matchAll(/\bG0?[0123]\b/g)].length;
+    if (!/\bG21\b/.test(code)) insights.push('G21 (milímetros) não foi identificado.');
+    if (!/\bG90\b/.test(code)) insights.push('G90 (coordenadas absolutas) não foi identificado.');
+    if (/\bG20\b/.test(code)) insights.push('G20 seleciona polegadas; a prévia usa milímetros.');
+    if (/\bG91\b/.test(code)) insights.push('G91 seleciona coordenadas relativas; a prévia assume coordenadas absolutas.');
+    if (/\bG0?[23]\b/.test(code)) insights.push('Arcos G02/G03 não são interpolados pela prévia 2D.');
+    if (!/\bM0?5\b/.test(code)) insights.push('Comando M05 para desligar a ferramenta não foi identificado.');
+    if (motionCount === 0) insights.push('Nenhum movimento G00/G01/G02/G03 foi identificado.');
+    if (feeds.some(feed => !Number.isFinite(feed) || feed <= 0)) insights.push('Há avanço F inválido ou não positivo.');
+    if (feeds.length === 0) insights.push('Nenhum avanço F foi identificado.');
+    if (selectedMachineType === 'router' && !/\bS[1-9]\d*(?:\.\d+)?\b/.test(code)) insights.push('Nenhuma rotação S positiva foi identificada para a Router.');
+    setAnalysisResult({ status: insights.length ? 'warning' : 'clear', motionCount, insights: insights.length ? insights : ['Nenhum dos avisos locais foi encontrado. A máquina e o arquivo ainda precisam de validação pelo operador.'] });
+    setPlaybackProgress(100);
   };
 
   // Download G-code file
   const handleDownloadGcode = () => {
-    const textToDownload = analysisResult?.optimizedGcode || rawGcode;
+    if (!rawGcode.trim() || analysisResult?.status !== 'clear') return;
+    const textToDownload = rawGcode;
     const blob = new Blob([textToDownload], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `programa_cnc_${postProcessor}_${selectedMachineType}.nc`;
+    a.download = `programa_cnc_${selectedMachineType}.nc`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -406,13 +298,11 @@ M30`
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900">Otimizador CAM & Diagnóstico de G-Code com IA</h1>
-              <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
-                Simulador 2D Ativo
-              </span>
+              <h1 className="text-base font-bold text-slate-900">Diagnóstico CAM & G-Code</h1>
+              <span className="text-[10px] font-mono bg-slate-50 text-slate-700 border border-slate-200 px-2 py-0.5 rounded font-semibold">Prévia local</span>
             </div>
             <p className="text-xs text-slate-500">
-              Calibração de avanço, múltiplos passes Z para Router, análise de chip load e simulação visual de percursos
+              Inspeção local do G-code e prévia 2D limitada a movimentos lineares em milímetros absolutos
             </p>
           </div>
         </div>
@@ -420,6 +310,8 @@ M30`
         <div className="flex items-center gap-3">
           <button
             onClick={handleDownloadGcode}
+            disabled={analysisResult?.status !== 'clear'}
+            title={analysisResult?.status !== 'clear' ? 'Verifique um programa sem avisos antes de baixar' : 'Baixar o programa conferido sem alterações'}
             className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl border border-slate-200 transition cursor-pointer"
           >
             <Download className="w-4 h-4 text-slate-600" />
@@ -427,225 +319,24 @@ M30`
           </button>
           <button
             onClick={handleRunAiDiagnostic}
-            disabled={isAnalyzing}
+            disabled={!rawGcode.trim()}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition disabled:opacity-50 cursor-pointer"
           >
-            {isAnalyzing ? (
-              <>
-                <RotateCw className="w-4 h-4 animate-spin" />
-                Diagnosticando Trajetórias...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Diagnosticar com IA
-              </>
-            )}
+            <FileCheck className="w-4 h-4" /> Verificar G-Code
           </button>
         </div>
       </div>
 
       <div className="p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Machine & Tool Parameters */}
-        <div className="lg:col-span-5 space-y-5">
-          {/* Machine Type Selection */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <Gauge className="w-4 h-4 text-amber-600" />
-              1. Seleção de Máquina & Pós-Processador
-            </h3>
-
+        {diagnosticError && <div role="alert" className="lg:col-span-12 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{diagnosticError}</div>}
+        <div className="lg:col-span-5 space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">Tipo de máquina para leitura da prévia</h3>
             <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setSelectedMachineType('laser')}
-                className={`py-2 px-3 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                  selectedMachineType === 'laser'
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                CNC Laser (CO2 / Diodo)
-              </button>
-              <button
-                onClick={() => setSelectedMachineType('router')}
-                className={`py-2 px-3 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                  selectedMachineType === 'router'
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                CNC Router 3 Eixos
-              </button>
+              <button type="button" onClick={() => { setSelectedMachineType('laser'); setAnalysisResult(null); }} aria-pressed={selectedMachineType === 'laser'} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${selectedMachineType === 'laser' ? 'border-amber-600 bg-amber-500 text-white' : 'border-slate-200 bg-slate-50'}`}>Laser</button>
+              <button type="button" onClick={() => { setSelectedMachineType('router'); setAnalysisResult(null); }} aria-pressed={selectedMachineType === 'router'} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${selectedMachineType === 'router' ? 'border-amber-600 bg-amber-500 text-white' : 'border-slate-200 bg-slate-50'}`}>Router</button>
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                  Pós-Processador
-                </label>
-                <select
-                  value={postProcessor}
-                  onChange={e => setPostProcessor(e.target.value as any)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium"
-                >
-                  <option value="grbl">GRBL 1.1 Laser/Router</option>
-                  <option value="mach3">Mach3 / DSP RichAuto</option>
-                  <option value="linuxcnc">LinuxCNC Industrial</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                  Material Selecionado
-                </label>
-                <select
-                  value={selectedMaterialId}
-                  onChange={e => setSelectedMaterialId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium"
-                >
-                  {materials.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.thickness_mm} mm)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {selectedMachineType === 'laser' ? (
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Velocidade Corte (mm/s)
-                  </label>
-                  <input
-                    type="number"
-                    value={Math.round(feedRateMmMin / 60)}
-                    onChange={e => setFeedRateMmMin(Number(e.target.value) * 60)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Potência do Tubo (%)
-                  </label>
-                  <input
-                    type="number"
-                    value={laserPowerPct}
-                    onChange={e => setLaserPowerPct(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Rotação Spindle (RPM)
-                  </label>
-                  <input
-                    type="number"
-                    step="1000"
-                    value={spindleRpm}
-                    onChange={e => setSpindleRpm(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Avanço (Feed mm/min)
-                  </label>
-                  <input
-                    type="number"
-                    value={feedRateMmMin}
-                    onChange={e => setFeedRateMmMin(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Passe de Corte Z (mm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={passDepthZMm}
-                    onChange={e => setPassDepthZMm(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-1">
-                    Diâmetro da Fresa (mm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={bitDiameterMm}
-                    onChange={e => setBitDiameterMm(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-800 font-mono"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Presets */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-2">
-            <span className="text-[11px] font-bold text-slate-700 block">Presets Rápidos de Avanço & Rotação:</span>
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button
-                onClick={() => {
-                  setSelectedMachineType('laser');
-                  setFeedRateMmMin(1500); // 25 mm/s
-                  setLaserPowerPct(65);
-                }}
-                className="p-2 text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
-              >
-                <span className="font-bold text-slate-800 block">MDF 3mm Laser</span>
-                <span className="text-[10px] text-slate-500">25 mm/s @ 65% Potência</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setSelectedMachineType('laser');
-                  setFeedRateMmMin(720); // 12 mm/s
-                  setLaserPowerPct(80);
-                }}
-                className="p-2 text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
-              >
-                <span className="font-bold text-slate-800 block">Acrílico 3mm Laser</span>
-                <span className="text-[10px] text-slate-500">12 mm/s @ 80% Potência</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setSelectedMachineType('router');
-                  setSpindleRpm(18000);
-                  setFeedRateMmMin(2400);
-                  setPassDepthZMm(2.5);
-                  setBitDiameterMm(3.175);
-                }}
-                className="p-2 text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
-              >
-                <span className="font-bold text-slate-800 block">MDF 15mm Router</span>
-                <span className="text-[10px] text-slate-500">2.400 mm/min • 6 passes</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setSelectedMachineType('router');
-                  setSpindleRpm(20000);
-                  setFeedRateMmMin(3000);
-                  setPassDepthZMm(3.0);
-                  setBitDiameterMm(4.0);
-                }}
-                className="p-2 text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
-              >
-                <span className="font-bold text-slate-800 block">ACM 3mm Router</span>
-                <span className="text-[10px] text-slate-500">Fresa 90° V-Groove</span>
-              </button>
-            </div>
+            <p className="text-xs text-slate-600">A prévia interpreta somente movimentos lineares em milímetros e coordenadas absolutas. Confira o programa no controlador antes de fabricar.</p>
           </div>
         </div>
 
@@ -664,6 +355,7 @@ M30`
                 </span>
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
+                  disabled={!parsedMoves.length}
                   className="flex items-center gap-1 px-2.5 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-xs font-bold transition cursor-pointer"
                 >
                   {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -709,6 +401,7 @@ M30`
                 min="0"
                 max="100"
                 value={playbackProgress}
+                disabled={!parsedMoves.length}
                 onChange={e => setPlaybackProgress(Number(e.target.value))}
                 className="flex-1 accent-sky-500 cursor-pointer"
               />
@@ -724,55 +417,22 @@ M30`
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  Diagnóstico CAM do Algoritmo IA
+                  Verificação local do programa
                 </h3>
                 <span
                   className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                    analysisResult.status === 'optimal'
+                    analysisResult.status === 'clear'
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : analysisResult.status === 'warning'
-                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                      : 'bg-red-50 text-red-700 border border-red-200'
+                      : 'bg-amber-50 text-amber-700 border border-amber-200'
                   }`}
                 >
-                  {analysisResult.status === 'optimal'
-                    ? 'Parâmetros Otimizados'
-                    : analysisResult.status === 'warning'
-                    ? 'Atenção Necessária'
-                    : 'Risco de Falha Mecânica'}
+                  {analysisResult.status === 'clear'
+                    ? 'Sem avisos nesta verificação'
+                    : 'Atenção Necessária'}
                 </span>
               </div>
 
-              {/* Status Metrics Strip */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Chip Load</span>
-                  <span className="text-sm font-bold text-slate-900 font-mono">
-                    {analysisResult.chipLoadMm.toFixed(3)} mm
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Passes Z</span>
-                  <span className="text-sm font-bold text-slate-900 font-mono">
-                    {analysisResult.passesCalculated} passes
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Risco Térmico</span>
-                  <span className="text-xs font-semibold text-slate-800">
-                    {analysisResult.burnRisk.includes('ALTO') ? '⚠️ Queima Prevista' : '✅ Seguro'}
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Integridade</span>
-                  <span className="text-xs font-semibold text-slate-800">
-                    {analysisResult.bitBreakageRisk.includes('ELEVADO') ? '⚠️ Carga Alta' : '✅ Sob Controle'}
-                  </span>
-                </div>
-              </div>
+              <p className="text-xs text-slate-600">{analysisResult.motionCount} comandos de movimento identificados. Esta verificação não certifica o percurso.</p>
 
               {/* Insights List */}
               <div className="space-y-1.5 text-xs text-slate-600">
@@ -793,25 +453,18 @@ M30`
                 <Code2 className="w-4 h-4 text-slate-700" />
                 Editor de Código G (Trajetória CNC)
               </h3>
-              <span className="text-[10px] text-slate-400 font-mono">Pós-Processador: {postProcessor.toUpperCase()}</span>
+              <span className="text-[10px] text-slate-400 font-mono">Arquivo original, sem conversão</span>
             </div>
 
             <textarea
               rows={8}
               value={rawGcode}
-              onChange={e => setRawGcode(e.target.value)}
+              onChange={e => { setRawGcode(e.target.value); setAnalysisResult(null); setDiagnosticError(null); setPlaybackProgress(0); setIsPlaying(false); }}
+              placeholder="Cole aqui o G-code gerado para a máquina cadastrada."
               className="w-full p-3.5 bg-slate-900 text-amber-300 font-mono text-xs rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 leading-relaxed"
             />
 
-            <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1">
-              <span>Linhas com comandos de avanço F e rotação S calibradas automaticamente</span>
-              <button
-                onClick={() => setRawGcode(analysisResult?.optimizedGcode || rawGcode)}
-                className="text-amber-600 hover:text-amber-700 font-bold cursor-pointer"
-              >
-                Aplicar Otimizações no Editor
-              </button>
-            </div>
+            <p className="text-[11px] text-slate-500">Editar o código limpa o diagnóstico anterior; Baixar entrega exatamente o conteúdo deste editor.</p>
           </div>
         </div>
       </div>

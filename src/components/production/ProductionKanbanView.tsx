@@ -16,9 +16,9 @@ import {
 interface ProductionKanbanViewProps {
   productionOrders: ProductionOrder[];
   inventory: ProductInventory[];
-  onUpdateOrderStatus: (orderId: string, newStatus: ProductionOrder['status']) => void;
-  onCreateProductionOrder: (order: Partial<ProductionOrder>) => void;
-  onUpdateScannedQty: (orderId: string, qty: number) => void;
+  onUpdateOrderStatus: (orderId: string, newStatus: ProductionOrder['status']) => void | Promise<void>;
+  onCreateProductionOrder: (order: Partial<ProductionOrder>) => void | Promise<void>;
+  onUpdateScannedQty: (orderId: string, qty: number) => Promise<number>;
   onDeleteOrder?: (orderId: string) => void;
 }
 
@@ -32,7 +32,24 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'kanban' | 'barcode-scanner' | 'auto-op'>('kanban');
   const [barcodeInput, setBarcodeInput] = useState<string>('');
+  const scanBusy = React.useRef(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const opRequests = React.useRef(new Map<string, string>());
+  const opBusy = React.useRef(new Set<string>());
+  const createOp = async (order: Partial<ProductionOrder>) => {
+    const sku = order.sku || '';
+    if (opBusy.current.has(sku)) return;
+    opBusy.current.add(sku);
+    try {
+      if (!opRequests.current.has(sku)) opRequests.current.set(sku, `op-${crypto.randomUUID()}`);
+      await onCreateProductionOrder({ ...order, id: opRequests.current.get(sku) });
+      opRequests.current.delete(sku);
+      setScanMessage({ text: 'OP criada e reserva confirmada.', type: 'success' });
+    } catch (error) { setScanMessage({ text: error instanceof Error ? error.message : 'Não foi possível criar a OP.', type: 'error' }); }
+    finally { opBusy.current.delete(sku); }
+  };
 
   const kanbanColumns: ProductionOrder['status'][] = [
     'Aguardando Corte',
@@ -69,9 +86,9 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
     }
   };
 
-  const handleBarcodeSubmit = (e: React.FormEvent) => {
+  const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcodeInput) return;
+    if (!barcodeInput || scanBusy.current) return;
     const cleanSku = barcodeInput.trim().toUpperCase();
 
     const activeOrder = productionOrders.find(
@@ -79,17 +96,16 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
     );
 
     if (activeOrder) {
-      const newScanned = (activeOrder.scannedQuantity || 0) + 1;
-      onUpdateScannedQty(activeOrder.id, newScanned);
-      playBeep(true);
-      setScanMessage({
-        text: `Item bipado com sucesso! ${activeOrder.productName} (${newScanned} de ${activeOrder.quantityRequested} conferidos)`,
-        type: 'success'
-      });
-
-      if (newScanned >= activeOrder.quantityRequested) {
-        onUpdateOrderStatus(activeOrder.id, 'Pronto/Embalado');
-      }
+      scanBusy.current = true; setIsScanning(true); setScanMessage(null);
+      try {
+        const newScanned = await onUpdateScannedQty(activeOrder.id, (activeOrder.scannedQuantity || 0) + 1);
+        playBeep(true);
+        setScanMessage({ text: `Item conferido: ${activeOrder.productName} (${newScanned} de ${activeOrder.quantityRequested})${newScanned === activeOrder.quantityRequested ? ' — OP concluída.' : ''}`, type: 'success' });
+        setBarcodeInput('');
+      } catch (error) {
+        playBeep(false);
+        setScanMessage({ text: error instanceof Error ? error.message : 'Não foi possível registrar a conferência.', type: 'error' });
+      } finally { scanBusy.current = false; setIsScanning(false); }
     } else {
       playBeep(false);
       setScanMessage({
@@ -98,11 +114,11 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
       });
     }
 
-    setBarcodeInput('');
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden">
+      {activeTab !== 'barcode-scanner' && scanMessage && <p role="status" className="px-6 py-3 text-sm">{scanMessage.text}</p>}
       {/* Top Banner */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-6 py-4 z-10">
         <div className="flex items-center gap-3">
@@ -277,10 +293,12 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
                 </div>
               </div>
 
-              <form onSubmit={handleBarcodeSubmit} className="space-y-3">
+              <form aria-busy={isScanning} onSubmit={handleBarcodeSubmit} className="space-y-3">
                 <div className="relative">
                   <input
                     type="text"
+                    aria-label="SKU para conferência"
+                    disabled={isScanning}
                     value={barcodeInput}
                     onChange={e => setBarcodeInput(e.target.value)}
                     placeholder="Bipe o código de barras ou digite o SKU (Ex: SKU-CX-001)..."
@@ -289,6 +307,7 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
                   />
                   <button
                     type="submit"
+                    disabled={isScanning}
                     className="absolute right-2 top-2 px-4 py-1.5 bg-amber-500 text-white font-bold text-xs rounded-lg hover:bg-amber-600 transition"
                   >
                     Bipar
@@ -314,25 +333,16 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
               )}
 
               <div className="pt-2 border-t border-slate-100">
-                <span className="text-[11px] text-slate-500 block mb-2">Simulação Rápida de Bip:</span>
+                <span className="text-[11px] text-slate-500 block mb-2">Selecionar SKU pendente:</span>
                 <div className="flex flex-wrap gap-2">
-                  {['SKU-CX-001', 'SKU-TR-003', 'SKU-LM-004', 'SKU-PC-002'].map(sku => (
+                  {Array.from(new Set(productionOrders.filter(order => order.status !== 'Pronto/Embalado').map(order => order.sku))).map(sku => (
                     <button
                       key={sku}
-                      onClick={() => {
-                        setBarcodeInput(sku);
-                        setTimeout(() => {
-                          const active = productionOrders.find(o => o.sku === sku && o.status !== 'Pronto/Embalado');
-                          if (active) {
-                            onUpdateScannedQty(active.id, (active.scannedQuantity || 0) + 1);
-                            playBeep(true);
-                            setScanMessage({ text: `Bip registrado com sucesso: ${sku}`, type: 'success' });
-                          }
-                        }, 50);
-                      }}
+                      disabled={isScanning}
+                      onClick={() => setBarcodeInput(sku)}
                       className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-mono font-semibold rounded-lg border border-slate-200 transition"
                     >
-                      Bipar {sku}
+                      Selecionar {sku}
                     </button>
                   ))}
                 </div>
@@ -401,14 +411,13 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
                         {sizing.recommendedBatch > 0 && (
                           <button
                             onClick={() => {
-                              onCreateProductionOrder({
+                              void createOp({
                                 sku: prod.sku,
                                 productName: prod.name,
                                 quantityRequested: sizing.recommendedBatch,
                                 quantityIdealCalculated: sizing.recommendedBatch,
                                 status: 'Aguardando Corte',
                                 priority: hasDeficit ? 'Urgente' : 'Normal',
-                                materialName: 'MDF Cru 3,0 mm',
                                 laserTimeEstimatedMin: Math.round((prod.estimatedLaserTimeSeconds * sizing.recommendedBatch) / 60)
                               });
                             }}

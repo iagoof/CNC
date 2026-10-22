@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import {
-  regressionTestRunner,
-  RegressionTestResult
-} from '../../services/telemetry';
+import { regressionTestRunner } from '../../services/telemetry/regressionTests';
+import type { RegressionTestResult } from '../../services/telemetry/types';
 import {
   CheckCircle2,
   XCircle,

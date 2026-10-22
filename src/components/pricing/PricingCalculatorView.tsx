@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Material, Machine, FixedCost, TaxConfig } from '../../types';
+import { Material, Machine, FixedCost, TaxConfig, UF } from '../../types';
 import {
   calcMaterialM2Cost,
   calcMachineCostRates,
+  isMachineCostConfigured,
   calcLaserCutTimeAndCost,
   calcFixedCostMarkupPercentage,
   calcSalePriceMarkupDivisor
@@ -21,6 +22,7 @@ interface PricingCalculatorViewProps {
   fixedCosts: FixedCost[];
   monthlyRevenueTarget: number;
   taxes: TaxConfig[];
+  uf: UF;
 }
 
 export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
@@ -28,15 +30,16 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
   machines,
   fixedCosts,
   monthlyRevenueTarget,
-  taxes
+  taxes,
+  uf
 }) => {
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>(materials[0]?.id || '');
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id || '');
-  const [partWidthMm, setPartWidthMm] = useState<number>(200);
-  const [partHeightMm, setPartHeightMm] = useState<number>(150);
-  const [cutLengthMm, setCutLengthMm] = useState<number>(1200);
-  const [engraveAreaCm2, setEngraveAreaCm2] = useState<number>(15);
-  const [additionalSuppliesCost, setAdditionalSuppliesCost] = useState<number>(3.50);
+  const [partWidthMm, setPartWidthMm] = useState<number>(0);
+  const [partHeightMm, setPartHeightMm] = useState<number>(0);
+  const [cutLengthMm, setCutLengthMm] = useState<number>(0);
+  const [engraveAreaCm2, setEngraveAreaCm2] = useState<number>(0);
+  const [additionalSuppliesCost, setAdditionalSuppliesCost] = useState<number>(0);
   const [desiredProfitMargin, setDesiredProfitMargin] = useState<number>(30);
   const [marketplaceFeePct, setMarketplaceFeePct] = useState<number>(0);
 
@@ -52,18 +55,17 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
   }, [taxes]);
 
   const directCostAnalysis = useMemo(() => {
-    if (!selectedMaterial || !selectedMachine) return null;
+    if (!selectedMaterial || !selectedMachine || !isMachineCostConfigured(selectedMachine)
+      || ![partWidthMm, partHeightMm].every(value => Number.isFinite(value) && value > 0)
+      || ![cutLengthMm, engraveAreaCm2, additionalSuppliesCost].every(value => Number.isFinite(value) && value >= 0)) return null;
+    const speedConfig = selectedMaterial.speedsByMachine.find(s => s.machineId === selectedMachine.id);
+    if (!speedConfig || ![speedConfig.cutSpeed_mms, speedConfig.engraveSpeed_mms, speedConfig.lineInterval_mm].every(value => Number.isFinite(value) && value > 0)) return null;
 
     const { costPerM2 } = calcMaterialM2Cost(selectedMaterial);
     const pieceAreaM2 = (partWidthMm * partHeightMm) / 1_000_000;
     const materialCost = pieceAreaM2 * costPerM2;
 
-    const rates = calcMachineCostRates(selectedMachine, 'MG');
-    const speedConfig = selectedMaterial.speedsByMachine.find(s => s.machineId === selectedMachine.id) || {
-      cutSpeed_mms: 20,
-      engraveSpeed_mms: 250,
-      lineInterval_mm: 0.08
-    };
+    const rates = calcMachineCostRates(selectedMachine, uf);
 
     const laserOperation = calcLaserCutTimeAndCost(
       cutLengthMm,
@@ -84,10 +86,12 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
       totalDirect,
       rates
     };
-  }, [selectedMaterial, selectedMachine, partWidthMm, partHeightMm, cutLengthMm, engraveAreaCm2, additionalSuppliesCost]);
+  }, [selectedMaterial, selectedMachine, partWidthMm, partHeightMm, cutLengthMm, engraveAreaCm2, additionalSuppliesCost, uf]);
 
   const pricingResult = useMemo(() => {
-    if (!directCostAnalysis) return null;
+    if (!directCostAnalysis || !Number.isFinite(monthlyRevenueTarget) || monthlyRevenueTarget <= 0
+      || fixedCosts.some(cost => !Number.isFinite(cost.amount) || cost.amount < 0)
+      || taxes.some(tax => tax.active && (!Number.isFinite(tax.percentage) || tax.percentage < 0 || tax.percentage >= 100))) return null;
 
     return calcSalePriceMarkupDivisor({
       directCost: directCostAnalysis.totalDirect,
@@ -96,7 +100,7 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
       extraTaxPct: marketplaceFeePct,
       desiredProfitMarginPct: desiredProfitMargin
     });
-  }, [directCostAnalysis, fixedCostAnalysis, activeTaxPct, marketplaceFeePct, desiredProfitMargin]);
+  }, [directCostAnalysis, fixedCostAnalysis, activeTaxPct, marketplaceFeePct, desiredProfitMargin, monthlyRevenueTarget, fixedCosts, taxes]);
 
   const naiveMultiplierPrice = directCostAnalysis ? directCostAnalysis.totalDirect * 2 : 0;
   const naiveProfit = pricingResult && directCostAnalysis
@@ -293,6 +297,7 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
 
         {/* Right Column: Pricing Result */}
         <div className="lg:col-span-7 space-y-5">
+          {!pricingResult && <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">Informe as medidas da peça e a meta mensal. Configure depreciação, horas da máquina, velocidades e intervalo de gravação do material para calcular um preço confiável.</p>}
           {pricingResult && directCostAnalysis && (
             <div
               className={`border rounded-2xl p-6 shadow-sm transition ${

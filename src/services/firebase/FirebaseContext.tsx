@@ -19,6 +19,8 @@ import {
   deleteProjectFromFirestore,
   subscribeToCompanySettings,
   saveCompanySettingsToFirestore,
+  subscribeToFinancialSettings,
+  saveFinancialSettingsToFirestore,
   subscribeToProducts,
   saveProductToFirestore,
   adjustProductStockInFirestore,
@@ -32,9 +34,11 @@ import {
   saveMachineToFirestore,
   deleteMachineFromFirestore,
   FirestoreProject,
-  FirestoreCompanySettings
+  FirestoreCompanySettings,
+  FirestoreFinancialSettings
 } from './firebase';
 import { ProductionOrder, Material, Quote, ProductInventory, SalesOrder, Machine } from '../../types';
+import type { FinancialSettingsInput } from '../../utils/financialSettings';
 import type { PricingContext } from '../../utils/quoteEngine';
 
 interface FirebaseContextType {
@@ -57,16 +61,18 @@ interface FirebaseContextType {
   deleteProjectMutation: (projectId: string) => Promise<void>;
   companySettings: FirestoreCompanySettings | null;
   syncCompanySettingsMutation: (settings: Partial<FirestoreCompanySettings> & { tradeName: string }) => Promise<void>;
-  products: ProductInventory[];
+  financialSettings: FirestoreFinancialSettings | null;
+  syncFinancialSettingsMutation: (settings: FinancialSettingsInput) => Promise<void>;
+  products: ProductInventory[] | null;
   syncProductMutation: (product: ProductInventory, createOnly?: boolean) => Promise<void>;
   adjustStockMutation: (sku: string, delta: number) => Promise<void>;
   deleteProductMutation: (sku: string) => Promise<void>;
-  salesOrders: SalesOrder[];
+  salesOrders: SalesOrder[] | null;
   syncSalesOrderMutation: (order: SalesOrder) => Promise<void>;
   createCatalogOrderMutation: (order: SalesOrder) => Promise<void>;
   convertQuoteMutation: (quote: Quote, context: PricingContext) => Promise<void>;
   deleteSalesOrderMutation: (orderId: string) => Promise<void>;
-  machines: Machine[];
+  machines: Machine[] | null;
   syncMachineMutation: (machine: Machine) => Promise<void>;
   deleteMachineMutation: (machineId: string) => Promise<void>;
 }
@@ -81,9 +87,10 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const reportError = () => setSyncError('Não foi possível sincronizar com a nuvem. Os dados locais foram mantidos. Verifique a conexão e as permissões antes de continuar.');
   const [projects, setProjects] = useState<FirestoreProject[]>([]);
   const [companySettings, setCompanySettings] = useState<FirestoreCompanySettings | null>(null);
-  const [products, setProducts] = useState<ProductInventory[]>([]);
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
-  const [machines, setMachines] = useState<Machine[]>([]);
+  const [financialSettings, setFinancialSettings] = useState<FirestoreFinancialSettings | null>(null);
+  const [products, setProducts] = useState<ProductInventory[] | null>(null);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[] | null>(null);
+  const [machines, setMachines] = useState<Machine[] | null>(null);
 
   const isAdmin = user?.email === 'iagoofss@gmail.com';
 
@@ -95,6 +102,11 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     // Autenticação não cria dados comerciais nem configurações de exemplo.
     const unsubscribe = onAuthStateChanged(auth, currentUser => {
+      setProducts(null);
+      setSalesOrders(null);
+      setMachines(null);
+      setCompanySettings(null);
+      setFinancialSettings(null);
       setUser(currentUser);
       setIsLoading(false);
     });
@@ -107,9 +119,10 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     if (!user) {
       setProjects([]);
       setCompanySettings(null);
-      setProducts([]);
-      setSalesOrders([]);
-      setMachines([]);
+      setFinancialSettings(null);
+      setProducts(null);
+      setSalesOrders(null);
+      setMachines(null);
       return;
     }
 
@@ -128,6 +141,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       },
       err => console.warn('Aviso ao sincronizar configurações da empresa do Firestore:', err)
     );
+    const unsubFinancialSettings = subscribeToFinancialSettings(user.uid, setFinancialSettings, err => console.warn('Falha ao carregar configurações financeiras:', err));
 
     const unsubProducts = subscribeToProducts(
       user.uid,
@@ -156,6 +170,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => {
       unsubProjects();
       unsubSettings();
+      unsubFinancialSettings();
       unsubProducts();
       unsubSalesOrders();
       unsubMachines();
@@ -229,7 +244,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const deleteMaterialMutation = async (materialId: string) => {
     if (!user) return;
     try {
-      await deleteMaterialFromFirestore(materialId);
+      await deleteMaterialFromFirestore(materialId, user.uid);
     } catch (err) {
       console.warn('Erro ao excluir material no Firestore:', err);
       reportError();
@@ -251,7 +266,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const deleteQuoteMutation = async (quoteId: string) => {
     if (!user) return;
     try {
-      await deleteQuoteFromFirestore(quoteId);
+      await deleteQuoteFromFirestore(quoteId, user.uid);
     } catch (err) {
       console.warn('Erro ao excluir orçamento no Firestore:', err);
       reportError();
@@ -260,7 +275,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const syncProjectMutation = async (project: FirestoreProject) => {
-    if (!user) return;
+    if (!user) throw new Error('Conecte sua conta para salvar projetos.');
     try {
       await saveProjectToFirestore(project, user.uid);
     } catch (err) {
@@ -271,9 +286,9 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const deleteProjectMutation = async (projectId: string) => {
-    if (!user) return;
+    if (!user) throw new Error('Conecte sua conta para excluir projetos.');
     try {
-      await deleteProjectFromFirestore(projectId);
+      await deleteProjectFromFirestore(projectId, user.uid);
     } catch (err) {
       console.warn('Erro ao excluir projeto no Firestore:', err);
       reportError();
@@ -290,6 +305,12 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
       reportError();
       throw err;
     }
+  };
+
+  const syncFinancialSettingsMutation = async (settings: FinancialSettingsInput) => {
+    if (!user) throw new Error('Entre na sua conta para salvar parâmetros financeiros.');
+    try { await saveFinancialSettingsToFirestore(settings, user.uid); }
+    catch (err) { reportError(); throw err; }
   };
 
   const syncProductMutation = async (product: ProductInventory, createOnly = false) => {
@@ -367,7 +388,7 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
   const deleteMachineMutation = async (machineId: string) => {
     if (!user) return;
     try {
-      await deleteMachineFromFirestore(machineId);
+      await deleteMachineFromFirestore(machineId, user.uid);
     } catch (err) {
       console.warn('Erro ao excluir máquina no Firestore:', err);
       reportError();
@@ -397,6 +418,8 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         deleteProjectMutation,
         companySettings,
         syncCompanySettingsMutation,
+        financialSettings,
+        syncFinancialSettingsMutation,
         products,
         syncProductMutation,
         adjustStockMutation,

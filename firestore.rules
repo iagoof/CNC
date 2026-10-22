@@ -63,18 +63,21 @@ service cloud.firestore {
         (!('engraveAreaCm2' in data) || (data.engraveAreaCm2 is number && data.engraveAreaCm2 >= 0)) &&
         (!('materialCategory' in data) || (data.materialCategory is string && data.materialCategory.size() <= 64)) &&
         (!('recommendedThicknessMm' in data) || (data.recommendedThicknessMm is number && data.recommendedThicknessMm >= 0)) &&
-        (!('source' in data) || (data.source in ['ai_prompt', 'image_trace', 'parametric_box', 'catalog']));
+        (!('source' in data) || (data.source in ['ai_prompt', 'image_trace', 'parametric_box', 'catalog', 'local_vector']));
     }
 
     function isValidOrder(data) {
       return data.keys().hasAll(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'status', 'priority', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'status', 'priority', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'scannedQuantity', 'dueDate', 'assignedTo', 'notes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'orderNumber', 'ownerId', 'sku', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'status', 'priority', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'scannedQuantity', 'dueDate', 'assignedTo', 'notes', 'inventoryMode', 'inventoryProductId', 'inventoryReservedQuantity', 'createdAt', 'updatedAt']) &&
         data.id is string && isValidId(data.id) &&
         data.ownerId is string && isValidId(data.ownerId) &&
         data.orderNumber is string && data.orderNumber.size() <= 32 &&
         data.sku is string && data.sku.size() <= 64 &&
         data.productName is string && data.productName.size() <= 128 &&
-        data.quantityRequested is number && data.quantityRequested > 0 &&
+        data.quantityRequested is int && data.quantityRequested > 0 &&
+        (!('inventoryProductId' in data) || (data.inventoryProductId is string && isValidProductId(data.inventoryProductId) && data.inventoryReservedQuantity is int && data.inventoryReservedQuantity == data.quantityRequested)) &&
+        (!('inventoryReservedQuantity' in data) || ('inventoryProductId' in data)) &&
+        (!('inventoryMode' in data) || (data.inventoryMode == 'custom' && data.sku.matches('^CUSTOM-.*') && !('inventoryProductId' in data))) &&
         data.status in ['Aguardando Corte', 'Cortando na Laser', 'Acabamento/Pintura', 'Montagem', 'Pronto/Embalado'] &&
         data.priority in ['Baixa', 'Normal', 'Alta', 'Urgente'] &&
         (!('quantityIdealCalculated' in data) || (data.quantityIdealCalculated is number && data.quantityIdealCalculated >= 0)) &&
@@ -135,6 +138,15 @@ service cloud.firestore {
         (!('uf' in data) || (data.uf is string && data.uf.size() <= 2)) &&
         (!('cemigRateKwh' in data) || (data.cemigRateKwh is number && data.cemigRateKwh >= 0)) &&
         (!('monthlyWorkHours' in data) || (data.monthlyWorkHours is number && data.monthlyWorkHours >= 0));
+    }
+
+    function isValidFinancialSettings(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'monthlyRevenueTarget', 'fixedCosts', 'taxes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'ownerId', 'monthlyRevenueTarget', 'fixedCosts', 'taxes', 'createdAt', 'updatedAt']) &&
+        data.id is string && isValidId(data.id) && data.ownerId is string && isValidId(data.ownerId) &&
+        data.monthlyRevenueTarget is number && data.monthlyRevenueTarget >= 0 &&
+        data.fixedCosts is list && data.fixedCosts.size() <= 100 &&
+        data.taxes is list && data.taxes.size() <= 100;
     }
 
     function isValidProduct(data) {
@@ -302,7 +314,7 @@ service cloud.firestore {
             ])
           )
         );
-      allow delete: if isVerified() && isValidId(quoteId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow delete: if isVerified() && isValidId(quoteId) && resource.data.ownerId == request.auth.uid && resource.data.status != 'Convertido em Pedido';
     }
 
     // SETTINGS COLLECTION
@@ -320,6 +332,19 @@ service cloud.firestore {
           'tradeName', 'name', 'ie', 'address', 'cep', 'phone', 'email', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
         ]));
       allow delete: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /financial_settings/{settingsId} {
+      allow get: if isVerified() && request.auth.uid == settingsId;
+      allow list: if false;
+      allow create: if isVerified() && request.auth.uid == settingsId && isValidFinancialSettings(incoming()) &&
+        incoming().id == settingsId && incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isVerified() && request.auth.uid == settingsId && isValidFinancialSettings(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['monthlyRevenueTarget', 'fixedCosts', 'taxes', 'updatedAt']);
+      allow delete: if false;
     }
 
     // PRODUCTS COLLECTION

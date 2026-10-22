@@ -141,7 +141,7 @@ class DeploymentEngine {
     // Regras de Rollback Automático:
     // 1. Health Score cair abaixo de 70
     // 2. Taxa de erro dos subsistemas exceder 15%
-    const isDegraded = health.healthScore < 70 || health.systemMetrics.errorRateLast5Min > 15;
+    const isDegraded = health.healthScore < 70 || (health.systemMetrics.errorRateLast5Min ?? 0) > 15;
 
     if (isDegraded && !this.isAutoRollbackRunning) {
       const reason = `Degradação crítica detectada: Health Score atingiu ${health.healthScore}/100 e taxa de erro em ${health.systemMetrics.errorRateLast5Min}%. Limite de segurança violado.`;

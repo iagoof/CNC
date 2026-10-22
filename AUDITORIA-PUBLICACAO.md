@@ -5,6 +5,100 @@
 
 ## Atualização da revisão
 
+### Painel financeiro sem custo e receita presumidos — 22/10/2026
+
+- A receita do mês considera somente pedidos marcados como pagos com `paidAt` válido no mês atual. Pedidos pagos de meses anteriores deixam de inflar o ritmo e a meta. Sem meta configurada, o painel mostra uma instrução em vez de tratar divisão por 1 como percentual válido.
+- O custo direto não usa mais 38% do preço quando o SKU não possui custo cadastrado. O saldo operacional fica indisponível até que todos os itens pagos do mês tenham custo positivo; valores negativos deixaram de ser truncados para zero. Cidade fixa, regime tributário presumido, máquinas "calibradas" e integração automática dos canais foram removidos dos textos do painel.
+- Em `tests/dashboard-finance.html`, dois pedidos pagos de R$ 100 em meses diferentes resultaram em R$ 100 recebidos neste mês; a meta apareceu como não configurada e o saldo como indisponível por falta do custo do SKU. TypeScript e build passaram. O cenário não verifica liquidação por provedor de pagamento nem dados reais.
+
+### Diagnóstico CAM sem programa demonstrativo — 22/10/2026
+
+- A página deixou de iniciar com G-code, diagnóstico, otimização, tempos e riscos de exemplo. O editor começa vazio; verificação, download e simulação exigem um programa fornecido pelo operador ou recebido do estúdio.
+- O botão de verificação analisa sinais básicos do texto (G21/G90, M05, avanço e movimentos) sem reescrever o programa. A edição invalida o diagnóstico anterior, e Baixar entrega o conteúdo atual do editor. Foram retirados presets e escolhas de pós-processador que não convertiam o arquivo. A prévia 2D é bloqueada para G20, G91 e arcos G02/G03, que o desenhador não interpreta corretamente.
+- No cenário isolado `tests/cam-diagnostic.html`, a página vazia mostrou os três controles indisponíveis; um programa G21/G90 com dois movimentos produziu um diagnóstico limitado; G20/G91/G02 exibiu avisos e deixou a simulação indisponível. TypeScript, build e 52 testes locais passaram. Isto não homologa o controlador físico.
+- A exportação do editor agora requer a verificação local sem avisos, e qualquer edição volta a bloquear o download até nova verificação. A prévia também exige G21/G90. No navegador isolado, G20/G91/G02 manteve download e simulação bloqueados; G21/G90 com dois movimentos liberou ambos; a edição seguinte bloqueou novamente o download. Essa barreira cobre apenas os sinais verificados e não certifica que o G-code seja seguro para execução.
+
+### Estúdio 3D e transferência de desenho — 22/10/2026
+
+- A transferência do Estúdio Vetorial leva o SVG e a espessura informada ao Estúdio 3D. A extrusão usa os contornos reais do arquivo, incluindo furos; um SVG inválido exibe erro. Projetos abertos da nuvem seguem o mesmo caminho.
+- SVG, DXF, nesting e salvamento exigem um desenho vetorial existente. A prévia vazia não desenha mais uma peça de exemplo, e uma falha do gerador local não cria um SVG fictício. O salvamento calcula medidas e comprimento de corte do arquivo antes de gravar.
+- TypeScript, build Vite e 11 testes locais passaram nesta etapa. A interação completa SVG → 3D ainda precisa de teste no navegador; STL e fabricação física precisam de validação geométrica e com a máquina. A nova origem `local_vector` depende das regras Firestore atualizadas, ainda não publicadas.
+- Gravação e exclusão de projetos passaram a conferir o proprietário dentro da transação Firestore. As duas telas de estúdio aguardam a exclusão, impedem tentativas paralelas e mostram falha se o servidor recusar. TypeScript e build passaram após a mudança. Falta testar estas transações no emulador e com duas contas de homologação.
+- O Estúdio Vetorial usa UUID ao criar um novo projeto na nuvem, recalcula métricas do SVG antes de salvar e conserva a origem de projetos já salvos. Não reclassifica todo arquivo como `ai_prompt`. Nesta rodada, 52 testes locais, TypeScript e build passaram; o teste de regras Firestore segue pendente.
+- O Estúdio Vetorial agora mostra um estado vazio até a pessoa gerar, abrir ou selecionar um desenho; a galeria recolhida não carrega um exemplo implicitamente na área de trabalho. Exemplos locais são rotulados como inspiração, e a contagem exibida vem dos elementos do SVG. TypeScript e build passaram. A navegação comum ficou bloqueada corretamente por ausência de máquina/material cadastrados. Em `tests/studio-empty.html`, o componente isolado mostrou "Nenhum desenho aberto" e galeria fechada; ao abrir a galeria e clicar em Carregar, o desenho, métricas e ações apareceram. O cenário não gravou no Firestore.
+- O envio ao orçamento só confirma sucesso quando existe callback e SVG com contornos de corte válidos; dimensões e percursos são recalculados. A exportação STL constrói o sólido a partir do SVG no clique, inclusive quando a aba 2D está aberta. No cenário isolado, o botão produziu `modelo_3d_100x100mm.stl` de 138.955 bytes, com facetas STL, a partir do exemplo escolhido. Isto comprova o download local, não a adequação à fabricação.
+
+### Configurações financeiras e perfil em nuvem — 22/10/2026
+
+- Criada uma configuração financeira da conta com meta mensal, despesas e alíquotas. A tela mantém um rascunho conjunto e envia os três conjuntos em uma transação; Cancelar descarta mudanças. O cliente valida valores, categorias, períodos, regimes, IDs e limites. Regras locais restringem o documento ao UID autenticado e validam a estrutura básica.
+- No navegador local, uma despesa de teste ficou marcada como não salva; a tentativa sem login mostrou erro e preservou o rascunho. Cancelar restaurou o total para zero. Dois testes de validação passaram. O teste das regras está escrito, mas não executado porque Firebase CLI e emulador continuam indisponíveis.
+- O perfil da oficina passou a usar rascunho e Salvar, incluindo razão social, inscrição estadual, endereço, CEP, telefone e e-mail no documento Firestore. A gravação confere o proprietário em transação; a leitura aplica todos esses campos. Uma assinatura de outra conta não é aplicada ao estado local.
+- O perfil demonstrativo antigo, incluindo CNPJ e contato fictícios, é removido do cache apenas quando os nove campos comerciais coincidem com o conjunto inicial conhecido. No navegador local, os campos ficaram vazios após a migração. Nenhum perfil editado foi deliberadamente apagado.
+- TypeScript, build e 14 testes locais passaram. A nova coleção `financial_settings` depende de publicar as regras, e o comportamento remoto ainda não foi validado. Sem login e sem homologação Firestore, esta implementação não comprova sincronização real em produção.
+
+### Parâmetros financeiros e planos simulados — 22/10/2026
+
+- A aba de planos comerciais simulados e o selo de plano da navegação foram removidos. Não há cobrança, créditos de IA, NF-e ou marketplace vinculados a esses cartões, portanto não podem aparecer como benefícios contratados.
+- Novas contas não recebem despesas, impostos, meta de R$ 35 mil nem cidade de exemplo. Versões antigas que mantiveram exatamente o conjunto demonstrativo de despesas e alíquotas são migradas para listas vazias; alterações individuais não são apagadas. No navegador local, a lista de despesas passou dos sete exemplos para vazia e a meta passou a zero. A lista de alíquotas também ficou vazia.
+- Os botões Adicionar Despesa e Adicionar alíquota abrem formulários com descrição, valor e período/regime reais. Nome, regime e percentual de alíquotas existentes podem ser editados e o registro pode ser removido. O formulário de alíquota foi aberto no navegador sem gravar dados.
+- A formação de preço requer meta mensal positiva. Orçamentos já recusavam essa ausência; agora também recusam custos fixos negativos e alíquotas ativas inválidas. TypeScript, build e os testes de orçamento passaram. Configurações financeiras permanecem locais e exigem persistência central e testes de conta para lançamento.
+
+### Edição de máquinas e materiais — 22/10/2026
+
+- Os campos existentes passam a editar um rascunho local. Salvar envia apenas o registro alterado e aguarda a mutação; Cancelar descarta o rascunho; erro mantém os dados para nova tentativa. Ao trocar de conta, os rascunhos são descartados. A leitura Firestore preserva zeros reais em vez de substituí-los por valores de exemplo.
+- Depreciação e manutenção mensal ficaram editáveis na máquina. Enquanto faltam depreciação ou horas mensais, o cadastro mostra custo por hora indisponível, sem exibir um cálculo baseado em 5 anos e 160 horas presumidos. O consumo zerado permanece permitido como valor explícito e precisa ser revisado pelo operador.
+- A formação de preço deixou de usar velocidades de corte e gravação fictícias, dimensões de peça pré-preenchidas e UF fixa em MG. Sem os parâmetros necessários, mostra uma instrução e não calcula preço. Orçamentos recusam máquina sem depreciação ou horas; um teste novo cobre o bloqueio.
+- TypeScript, build e 12 testes de orçamento/conversão passaram. O editor com registro real e as transações Firestore continuam pendentes de teste de integração. Outras superfícies de custos e os dados da empresa ainda exigem revisão.
+
+### Exclusão de cadastros técnicos — 22/10/2026
+
+- Excluir máquina agora chama a operação Firestore. Máquina e material permanecem na tela até a confirmação do snapshot; falhas aparecem no próprio cadastro e bloqueiam exclusões paralelas enquanto uma está pendente. Foi removida a restrição artificial que impedia excluir o último cadastro.
+- Gravação e exclusão desses documentos passaram a conferir o proprietário dentro de uma transação. Novos IDs de máquina e material usam UUID, evitando colisões de criação por horário. TypeScript e build passaram.
+- A criação de máquina e material agora abre formulários de dados mínimos reais. Não grava modelos, velocidades, consumos, custos ou medidas inventados; aguarda a mutação antes de fechar e mostra falha sem anunciar sucesso. O formulário de máquina foi aberto no navegador local e os campos necessários estavam presentes. Edições de cadastros existentes ainda salvam a cada alteração, com confirmação insuficiente de erro.
+- Ambos os formulários foram abertos no navegador local. Navegação e títulos do Estúdio Vetorial e Diagnóstico CAM deixaram de prometer IA externa onde o processamento é local. TypeScript, build e os quatro testes do traçado passaram após esses ajustes.
+- Ainda falta testar as transações e regras no emulador e na conta de homologação. Nenhum cadastro real foi criado durante esta verificação.
+
+### Studio: traçado de imagem e modelo local — 22/10/2026
+
+- Foto/croqui passa por leitura real de pixels, redução a no máximo 384 px por lado e extração de contornos fechados. O SVG usa esses contornos como camada de corte, na largura informada pelo usuário; o retângulo, furos, elipse e texto antes inventados foram removidos. Imagens sem silhueta ou com contornos ambíguos são recusadas.
+- A interface deixou de prometer Gemini para o gerador local. Exibe revisão técnica necessária antes de fabricar. O texto técnico é ampliado localmente, sem chamada de IA. O envio para orçamento cria um rascunho a completar.
+- Quatro testes do traçado passaram (furo, contato diagonal, transparência/contraste e ausência de silhueta), assim como TypeScript e build. O traçado não interpreta profundidade, gravação nem detalhes internos da foto; sua adequação para corte precisa de inspeção humana e teste na máquina.
+- O usuário informou Google Cloud free e `https://cnc-app.ai.studio/` como hospedagem. Não confirmou provedores de cobrança, NF-e ou marketplaces. A build local e as regras alteradas não foram publicadas no domínio. O domínio ainda mostrava a interface antiga na checagem desta data.
+
+### Diagnóstico local sem indicadores simulados — 22/10/2026
+
+- A página de observabilidade foi simplificada para verificações do navegador e logs desta sessão. Foram retirados os controles de deploy e rollback simulados, as abas que injetavam métricas e alertas de exemplo, o selo de disponibilidade de 99,9%, a versão fictícia de produção e a pontuação global sem telemetria de servidor.
+- O verificador deixou de anunciar a IA como saudável sem chamar um endpoint. Ele indica integração não verificada. Os testes aritmético e de reconhecimento de comando são descritos como verificações locais limitadas; os contadores de cache vêm das instâncias desta sessão. Memória, taxa de erros e traces desconhecidos não recebem números inventados. Amostras fixas de performance foram removidas.
+- A página foi aberta no navegador local e mostrou os diagnósticos e a IA não verificada, sem controles de deploy. TypeScript e build passaram. Isto não substitui monitoramento e rollback reais no Google Cloud, que permanecem pendentes de implantação e homologação.
+- O domínio https://cnc-app.ai.studio/ abriu no navegador em 22/10/2026, mas ainda servia a interface antiga: “CONFIABILIDADE 99.9%”, IA “HEALTHY”, versão `1.4.3-prod` e controles de deploy/rollback simulados. A build local corrigida não estava publicada nesse endereço no momento da verificação. Não houve alteração remota.
+
+### Exclusão de orçamento e coleções vazias — 22/10/2026
+
+- Produto, pedido de venda e máquina no contexto Firebase ficam em estado `null` até o primeiro snapshot da conta. Um snapshot vazio agora substitui o cache da tela por lista vazia; a ausência temporária de resposta não apaga o cache. Também são reiniciados ao mudar a autenticação. Isso evita que o último registro excluído continue visível.
+- A exclusão de orçamento aguarda a transação do Firestore antes de atualizar a seleção. Falha mantém o registro na tela e mostra erro. Orçamentos convertidos são protegidos na interface, na transação e na regra local, pois possuem pedido vinculado.
+- TypeScript e build passaram. Não houve teste no emulador nem em conta real. As regras alteradas ainda exigem validação e publicação; a regra atualmente publicada não foi inspecionada.
+
+### Validação da interface de bipagem — 22/10/2026
+
+- Componente real `ProductionKanbanView` exercitado no navegador com callback isolado, sem Firebase ou dados de usuário. A primeira gravação falhou, manteve SKU digitado e confirmou zero unidades. Nova tentativa confirmou uma unidade; a terceira gravação concluiu duas unidades e lançou físico 2 no cenário de teste.
+- Durante gravação, campo, botão Bipar e seleção de SKU ficaram desabilitados. Após conclusão, nova bipagem foi recusada pela interface sem chamar o callback: permaneceram três tentativas e físico 2. Adicionado nome acessível ao campo e limpeza da mensagem anterior ao tentar novamente.
+- Evidência: `tests/evidence/production-workflow.png`; cenário reproduzível em `tests/production-workflow.html`. TypeScript e build passaram. Este cenário valida a interação e o planejamento, não o commit Firestore, que continua pendente de emulador/homologação.
+
+### Reserva individual das novas OPs
+
+- Criação manual a partir do estoque e reposição automática agora usam transação: gravam OP com `inventoryProductId` e `inventoryReservedQuantity` e incrementam o saldo em produção do produto remoto. Repetição com o mesmo identificador e vínculo não reserva novamente. As duas telas mantêm o identificador da tentativa enquanto abertas e apresentam erros antes de anunciar sucesso.
+- Conclusão das novas OPs libera apenas a quantidade vinculada, preservando reservas de outras OPs do SKU. Exclusão lê o vínculo e libera a reserva na mesma transação; OP conferida/concluída ou vinculada a orçamento não é excluída por esse caminho. Não há exclusão otimista local.
+- Removidos operador, material, prazo e tempo fictícios da criação no App. Reposição rápida não força um lote quando o cálculo indica zero. Edição geral de produto preserva físico e saldo em produção remotos; migração de produto legado com produção em andamento é recusada para preservar os vínculos.
+- Regras locais aceitam o vínculo e restringem sua alteração. Ainda precisam de reforço das invariantes entre documentos, execução no emulador e publicação. Nenhuma regra foi publicada nesta etapa.
+- 25 testes de domínio relacionados passaram, junto com TypeScript e build. Os testes de reserva individual são testes do planejamento; não comprovam os commits SDK. Criação/exclusão/conclusão precisam ser exercitadas no emulador e na interface. OPs antigas e OPs de orçamento ainda não receberam vínculos retroativos; reconciliação e cancelamento comercial continuam pendentes.
+
+### Conferência e avanço de produção
+
+- Avanço de etapa e bipagem passaram a ler a OP remota em transação. Bipagem exige contador remoto + 1, recusando tela desatualizada; a última unidade conclui a OP e atualiza o físico do SKU cadastrado na mesma transação. Repetir a conclusão não lança estoque novamente. OP concluída não reabre e conclusão manual exige todas as unidades conferidas.
+- Mensagem e som de sucesso da bipagem aguardam o serviço. Falhas mantêm o código digitado. Atalhos com SKUs fictícios foram substituídos pela seleção de SKUs pendentes reais, que apenas preenche o campo.
+- O estoque agregado antigo em produção não identifica a OP que o reservou. Para não consumir reserva alheia, a conclusão recusa SKU com saldo em produção positivo até que esse vínculo seja implementado/reconciliado. Criação e exclusão de OP continuam pendentes de transação; esta etapa não libera o ciclo completo.
+- Três testes de planejamento de progresso passaram, além de TypeScript e build. A transação SDK e a interface ainda precisam de teste de integração; não houve operação sobre conta real.
+
 ### Ajustes manuais de estoque
 
 - Botões +/− agora aguardam uma transação que lê o produto remoto e altera apenas `physicalStock` e `updatedAt`. A resolução é por proprietário/SKU, com nova conferência de conta e duplicatas na transação. Não gravam mais o objeto da tela sobre o estoque remoto.

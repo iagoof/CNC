@@ -1,9 +1,6 @@
 import type { NestingTransfer } from './utils/nestingEngine';
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  INITIAL_FIXED_COSTS,
-  INITIAL_TAXES
-} from './data/initialData';
+import { INITIAL_COMPANY, INITIAL_FIXED_COSTS, INITIAL_TAXES } from './data/initialData';
 import {
   CompanyProfile,
   UF,
@@ -15,13 +12,13 @@ import {
   ProductionOrder,
   SalesOrder,
   Quote,
-  PlanType,
+  QuoteItem,
   CamTransferData
 } from './types';
 import { useLocalStorageState } from './utils/useLocalStorageState';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/dashboard/DashboardView';
-import { DesignStudioAiView } from './components/studio3d/DesignStudioAiView';
+import { DesignStudioAiView, type GeneratedVectorArtifact } from './components/studio3d/DesignStudioAiView';
 import { DesignStudioView } from './components/studio3d/DesignStudioView';
 import { CamOptimizerAiView } from './components/cam/CamOptimizerAiView';
 import { NestingView } from './components/nesting/NestingView';
@@ -36,7 +33,7 @@ import { ObservabilityDashboard } from './components/observability/Observability
 import { ErrorBoundary } from './components/observability/ErrorBoundary';
 import { initializeSreTelemetry } from './services/telemetry';
 import { useFirebase } from './services/firebase/FirebaseContext';
-import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes } from './services/firebase/firebase';
+import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes, progressProductionInFirestore, createInventoryProductionInFirestore, createCustomProductionInFirestore, deleteInventoryProductionInFirestore } from './services/firebase/firebase';
 import { Info } from 'lucide-react';
 import { entityId, documentNumber, money } from './utils/quoteEngine';
 import { TARIFA_ENERGIA_POR_UF } from './utils/calculations';
@@ -50,6 +47,8 @@ export default function App() {
     isAuthenticated,
     companySettings,
     syncCompanySettingsMutation,
+    financialSettings,
+    syncFinancialSettingsMutation,
     syncOrderMutation,
     deleteOrderMutation,
     syncQuoteMutation,
@@ -104,32 +103,45 @@ export default function App() {
   }, []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [newQuoteToken, setNewQuoteToken] = useState(0);
+  const [quoteDraftTransfer, setQuoteDraftTransfer] = useState<{ accountId: string; item: QuoteItem } | null>(null);
   const conversionInProgress = useRef(new Set<string>());
   const [camTransfer, setCamTransfer] = useState<CamTransferData | null>(null);
   const [studioModel, setStudioModel] = useState<string>('caixa-fingerjoint');
-  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), {
+  const [studioTransfer, setStudioTransfer] = useState<{ accountId: string; artifact: GeneratedVectorArtifact } | null>(null);
+  const emptyCompany: CompanyProfile = {
     name: '',
     tradeName: '',
     cnpj: '',
     ie: '',
     uf: 'MG',
-    city: 'Juiz de Fora',
+    city: '',
     address: '',
     cep: '',
     phone: '',
     email: '',
     whatsappMessageTemplate: 'Olá {cliente}! Seu orçamento #{numero} para corte e usinagem CNC ficou em {valor}. Prazo estimado de produção: {prazo} dias úteis.'
-  });
+  };
+  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), emptyCompany);
   const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), []);
   const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), []);
-  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), INITIAL_FIXED_COSTS);
-  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 35000);
-  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), INITIAL_TAXES);
+  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), []);
+  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 0);
+  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), []);
   const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), []);
   const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), []);
   const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), []);
   const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), []);
-  const [currentPlan, setCurrentPlan] = useLocalStorageState<PlanType>(storageKey('cnc_current_plan'), 'Crescer');
+
+  // Remove only the unchanged demo financial defaults left by older local versions.
+  useEffect(() => {
+    const demoFields: (keyof CompanyProfile)[] = ['name', 'tradeName', 'cnpj', 'ie', 'city', 'address', 'cep', 'phone', 'email'];
+    if (demoFields.every(field => company[field] === INITIAL_COMPANY[field])) setCompany(emptyCompany);
+    if (JSON.stringify(fixedCosts) === JSON.stringify(INITIAL_FIXED_COSTS)) {
+      setFixedCosts([]);
+      if (monthlyRevenueTarget === 35000) setMonthlyRevenueTarget(0);
+    }
+    if (JSON.stringify(taxes) === JSON.stringify(INITIAL_TAXES)) setTaxes([]);
+  }, [company, fixedCosts, monthlyRevenueTarget, taxes, setCompany, setFixedCosts, setMonthlyRevenueTarget, setTaxes]);
 
   // Sincronização em tempo real com Firestore quando autenticado
   useEffect(() => {
@@ -167,68 +179,77 @@ export default function App() {
 
   // Sincroniza produtos, pedidos de venda e máquinas vindos do Firestore
   useEffect(() => {
-    if (user && remoteProducts && remoteProducts.length > 0) {
+    if (user && remoteProducts !== null) {
       setInventory(remoteProducts);
     }
   }, [user, remoteProducts]);
 
   useEffect(() => {
-    if (user && remoteSalesOrders && remoteSalesOrders.length > 0) {
+    if (user && remoteSalesOrders !== null) {
       setSalesOrders(remoteSalesOrders);
     }
   }, [user, remoteSalesOrders]);
 
   useEffect(() => {
-    if (user && remoteMachines && remoteMachines.length > 0) {
+    if (user && remoteMachines !== null) {
       setMachines(remoteMachines);
     }
   }, [user, remoteMachines]);
 
   // Sincroniza configurações da empresa vindas da nuvem Firestore
   useEffect(() => {
-    if (companySettings) {
+    if (user && companySettings?.ownerId === user.uid) {
       setCompany(prev => ({
         ...prev,
-        tradeName: companySettings.tradeName || prev.tradeName,
-        name: companySettings.tradeName || prev.name,
-        cnpj: companySettings.cnpj || prev.cnpj,
-        city: companySettings.city || prev.city,
-        uf: (companySettings.uf as UF) || prev.uf
+        tradeName: companySettings.tradeName ?? prev.tradeName,
+        name: companySettings.name ?? companySettings.tradeName ?? prev.name,
+        cnpj: companySettings.cnpj ?? prev.cnpj,
+        ie: companySettings.ie ?? prev.ie,
+        address: companySettings.address ?? prev.address,
+        cep: companySettings.cep ?? prev.cep,
+        phone: companySettings.phone ?? prev.phone,
+        email: companySettings.email ?? prev.email,
+        city: companySettings.city ?? prev.city,
+        uf: (companySettings.uf as UF) ?? prev.uf
       }));
     }
-  }, [companySettings, setCompany]);
+  }, [companySettings, user, setCompany]);
+
+  useEffect(() => {
+    if (!user || financialSettings?.ownerId !== user.uid) return;
+    setFixedCosts(financialSettings.fixedCosts);
+    setTaxes(financialSettings.taxes);
+    setMonthlyRevenueTarget(financialSettings.monthlyRevenueTarget);
+  }, [user, financialSettings, setFixedCosts, setTaxes, setMonthlyRevenueTarget]);
 
   // Handlers com persistência em nuvem Firestore
-  const handleUpdateCompany = (updated: CompanyProfile) => {
-    setCompany(updated);
-    void syncCompanySettingsMutation({
-      tradeName: updated.tradeName || updated.name,
-      cnpj: updated.cnpj,
-      city: updated.city,
-      uf: updated.uf
+  const handleSaveCompany = async (updated: CompanyProfile) => {
+    if (!user) throw new Error('Entre na sua conta para salvar o perfil da oficina.');
+    await syncCompanySettingsMutation({
+      tradeName: updated.tradeName.trim(), name: updated.name, cnpj: updated.cnpj,
+      ie: updated.ie, address: updated.address, cep: updated.cep,
+      phone: updated.phone, email: updated.email, city: updated.city, uf: updated.uf
     });
   };
 
-  const handleUpdateMaterials = (newMaterials: Material[]) => {
-    setMaterials(newMaterials);
-    newMaterials.forEach(m => { void syncMaterialMutation(m).catch(() => {}); });
+  const handleRemoveMaterial = async (materialId: string) => {
+    if (!user) throw new Error('Entre na sua conta para excluir materiais.');
+    await deleteMaterialMutation(materialId);
   };
 
-  const handleRemoveMaterial = (materialId: string) => {
-    setMaterials(prev => prev.filter(m => m.id !== materialId));
-    void deleteMaterialMutation(materialId).catch(() => {});
+  const handleDeleteOrder = async (orderId: string) => {
+    try {
+      if (!user) throw new Error('Entre na sua conta para excluir uma OP.');
+      await deleteInventoryProductionInFirestore(orderId, user.uid);
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Não foi possível excluir a OP.'); }
   };
 
-  const handleDeleteOrder = (orderId: string) => {
-    const order = productionOrders.find(o => o.id === orderId);
-    if (order && order.status !== 'Pronto/Embalado') setInventory(prev => prev.map(i => i.sku === order.sku ? { ...i, inProductionStock: Math.max(0, i.inProductionStock - order.quantityRequested) } : i));
-    setProductionOrders(prev => prev.filter(o => o.id !== orderId));
-    void deleteOrderMutation(orderId).catch(() => {});
-  };
-
-  const handleDeleteQuote = (quoteId: string) => {
-    setQuotes(prev => prev.filter(q => q.id !== quoteId));
-    void deleteQuoteMutation(quoteId).catch(() => {});
+  const handleDeleteQuote = async (quoteId: string) => {
+    if (!user) throw new Error('Entre na sua conta para excluir orçamentos.');
+    const quote = quotes.find(item => item.id === quoteId);
+    if (!quote) throw new Error('Orçamento não encontrado. Atualize a lista.');
+    if (quote.status === 'Convertido em Pedido') throw new Error('Este orçamento possui pedido vinculado e não pode ser excluído.');
+    await deleteQuoteMutation(quoteId);
   };
 
   // Stored part for transfer between Studio and Nesting
@@ -240,41 +261,23 @@ export default function App() {
   };
 
   // Handlers for Production Orders (Kanban & Bipagem) com Sincronização Cloud
-  const handleUpdateOrderStatus = (orderId: string, newStatus: ProductionOrder['status']) => {
-    const order = productionOrders.find(o => o.id === orderId);
-    if (!order || order.status === newStatus) return;
-    if (order.status === 'Pronto/Embalado') { setActionError('Ordens concluídas não podem voltar ao processo.'); return; }
-    const updated = { ...order, status: newStatus };
-    if (newStatus === 'Pronto/Embalado') {
-      setInventory(prev => prev.map(inv => {
-        if (inv.sku === order.sku) {
-          const updatedInv = {
-            ...inv,
-            physicalStock: inv.physicalStock + order.quantityRequested,
-            inProductionStock: Math.max(0, inv.inProductionStock - order.quantityRequested)
-          };
-          void syncProductMutation(updatedInv).catch(() => {});
-          return updatedInv;
-        }
-        return inv;
-      }));
-    }
-    setProductionOrders(prev => prev.map(o => o.id === orderId ? updated : o));
-    void syncOrderMutation(updated).catch(() => {});
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: ProductionOrder['status']) => {
+    try {
+      if (!user) throw new Error('Entre na sua conta para alterar a produção.');
+      await progressProductionInFirestore(orderId, user.uid, { status: newStatus });
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Não foi possível alterar a OP.'); }
   };
 
-  const handleUpdateScannedQty = (orderId: string, qty: number) => {
-    const order = productionOrders.find(o => o.id === orderId);
-    if (!order || order.status === 'Pronto/Embalado' || !Number.isSafeInteger(qty) || qty < 0 || qty > order.quantityRequested) return;
-    const updated = { ...order, scannedQuantity: qty };
-    setProductionOrders(prev => prev.map(o => o.id === orderId ? updated : o));
-    void syncOrderMutation(updated).catch(() => {});
+  const handleUpdateScannedQty = async (orderId: string, qty: number) => {
+    if (!user) throw new Error('Entre na sua conta para conferir a produção.');
+    return progressProductionInFirestore(orderId, user.uid, { scannedQuantity: qty });
   };
 
-  const handleCreateProductionOrder = (orderData: Partial<ProductionOrder>) => {
+  const handleCreateProductionOrder = async (orderData: Partial<ProductionOrder>) => {
+    if (!user) throw new Error('Entre na sua conta para criar uma OP.');
     const qty = orderData.quantityRequested ?? 1;
-    if (!Number.isSafeInteger(qty) || qty <= 0) { setActionError('Informe uma quantidade inteira positiva.'); return; }
-    const orderId = entityId('op');
+    if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('Informe uma quantidade inteira positiva.');
+    const orderId = orderData.id || entityId('op');
     const newOrder: ProductionOrder = {
       id: orderId,
       orderNumber: documentNumber('OP', orderId),
@@ -284,31 +287,17 @@ export default function App() {
       quantityIdealCalculated: orderData.quantityIdealCalculated || qty,
       status: 'Aguardando Corte',
       createdAt: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 86400000 * 3).toISOString(),
+      dueDate: orderData.dueDate || '',
       priority: orderData.priority || 'Normal',
       machineId: orderData.machineId || machines[0]?.id || '',
-      materialName: orderData.materialName || 'MDF Cru 3,0 mm',
-      laserTimeEstimatedMin: orderData.laserTimeEstimatedMin || 45,
+      materialName: orderData.materialName || '',
+      laserTimeEstimatedMin: orderData.laserTimeEstimatedMin ?? 0,
       scannedQuantity: 0,
-      assignedTo: 'Carlos Operador'
+      assignedTo: orderData.assignedTo || ''
     };
 
-    // Increment inProductionStock for the SKU
-    if (orderData.sku) {
-      setInventory(prev =>
-        prev.map(item => {
-          if (item.sku === orderData.sku) {
-            const updatedInv = { ...item, inProductionStock: (item.inProductionStock || 0) + qty };
-            void syncProductMutation(updatedInv).catch(() => {});
-            return updatedInv;
-          }
-          return item;
-        })
-      );
-    }
-
-    setProductionOrders(prev => [newOrder, ...prev]);
-    void syncOrderMutation(newOrder).catch(() => {});
+    if (newOrder.sku.startsWith('CUSTOM-')) await createCustomProductionInFirestore(newOrder, user.uid);
+    else await createInventoryProductionInFirestore(newOrder, user.uid);
     setActiveTab('production');
   };
 
@@ -316,16 +305,20 @@ export default function App() {
   const handlePlaceOrder = async (orderData: Partial<SalesOrder>) => {
     if (!user) throw new Error('Entre na sua conta para registrar pedidos.');
     if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return false; }
+    if (!orderData.customerName?.trim() || !orderData.customerCity?.trim() || !orderData.customerUf) {
+      setActionError('Informe nome, cidade e UF do cliente antes de registrar o pedido.');
+      return false;
+    }
     const items = orderData.items.map(i => ({ ...i, totalPrice: money(i.unitPrice * i.quantity) }));
     const subtotal = money(items.reduce((sum, i) => sum + i.totalPrice, 0));
     const fullOrder: SalesOrder = {
       id: orderData.id || entityId('ped'),
       orderNumber: orderData.orderNumber || documentNumber('PED', orderData.id || entityId('ped')),
       channel: orderData.channel || 'Loja Própria',
-      customerName: orderData.customerName || 'Cliente Loja Online',
+      customerName: orderData.customerName.trim(),
       customerDoc: orderData.customerDoc || '',
-      customerCity: orderData.customerCity || 'Juiz de Fora',
-      customerUf: orderData.customerUf || 'MG',
+      customerCity: orderData.customerCity.trim(),
+      customerUf: orderData.customerUf,
       items,
       subtotal,
       shippingCost: orderData.shippingCost || 0,
@@ -377,16 +370,16 @@ export default function App() {
     await syncProductMutation(newProduct, true);
   };
 
-  const handleUpdateMachines = (newMachines: Machine[]) => {
-    setMachines(newMachines);
-    newMachines.forEach(m => { void syncMachineMutation(m).catch(() => {}); });
+  const handleRemoveMachine = async (machineId: string) => {
+    if (!user) throw new Error('Entre na sua conta para excluir máquinas.');
+    await deleteMachineMutation(machineId);
   };
 
   const tabTitles: Record<string, { title: string; subtitle: string }> = {
-    dashboard: { title: 'Painel Geral da Oficina', subtitle: 'Juiz de Fora / MG — Gestão, Ritmo e Metas' },
-    'studio-ai': { title: 'Design Studio AI (Vetorizador & Estúdio Generativo)', subtitle: 'Criação vetorial com camadas de corte/gravação e distribuição de artefatos' },
+    dashboard: { title: 'Painel Geral da Oficina', subtitle: 'Gestão, ritmo e metas da oficina' },
+    'studio-ai': { title: 'Estúdio Vetorial', subtitle: 'Modelos geométricos locais e traçado de silhuetas para revisão técnica' },
     studio: { title: 'Estúdio CAD 3D & Montagem', subtitle: 'Montagem procedural com finger-joints, kerf e vista explodida' },
-    'cam-ai': { title: 'Otimizador CAM & G-Code com IA', subtitle: 'Diagnóstico de avanço, rotação, potência, chip load e percursos CNC' },
+    'cam-ai': { title: 'Diagnóstico CAM & G-Code', subtitle: 'Inspeção local do programa e prévia 2D de movimentos lineares' },
     nesting: { title: 'Nesting de Chapas (MaxRects Client-Side)', subtitle: 'Aproveitamento de matéria-prima, retalhos e exportação DXF/SVG' },
     pricing: { title: 'Formação de Preço (Mark-up Divisor)', subtitle: 'Cálculo de custos diretos, margem segura e trava antifraude' },
     quotes: { title: 'Gerador de Orçamentos', subtitle: 'Propostas comerciais com envio e mensagem para WhatsApp' },
@@ -394,7 +387,7 @@ export default function App() {
     inventory: { title: 'Controle de Estoque por SKU', subtitle: 'Saldo Físico, Comprometido, Disponível e Ponto de Pedido' },
     catalog: { title: 'Catálogo & Pedidos', subtitle: 'Produtos e registro de pedidos com pagamento pendente' },
     fiscal: { title: 'Documentos & Expedição', subtitle: 'Resumo dos pedidos e identificação interna em ZPL' },
-    observability: { title: 'Centro de Observabilidade & SRE', subtitle: 'Telemetria ponta a ponta, Request ID, logs estruturados e rollback automático' },
+    observability: { title: 'Diagnóstico Local', subtitle: 'Verificações do navegador, logs e métricas desta sessão' },
     settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, custos fixos e CEMIG (MG)' }
   };
 
@@ -409,7 +402,6 @@ export default function App() {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         company={company}
-        currentPlan={currentPlan}
       />
 
       {/* Main Content Area */}
@@ -470,8 +462,9 @@ export default function App() {
             <DesignStudioAiView
               materials={materials}
               machines={machines}
-              onSendTo3D={modelType => {
-                setStudioModel(modelType);
+              onSendTo3D={artifact => {
+                setStudioModel(artifact.model3dType);
+                setStudioTransfer({ accountId: user?.uid || 'guest', artifact });
                 setActiveTab('studio');
               }}
               onSendToNesting={handleSendToNesting}
@@ -480,8 +473,8 @@ export default function App() {
                 setActiveTab('cam-ai');
               }}
               onSendToQuote={item => {
-                const newQuoteItem = {
-                  id: 'qi-' + Date.now(),
+                const newQuoteItem: QuoteItem = {
+                  id: entityId('qi'),
                   description: item.description,
                   materialId: item.materialId,
                   cutLength_mm: item.cutLength_mm,
@@ -493,23 +486,8 @@ export default function App() {
                   width_mm: item.width_mm,
                   height_mm: item.height_mm
                 };
-                const newQuote: Quote = {
-                  id: 'orc-' + Date.now(),
-                  quoteNumber: `ORC-2026-0${Math.floor(Math.random() * 800 + 100)}`,
-                  customerName: 'Cliente Novo Design Studio AI',
-                  customerPhone: '',
-                  customerEmail: '',
-                  customerDoc: '',
-                  items: [newQuoteItem],
-                  validUntil: new Date(Date.now() + 86400000 * 15).toISOString().split('T')[0],
-                  notes: `Orçamento gerado pelo Design Studio AI para corte na oficina de Juiz de Fora / MG.`,
-                  desiredProfitMarginPct: 35,
-                  extraTaxPct: 0,
-                  fixedExtraFee: 0,
-                  createdAt: new Date().toISOString().split('T')[0],
-                  status: 'Rascunho'
-                };
-                void handleSaveQuote(newQuote).catch(() => {});
+                setQuoteDraftTransfer({ accountId: user?.uid || 'guest', item: newQuoteItem });
+                setNewQuoteToken(value => value + 1);
                 setActiveTab('quotes');
               }}
               onSendToProduction={handleCreateProductionOrder}
@@ -519,6 +497,7 @@ export default function App() {
           {activeTab === 'studio' && (
             <DesignStudioView
               initialModel={studioModel}
+              initialArtifact={studioTransfer?.accountId === (user?.uid || 'guest') ? studioTransfer.artifact : null}
               onSendToNesting={handleSendToNesting}
             />
           )}
@@ -526,8 +505,6 @@ export default function App() {
           {activeTab === 'cam-ai' && technicalReady && (
             <CamOptimizerAiView
               initialProgram={camTransfer}
-              materials={materials}
-              machines={machines}
             />
           )}
 
@@ -548,12 +525,14 @@ export default function App() {
               fixedCosts={fixedCosts}
               monthlyRevenueTarget={monthlyRevenueTarget}
               taxes={taxes}
+              uf={company.uf}
             />
           )}
 
           {activeTab === 'quotes' && technicalReady && (
             <QuotesView key={user?.uid || 'guest'}
               newQuoteToken={newQuoteToken}
+              initialDraftItem={quoteDraftTransfer?.accountId === (user?.uid || 'guest') ? quoteDraftTransfer.item : null}
               quotes={quotes}
               materials={materials}
               machines={machines}
@@ -568,7 +547,7 @@ export default function App() {
           )}
 
           {activeTab === 'production' && (
-            <ProductionKanbanView
+            <ProductionKanbanView key={user?.uid || 'guest'}
               productionOrders={productionOrders}
               inventory={inventory}
               onUpdateOrderStatus={handleUpdateOrderStatus}
@@ -609,21 +588,36 @@ export default function App() {
 
           {activeTab === 'settings' && (
             <SettingsView
+              key={user?.uid || 'guest'}
               machines={machines}
               materials={materials}
               fixedCosts={fixedCosts}
               monthlyRevenueTarget={monthlyRevenueTarget}
               taxes={taxes}
               company={company}
-              currentPlanId={currentPlan}
-              onUpdateCompany={handleUpdateCompany}
-              onUpdateMachines={handleUpdateMachines}
-              onUpdateMaterials={handleUpdateMaterials}
+              onSaveCompany={handleSaveCompany}
+              onSaveMachine={async machine => {
+                if (!user) throw new Error('Entre na sua conta para salvar máquinas.');
+                await syncMachineMutation(machine);
+              }}
+              onSaveMaterial={async material => {
+                if (!user) throw new Error('Entre na sua conta para salvar materiais.');
+                await syncMaterialMutation(material);
+              }}
               onRemoveMaterial={handleRemoveMaterial}
-              onUpdateFixedCosts={setFixedCosts}
-              onUpdateMonthlyRevenueTarget={setMonthlyRevenueTarget}
-              onUpdateTaxes={setTaxes}
-              onSwitchPlan={setCurrentPlan}
+              onRemoveMachine={handleRemoveMachine}
+              onCreateMachine={async machine => {
+                if (!user) throw new Error('Entre na sua conta para cadastrar máquinas.');
+                await syncMachineMutation(machine);
+              }}
+              onCreateMaterial={async material => {
+                if (!user) throw new Error('Entre na sua conta para cadastrar materiais.');
+                await syncMaterialMutation(material);
+              }}
+              onSaveFinancial={async settings => {
+                if (!user) throw new Error('Entre na sua conta para salvar parâmetros financeiros.');
+                await syncFinancialSettingsMutation(settings);
+              }}
             />
           )}
         </main>

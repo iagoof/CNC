@@ -18,7 +18,7 @@ interface InventoryViewProps {
   onUpdateStock: (sku: string, delta: number) => void | Promise<void>;
   onOpenOpModal?: (product: ProductInventory) => void;
   onCreateProduct?: (product: ProductInventory) => void | Promise<void>;
-  onCreateProductionOrder?: (order: Partial<ProductionOrder>) => void;
+  onCreateProductionOrder?: (order: Partial<ProductionOrder>) => void | Promise<void>;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -33,6 +33,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [stockError, setStockError] = useState('');
+  const opRequests = React.useRef(new Map<string, string>());
+  const opBusy = React.useRef(new Set<string>());
   const [adjustingSkus, setAdjustingSkus] = useState<Set<string>>(new Set());
   const adjusting = React.useRef(new Set<string>());
   const handleStockAdjustment = async (sku: string, delta: number) => {
@@ -106,7 +108,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     finally { productSaving.current = false; setIsSavingProduct(false); }
   };
 
-  const handleQuickCreateOp = (item: ProductInventory) => {
+  const handleQuickCreateOp = async (item: ProductInventory) => {
+    if (opBusy.current.has(item.sku)) return;
     const calc = calcProductionOrderQuantity({
       physicalStock: item.physicalStock,
       committedStock: item.committedStock,
@@ -116,19 +119,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       batchMultiple: item.batchMultiple || 5
     });
 
-    const qty = Math.max(calc.recommendedBatch, item.minBatchToProduce || 5);
+    const qty = calc.recommendedBatch;
+    if (qty <= 0) { setStockError('Este SKU não precisa de reposição neste momento.'); return; }
 
     if (onCreateProductionOrder) {
-      onCreateProductionOrder({
+      opBusy.current.add(item.sku); setStockError('');
+      try {
+      if (!opRequests.current.has(item.sku)) opRequests.current.set(item.sku, `op-${crypto.randomUUID()}`);
+      await onCreateProductionOrder({
+        id: opRequests.current.get(item.sku),
         sku: item.sku,
         productName: item.name,
         quantityRequested: qty,
         quantityIdealCalculated: qty,
         priority: item.physicalStock < item.committedStock ? 'Urgente' : 'Alta',
-        laserTimeEstimatedMin: Math.max(10, Math.round((item.estimatedLaserTimeSeconds * qty) / 60))
+        laserTimeEstimatedMin: (item.estimatedLaserTimeSeconds * qty) / 60
       });
+      opRequests.current.delete(item.sku);
       setToastMessage(`OP disparada no Kanban para ${qty} un. de ${item.sku}!`);
       setTimeout(() => setToastMessage(null), 3500);
+      } catch (error) { setStockError(error instanceof Error ? error.message : 'Não foi possível criar a OP.'); }
+      finally { opBusy.current.delete(item.sku); }
     }
   };
 

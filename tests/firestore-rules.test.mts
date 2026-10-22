@@ -21,6 +21,21 @@ function client(uid?: string, verified = true) {
 const a = client('rules-user-A'), b = client('rules-user-B'), unverified = client('rules-user-C', false), anonymous = client();
 after(async () => { for (const c of [a, b, unverified, anonymous]) { await terminate(c.db); await deleteApp(c.app); } });
 const denied = (promise: Promise<unknown>) => assert.rejects(promise, (error: any) => error.code === 'permission-denied');
+
+test('parâmetros financeiros ficam restritos à conta e não aceitam meta negativa', async () => {
+  const ref = doc(a.db, 'financial_settings', 'rules-user-A');
+  const data = { id: 'rules-user-A', ownerId: 'rules-user-A', monthlyRevenueTarget: 25000,
+    fixedCosts: [{ id: 'fc-1', name: 'Aluguel', amount: 1500, category: 'Aluguel', periodicity: 'Mensal' }],
+    taxes: [{ id: 'tax-1', name: 'Tributo', percentage: 6, regime: 'Simples Nacional', active: true }],
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  await setDoc(ref, data);
+  assert.equal((await getDocFromServer(ref)).data()?.monthlyRevenueTarget, 25000);
+  await denied(getDocFromServer(doc(b.db, 'financial_settings', 'rules-user-A')));
+  await denied(updateDoc(doc(b.db, 'financial_settings', 'rules-user-A'), { monthlyRevenueTarget: 1, updatedAt: serverTimestamp() }));
+  await denied(updateDoc(ref, { monthlyRevenueTarget: -1, updatedAt: serverTimestamp() }));
+  await updateDoc(ref, { monthlyRevenueTarget: 30000, updatedAt: serverTimestamp() });
+  assert.equal((await getDocFromServer(ref)).data()?.monthlyRevenueTarget, 30000);
+});
 async function product(uid: string, sku: string, stock = 0) {
   const id = await productDocumentId(uid, sku);
   return { id, ownerId: uid, sku, name: 'Peça de teste', category: 'Geral', physicalStock: 50, committedStock: stock, inProductionStock: 0, unitPrice: 10, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };

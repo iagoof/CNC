@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  deploymentEngine,
-  DeploymentRelease
-} from '../../services/telemetry';
+import { deploymentEngine } from '../../services/telemetry/deploymentEngine';
+import type { DeploymentRelease } from '../../services/telemetry/types';
 import {
   Rocket,
   RotateCcw,

@@ -26,6 +26,13 @@ test('dimensões ausentes não são substituídas por uma peça fictícia', () =
   assert.throws(() => convertQuote(missing, context));
 });
 
+test('máquina sem horas e depreciação não produz preço de orçamento', () => {
+  const incomplete = { ...context, machines: [{ ...context.machines[0], depreciationYears: 0, monthlyWorkHours: 0 }] };
+  const priced = priceQuote(quote, incomplete);
+  assert.equal(priced.isValid, false);
+  assert.match(priced.errors.join(' '), /Configure custos e horas da máquina/);
+});
+
 test('preço real preservado na conversão, taxa única e pagamento pendente', () => {
   const priced = priceQuote(quote, context);
   assert.equal(priced.isValid, true);

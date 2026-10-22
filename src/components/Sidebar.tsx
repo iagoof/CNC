@@ -1,5 +1,5 @@
 import React from 'react';
-import { CompanyProfile, PlanType } from '../types';
+import { CompanyProfile } from '../types';
 import {
   LayoutDashboard,
   Box,
@@ -29,20 +29,18 @@ interface SidebarProps {
   activeTab: string;
   onSelectTab: (tab: string) => void;
   company: CompanyProfile;
-  currentPlan: PlanType;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onSelectTab,
-  company,
-  currentPlan
+  company
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, section: 'Gestão' },
-    { id: 'studio-ai', label: 'Design Studio AI', icon: Sparkles, badge: 'Novo IA', section: 'Engenharia & CAD' },
+    { id: 'studio-ai', label: 'Estúdio Vetorial', icon: Sparkles, section: 'Engenharia & CAD' },
     { id: 'studio', label: 'Estúdio 3D CAD', icon: Box, badge: '3D', section: 'Engenharia & CAD' },
-    { id: 'cam-ai', label: 'Otimizador CAM IA', icon: Cpu, badge: 'IA G-Code', section: 'Engenharia & CAD' },
+    { id: 'cam-ai', label: 'Diagnóstico CAM', icon: Cpu, section: 'Engenharia & CAD' },
     { id: 'nesting', label: 'Nesting de Chapas', icon: Scissors, section: 'Engenharia & CAD' },
     { id: 'pricing', label: 'Mark-up Divisor', icon: Calculator, section: 'Comercial' },
     { id: 'quotes', label: 'Orçamentos', icon: FileText, section: 'Comercial' },
@@ -50,7 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'inventory', label: 'Estoque por SKU', icon: Package, section: 'Chão de Fábrica' },
     { id: 'catalog', label: 'Catálogo & Loja', icon: Store, section: 'Vendas' },
     { id: 'fiscal', label: 'Fiscal & Etiquetas', icon: ShieldCheck, section: 'Fiscal' },
-    { id: 'observability', label: 'Observabilidade SRE', icon: Activity, badge: 'SRE 99.9%', section: 'Infra & Confiabilidade' },
+    { id: 'observability', label: 'Diagnóstico Local', icon: Activity, section: 'Infra & Confiabilidade' },
     { id: 'settings', label: 'Cadastros Técnicos', icon: Settings, section: 'Configurações' }
   ];
 
@@ -162,7 +160,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="mt-2 space-y-2 text-xs text-slate-600">
             <p className="font-medium text-slate-800">{company.tradeName}</p>
             <p>{company.city} / {company.uf}</p>
-            <p>Plano: {currentPlan}</p>
           </div>
         </details>
       </div>

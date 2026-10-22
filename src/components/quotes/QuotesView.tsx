@@ -23,6 +23,7 @@ import {
 
 interface QuotesViewProps {
   newQuoteToken?: number;
+  initialDraftItem?: QuoteItem | null;
   quotes: Quote[];
   materials: Material[];
   machines: Machine[];
@@ -32,12 +33,13 @@ interface QuotesViewProps {
   company: CompanyProfile;
   onSaveQuote: (quote: Quote) => void | Promise<void>;
   onConvertToOrder?: (quote: Quote) => void | Promise<void>;
-  onDeleteQuote?: (quoteId: string) => void;
+  onDeleteQuote?: (quoteId: string) => Promise<void>;
 }
 
 export const QuotesView: React.FC<QuotesViewProps> = ({
   quotes,
   newQuoteToken = 0,
+  initialDraftItem = null,
   materials,
   machines,
   fixedCosts,
@@ -52,8 +54,26 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
   const [isCreatingNew, setIsCreatingNew] = useState<boolean>(false);
   const [copiedSuccess, setCopiedSuccess] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+  const [deletingQuoteId, setDeletingQuoteId] = useState<string | null>(null);
+  const deleteInProgress = React.useRef(false);
 
   const activeQuote = isCreatingNew ? undefined : quotes.find(q => q.id === selectedQuoteId) || quotes[0];
+
+  const handleDeleteQuoteConfirmed = async (quote: Quote) => {
+    if (!onDeleteQuote || deleteInProgress.current) return;
+    if (quote.status === 'Convertido em Pedido') { setFormError('Este orçamento possui pedido vinculado e não pode ser excluído.'); return; }
+    if (!window.confirm(`Excluir orçamento ${quote.quoteNumber}?`)) return;
+    deleteInProgress.current = true; setDeletingQuoteId(quote.id); setFormError(null);
+    try {
+      await onDeleteQuote(quote.id);
+      const remaining = quotes.filter(item => item.id !== quote.id);
+      if (selectedQuoteId === quote.id) {
+        if (remaining.length > 0) handleSelectQuote(remaining[0]);
+        else resetQuote();
+      }
+    } catch (error) { setFormError(error instanceof Error ? error.message : 'Não foi possível excluir o orçamento.'); }
+    finally { deleteInProgress.current = false; setDeletingQuoteId(null); }
+  };
 
   const [customerName, setCustomerName] = useState<string>(activeQuote?.customerName || '');
   const [customerPhone, setCustomerPhone] = useState<string>(activeQuote?.customerPhone || '');
@@ -91,7 +111,7 @@ export const QuotesView: React.FC<QuotesViewProps> = ({
     setNotes(''); setDesiredMargin(35); setItems([]); setFormError(null);
     setValidUntil(new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10));
   };
-  useEffect(() => { if (newQuoteToken) resetQuote(); }, [newQuoteToken]);
+  useEffect(() => { if (newQuoteToken) { resetQuote(); if (initialDraftItem) setItems([initialDraftItem]); } }, [newQuoteToken]);
   const priced = priceQuote({ items, desiredProfitMarginPct: desiredMargin,
     extraTaxPct: activeQuote?.extraTaxPct ?? 0, fixedExtraFee: activeQuote?.fixedExtraFee ?? 0 },
     { materials, machines, fixedCosts, monthlyRevenueTarget, taxes, company });
@@ -234,19 +254,13 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
           {onDeleteQuote && activeQuote && (
             <button
-              onClick={() => {
-                if (window.confirm(`Tem certeza que deseja excluir o orçamento ${activeQuote.quoteNumber}?`)) {
-                  onDeleteQuote(activeQuote.id);
-                  const remaining = quotes.filter(q => q.id !== activeQuote.id);
-                  if (remaining.length > 0) handleSelectQuote(remaining[0]);
-                  else resetQuote();
-                }
-              }}
+              disabled={!!deletingQuoteId || activeQuote.status === 'Convertido em Pedido'}
+              onClick={() => void handleDeleteQuoteConfirmed(activeQuote)}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer"
               title="Excluir Orçamento"
             >
               <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Excluir</span>
+              <span className="hidden sm:inline">{deletingQuoteId === activeQuote.id ? 'Excluindo…' : 'Excluir'}</span>
             </button>
           )}
 
@@ -304,11 +318,10 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     <span>Válido até: {q.validUntil}</span>
                     {onDeleteQuote && (
                       <button
+                        disabled={!!deletingQuoteId || q.status === 'Convertido em Pedido'}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm(`Excluir orçamento ${q.quoteNumber}?`)) {
-                            onDeleteQuote(q.id);
-                          }
+                          void handleDeleteQuoteConfirmed(q);
                         }}
                         className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition"
                         title="Excluir Orçamento"

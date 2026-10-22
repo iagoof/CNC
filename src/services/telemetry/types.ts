@@ -78,10 +78,10 @@ export interface SystemHealthReport {
     cacheSystem: SubsystemHealth;
   };
   systemMetrics: {
-    memoryUsageMB: number;
-    errorRateLast5Min: number;
+    memoryUsageMB: number | null;
+    errorRateLast5Min: number | null;
     requestsPerMinute: number;
-    activeTraces: number;
+    activeTraces: number | null;
   };
 }
 

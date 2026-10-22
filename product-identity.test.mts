@@ -50,6 +50,10 @@ test('edição não sobrescreve reservas concorrentes e migração recusa confli
   assert.throws(() => planProductSave('user-A', 'SKU-1', 'new', data, { id: 'old', data }, {}, 'now'));
   assert.throws(() => planProductSave('user-B', 'SKU-1', 'new', data, undefined, {}, 'now'));
   assert.throws(() => planProductSave('user-A', 'SKU-1', 'new', { ...data, committedStock: NaN }, undefined, {}, 'now'));
+  const live = { ...data, physicalStock: 40, inProductionStock: 10 };
+  const edited = planProductSave('user-A', 'SKU-1', 'new', live, undefined, { physicalStock: 1, inProductionStock: 0 }, 'now');
+  assert.equal(edited.data.physicalStock, 40); assert.equal(edited.data.inProductionStock, 10);
+  assert.throws(() => planProductSave('user-A', 'SKU-1', 'new', undefined, { id: 'old', data: live }, {}, 'now'));
 });
 test('exclusão exige conta correta, reserva zero e produção zero', () => {
   const data = { ownerId: 'user-A', sku: 'SKU-1', committedStock: 0, inProductionStock: 0 };

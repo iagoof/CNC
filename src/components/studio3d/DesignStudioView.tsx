@@ -12,9 +12,10 @@ import {
   buildLaptopStand,
   buildLayeredMandala,
   buildIcosahedronLamp,
-  buildHeadphoneStand
+  buildHeadphoneStand,
+  build3DFromSvg
 } from './LaserModel3D';
-import { generateCncVector } from '../../services/geminiCncService';
+import { generateCncVector, ensureSvgMetadataBlock } from '../../services/geminiCncService';
 import { convertSvgToDxf, calculateSvgMetrics, exportSceneGroupToStl } from '../../utils/cncExporters';
 import { buildRouterHeightmapRelief } from './LaserModel3D';
 import { useFirebase } from '../../services/firebase/FirebaseContext';
@@ -41,11 +42,12 @@ import {
 
 interface DesignStudioProps {
   initialModel?: string;
+  initialArtifact?: { id: string; title: string; svgString: string; thickness_mm: number } | null;
   onSendToNesting?: (part: NestingTransfer) => void;
   onSendToQuote?: (part: { description: string; cutLength_mm: number; materialCategory: string }) => void;
 }
 
-export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting, initialModel }) => {
+export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting, initialModel, initialArtifact }) => {
   const mountRef = useRef<HTMLDivElement>(null);
 
   // Studio UI State
@@ -76,10 +78,21 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
   const [generationSuccess, setGenerationSuccess] = useState<boolean>(false);
   const [currentDesignTitle, setCurrentDesignTitle] = useState<string>('Caixa Organizadora CNC com Encaixes Finger-Joint (MDF 3mm)');
   const [generatedSvgContent, setGeneratedSvgContent] = useState<string>('');
+  const [transferredArtifact, setTransferredArtifact] = useState<DesignStudioProps['initialArtifact']>(initialArtifact);
+  const [modelError, setModelError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!initialArtifact) return;
+    setTransferredArtifact(initialArtifact);
+    setGeneratedSvgContent(initialArtifact.svgString);
+    setCurrentDesignTitle(initialArtifact.title);
+    setAiThickness(initialArtifact.thickness_mm);
+    setActiveTab('3d-assembly');
+  }, [initialArtifact]);
   
   // Firebase Cloud Integration
   const { user, isAuthenticated, projects, syncProjectMutation, deleteProjectMutation } = useFirebase();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -261,8 +274,18 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     const materials = createLaserMaterials(finish, false);
 
     let modelResult;
-    if (selectedModel === 'caixa-fingerjoint') {
+    if (transferredArtifact) {
+      try {
+        modelResult = build3DFromSvg(transferredArtifact.svgString, transferredArtifact.thickness_mm, materials);
+        setCurrentDesignTitle(transferredArtifact.title);
+        setModelError(null);
+      } catch (error) {
+        setModelError(error instanceof Error ? error.message : 'Não foi possível construir o SVG em 3D.');
+        modelResult = { group: new THREE.Group(), parts: [] };
+      }
+    } else if (selectedModel === 'caixa-fingerjoint') {
       modelResult = buildFingerJointBox(materials);
+      setModelError(null);
       setCurrentDesignTitle('Caixa Organizadora CNC com Encaixes Finger-Joint (MDF 3mm)');
     } else if (selectedModel === 'trofeu-acrilico') {
       modelResult = buildTrophyModel(materials);
@@ -295,7 +318,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     }));
 
     targetExplodeRef.current = explodeSlider;
-  }, [selectedModel, finish]);
+  }, [selectedModel, finish, transferredArtifact]);
 
   useEffect(() => {
     targetExplodeRef.current = explodeSlider;
@@ -341,42 +364,22 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     setGenerationSuccess(false);
     try {
       const result = await generateCncVector(aiPrompt, 'cut_engrave', 'laser');
-      setGeneratedSvgContent(result.svgContent);
+      const svgContent = ensureSvgMetadataBlock(result.svgContent, aiThickness, aiKerf);
+      setGeneratedSvgContent(svgContent);
       setCurrentDesignTitle(result.title);
       setGenerationSuccess(true);
-    } catch {
-      // Fallback SVG with strict semantic layers (#FF0000 cut, #0000FF engrave) and metadata
-      const fallback = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" width="200mm" height="150mm" data-thickness-mm="3.0">
-  <metadata id="cnc-metadata">
-    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>3.0</cnc:materialThickness_mm>
-      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
-      <cnc:units>mm</cnc:units>
-      <cnc:layers>
-        <cnc:layer name="corte" color="#FF0000" operation="cut" />
-        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
-      </cnc:layers>
-    </cnc:metadata>
-  </metadata>
-  <rect x="5" y="5" width="190" height="140" rx="4" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="100" cy="75" r="25" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="2,2" data-layer="engrave" />
-  <text x="100" y="80" font-family="sans-serif" font-size="9" font-weight="bold" text-anchor="middle" fill="#0000FF">CNC APP JF</text>
-</svg>`;
-      setGeneratedSvgContent(fallback);
-      setGenerationSuccess(true);
+      setTransferredArtifact({ id: `local-${crypto.randomUUID()}`, title: result.title, svgString: svgContent, thickness_mm: aiThickness });
+      setActiveTab('3d-assembly');
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : 'Falha ao criar o desenho vetorial.');
     } finally {
       setIsGeneratingAi(false);
     }
   };
 
   const getActiveSvgString = () => {
-    return generatedSvgContent || `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400mm" height="300mm">
-  <rect x="10" y="10" width="180" height="120" rx="2" fill="none" stroke="#dc2626" stroke-width="0.8" data-layer="cut" />
-  <circle cx="100" cy="70" r="15" fill="none" stroke="#dc2626" stroke-width="0.8" data-layer="cut" />
-  <rect x="210" y="10" width="180" height="120" rx="2" fill="none" stroke="#dc2626" stroke-width="0.8" data-layer="cut" />
-  <text x="100" y="115" font-family="sans-serif" font-size="8" fill="#2563eb" text-anchor="middle">KERF ${aiKerf}mm</text>
-</svg>`;
+    if (!generatedSvgContent) throw new Error('Gere ou carregue um SVG antes de exportar. O modelo 3D isolado não fornece plano de corte.');
+    return generatedSvgContent;
   };
 
   const handleDownloadSvg = () => {
@@ -465,41 +468,42 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
   };
 
   const handleSaveDesign = async () => {
-    const svgContent = getActiveSvgString();
-    const projId = 'proj-' + Date.now();
-    const title = currentDesignTitle || `Projeto CNC ${selectedModel}`;
-
-    if (isAuthenticated && user) {
-      try {
-        await syncProjectMutation({
+    if (!isAuthenticated || !user) { triggerToast('Conecte sua conta para salvar projetos na nuvem.'); return; }
+    if (!generatedSvgContent) { triggerToast('Gere ou carregue um SVG antes de salvar.'); return; }
+    const svgContent = generatedSvgContent;
+    const projId = 'proj-' + crypto.randomUUID();
+    const title = currentDesignTitle || 'Projeto vetorial';
+    try {
+      const metrics = calculateSvgMetrics(svgContent);
+      if (metrics.totalCutLengthMm <= 0) throw new Error('O desenho não contém contornos de corte válidos.');
+      await syncProjectMutation({
           id: projId,
           name: title,
           ownerId: user.uid,
           svgContent,
-          widthMm: 400,
-          heightMm: 300,
-          cutLengthMm: 2450,
+          widthMm: metrics.widthMm,
+          heightMm: metrics.heightMm,
+          cutLengthMm: metrics.totalCutLengthMm,
+          engraveAreaCm2: metrics.engraveAreaCm2,
           materialCategory: finish.includes('acrilico') ? 'Acrílico' : 'MDF',
           recommendedThicknessMm: aiThickness,
-          source: 'parametric_box'
-        });
-        triggerToast(`Projeto "${title}" salvo na nuvem Firestore!`);
-      } catch (err) {
-        console.error('Erro ao salvar projeto no Firestore:', err);
-        triggerToast('Falha ao salvar projeto na nuvem.');
-      }
-    } else {
-      triggerToast('Conecte sua conta Google na barra lateral para salvar projetos na nuvem.');
+          source: 'local_vector'
+      });
+      triggerToast(`Projeto "${title}" salvo na nuvem Firestore!`);
+    } catch (error) {
+      console.error('Erro ao salvar projeto no Firestore:', error);
+      triggerToast(error instanceof Error ? error.message : 'Falha ao salvar projeto na nuvem.');
     }
   };
 
   const handleLoadCloudProject = (proj: FirestoreProject) => {
     setGeneratedSvgContent(proj.svgContent);
     setCurrentDesignTitle(proj.name);
+    setTransferredArtifact({ id: proj.id, title: proj.name, svgString: proj.svgContent, thickness_mm: proj.recommendedThicknessMm || 3 });
     if (proj.recommendedThicknessMm) {
       setAiThickness(proj.recommendedThicknessMm);
     }
-    setActiveTab('ai-vectorizer');
+    setActiveTab('3d-assembly');
     triggerToast(`Projeto "${proj.name}" carregado com sucesso!`);
   };
 
@@ -513,6 +517,19 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     URL.revokeObjectURL(url);
   };
 
+  const handleDeleteCloudProject = async (proj: FirestoreProject) => {
+    if (deletingProjectId || !window.confirm(`Excluir o projeto "${proj.name}" da nuvem?`)) return;
+    setDeletingProjectId(proj.id);
+    try {
+      await deleteProjectMutation(proj.id);
+      triggerToast(`Projeto "${proj.name}" excluído da nuvem.`);
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : 'Falha ao excluir o projeto.');
+    } finally {
+      setDeletingProjectId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50 text-slate-900 overflow-hidden">
       {/* Top Header Navigation */}
@@ -523,9 +540,9 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900">Estúdio 3D & Vetorizador IA</h1>
+              <h1 className="text-base font-bold text-slate-900">Estúdio 3D & Vetorizador Local</h1>
               <span className="px-2 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
-                Kerf 0,15 mm Ativo
+                Kerf informado: {aiKerf.toFixed(2)} mm
               </span>
             </div>
             <p className="text-xs text-slate-500">
@@ -556,7 +573,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
             }`}
           >
             <Cpu className="w-3.5 h-3.5" />
-            Vetorizador IA
+            Vetorizador Local
           </button>
           <button
             onClick={() => setActiveTab('my-designs')}
@@ -575,14 +592,18 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownloadSvg}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 transition shadow-sm cursor-pointer"
+            disabled={!generatedSvgContent}
+            title={!generatedSvgContent ? 'Gere ou carregue um SVG antes de exportar' : 'Baixar SVG do projeto'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 transition shadow-sm cursor-pointer disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5 text-slate-600" />
             .SVG
           </button>
           <button
             onClick={handleDownloadDxf}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 transition shadow-sm cursor-pointer"
+            disabled={!generatedSvgContent}
+            title={!generatedSvgContent ? 'Gere ou carregue um SVG antes de exportar' : 'Baixar DXF do projeto'}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 transition shadow-sm cursor-pointer disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5 text-amber-600" />
             .DXF R12
@@ -595,6 +616,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
           </button>
           {onSendToNesting && (
             <button
+              disabled={!generatedSvgContent}
               onClick={() => {
                 try {
                   const svgContent = getActiveSvgString();
@@ -603,7 +625,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                     cutLength_mm: metrics.totalCutLengthMm, svgContent, quantity: 1 });
                 } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao transferir o desenho.'); }
               }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer disabled:opacity-40"
             >
               <Scissors className="w-3.5 h-3.5" />
               Nesting de Chapa
@@ -615,6 +637,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
       {/* Main Tab View */}
       {activeTab === '3d-assembly' && (
         <div className="relative flex-1 w-full h-full overflow-hidden bg-slate-100">
+          {modelError && <p role="alert" className="absolute bottom-4 left-4 z-20 max-w-md rounded-xl border border-rose-200 bg-white p-3 text-xs text-rose-800 shadow-lg">{modelError}</p>}
           {/* Top-Left Model Badge */}
           <div className="absolute top-4 left-4 z-10 pointer-events-auto flex flex-col gap-2">
             <div className="bg-white/95 border border-slate-200 rounded-2xl p-4 shadow-lg backdrop-blur-md min-w-[260px]">
@@ -623,19 +646,21 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                   Modelo 3D Ativo
                 </span>
                 <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono font-bold">
-                  {selectedModel === 'caixa-fingerjoint' && '7 Partes CNC'}
-                  {selectedModel === 'trofeu-acrilico' && '5 Partes Mistas'}
-                  {selectedModel === 'suporte-notebook' && '3 Partes Encaixáveis'}
-                  {selectedModel === 'mandala-camadas' && '4 Camadas 3D'}
-                  {selectedModel === 'luminaria-geometrica' && '14 Aletas CNC'}
-                  {selectedModel === 'suporte-fone' && '3 Componentes'}
+                  {transferredArtifact && 'SVG recebido'}
+                  {!transferredArtifact && selectedModel === 'caixa-fingerjoint' && '7 Partes CNC'}
+                  {!transferredArtifact && selectedModel === 'trofeu-acrilico' && '5 Partes Mistas'}
+                  {!transferredArtifact && selectedModel === 'suporte-notebook' && '3 Partes Encaixáveis'}
+                  {!transferredArtifact && selectedModel === 'mandala-camadas' && '4 Camadas 3D'}
+                  {!transferredArtifact && selectedModel === 'luminaria-geometrica' && '14 Aletas CNC'}
+                  {!transferredArtifact && selectedModel === 'suporte-fone' && '3 Componentes'}
                 </span>
               </div>
               <select
-                value={selectedModel}
-                onChange={e => setSelectedModel(e.target.value as any)}
+                value={transferredArtifact ? '__transferred' : selectedModel}
+                onChange={e => { setTransferredArtifact(null); setGeneratedSvgContent(''); setSelectedModel(e.target.value as typeof selectedModel); }}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:border-amber-500"
               >
+                {transferredArtifact && <option value="__transferred">{transferredArtifact.title}</option>}
                 <option value="caixa-fingerjoint">Caixa Finger-Joint com Tampa (MDF 3mm)</option>
                 <option value="trofeu-acrilico">Troféu Cristal Lapidado & Base MDF</option>
                 <option value="suporte-notebook">Suporte Ergonômico de Notebook 25° (MDF 6mm)</option>
@@ -646,12 +671,12 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
 
               <div className="mt-2.5 pt-2.5 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
                 <div className="flex justify-between">
-                  <span>Compensação Kerf:</span>
-                  <span className="text-amber-700 font-mono font-bold">+0,075 mm / lado</span>
+                  <span>Kerf informado:</span>
+                  <span className="text-amber-700 font-mono font-bold">{aiKerf.toFixed(2)} mm (revisar)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Encaixe:</span>
-                  <span className="text-emerald-700 font-semibold">Interferência Justa</span>
+                  <span>Geometria:</span>
+                  <span className="text-emerald-700 font-semibold">{transferredArtifact ? 'SVG recebido' : 'Modelo 3D local'}</span>
                 </div>
               </div>
             </div>
@@ -785,7 +810,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-amber-600" />
-                  Gerador Vetorial & Encaixes com IA
+                  Gerador Vetorial & Encaixes Locais
                 </h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Descreva o modelo CNC ou envie uma foto para gerar contornos de corte com compensação de folga paramétrica.
@@ -869,7 +894,8 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
 
                 <button
                   onClick={handleDownloadSvg}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg border border-slate-200"
+                  disabled={!generatedSvgContent}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg border border-slate-200 disabled:opacity-40"
                 >
                   <Download className="w-3.5 h-3.5 text-slate-600" /> Baixar SVG
                 </button>
@@ -883,37 +909,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                     dangerouslySetInnerHTML={{ __html: sanitizeSvg(generatedSvgContent) }}
                   />
                 ) : (
-                  <svg className="w-full h-full max-h-72" viewBox="0 0 500 300">
-                    <rect width="500" height="300" fill="#f8fafc" />
-                    <defs>
-                      <pattern id="light-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e2e8f0" strokeWidth="0.8" />
-                      </pattern>
-                    </defs>
-                    <rect width="500" height="300" fill="url(#light-grid)" />
-
-                    <g transform="translate(30, 30)">
-                      <rect x="0" y="0" width="160" height="110" rx="2" fill="none" stroke="#dc2626" strokeWidth="1.5" />
-                      <circle cx="80" cy="55" r="12" fill="none" stroke="#dc2626" strokeWidth="1.5" />
-                      <text x="8" y="100" fill="#64748b" fontSize="8" fontFamily="monospace">BASE_01 (160x110 mm)</text>
-                    </g>
-
-                    <g transform="translate(210, 30)">
-                      <path
-                        d="M 0 0 L 40 0 L 40 -6 L 60 -6 L 60 0 L 100 0 L 100 80 L 80 80 L 80 86 L 60 86 L 60 80 L 0 80 Z"
-                        fill="none"
-                        stroke="#dc2626"
-                        strokeWidth="1.5"
-                      />
-                      <text x="10" y="45" fill="#64748b" fontSize="8" fontFamily="monospace">LATERAL_ESQ</text>
-                    </g>
-
-                    <g transform="translate(100, 160)">
-                      <rect x="0" y="0" width="165" height="115" rx="3" fill="none" stroke="#dc2626" strokeWidth="1.5" />
-                      <circle cx="82" cy="57" r="28" fill="none" stroke="#2563eb" strokeWidth="1" strokeDasharray="3 3" />
-                      <text x="8" y="105" fill="#64748b" fontSize="8" fontFamily="monospace">TAMPA_SLIDE</text>
-                    </g>
-                  </svg>
+                  <p className="text-sm text-slate-500 text-center">Nenhum desenho vetorial gerado. Crie ou abra um projeto para ver o plano de corte.</p>
                 )}
               </div>
             </div>
@@ -948,7 +944,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                 <h3 className="text-sm font-bold text-slate-800">Nenhum projeto salvo na nuvem ainda</h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
                   {isAuthenticated
-                    ? 'Crie geometrias no Vetorizador IA ou Estúdio 3D e clique no botão "Salvar" acima para sincronizar no Firestore.'
+                    ? 'Crie um desenho no Vetorizador Local e clique em "Salvar" para sincronizar no Firestore.'
                     : 'Conecte sua conta Google na barra lateral para salvar e sincronizar seus projetos em tempo real com segurança.'}
                 </p>
               </div>
@@ -969,8 +965,9 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                         {proj.name}
                       </h3>
                       <button
-                        onClick={() => deleteProjectMutation(proj.id)}
-                        className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition shrink-0 cursor-pointer"
+                        onClick={() => { void handleDeleteCloudProject(proj); }}
+                        disabled={deletingProjectId !== null}
+                        className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition shrink-0 cursor-pointer disabled:opacity-40"
                         title="Excluir projeto da nuvem"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -994,7 +991,7 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
                       onClick={() => handleLoadCloudProject(proj)}
                       className="font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 cursor-pointer"
                     >
-                      <Eye className="w-3.5 h-3.5" /> Abrir no Vetorizador
+                      <Eye className="w-3.5 h-3.5" /> Abrir em 3D
                     </button>
                     <button
                       onClick={() => handleDownloadProjectSvg(proj)}

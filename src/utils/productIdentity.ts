@@ -24,7 +24,9 @@ export function planProductSave(ownerId: string, sku: string, targetId: string,
   const committedStock = existing ? existing.committedStock ?? 0 : fields.committedStock;
   if (!Number.isSafeInteger(committedStock) || committedStock < 0) throw new Error('Revise o estoque comprometido do produto.');
   if (legacy && !legacy.data.createdAt) throw new Error('O registro antigo não possui data de criação. Revise antes de migrar.');
-  const saved = { ...fields, committedStock };
+  if (legacy && (legacy.data.inProductionStock ?? 0) > 0) throw new Error('Conclua ou reconcilie a produção antes de migrar este produto.');
+  const saved = { ...fields, committedStock,
+    ...(existing ? { physicalStock: existing.physicalStock ?? 0, inProductionStock: existing.inProductionStock ?? 0 } : {}) };
   return target ? { create: false, data: saved, deleteId: undefined } : {
     create: true, deleteId: legacy?.id,
     data: { ...legacy?.data, ...saved, id: targetId, ownerId, createdAt: now,

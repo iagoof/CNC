@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { FinancialSettingsInput } from '../../utils/financialSettings';
 import {
   Machine,
   Material,
   FixedCost,
   TaxConfig,
   CompanyProfile,
-  PlanConfig,
   UF
 } from '../../types';
 import {
@@ -16,14 +16,12 @@ import {
   TARIFA_MEDIA_NACIONAL_KWH,
   convertToMonthlyCost
 } from '../../utils/calculations';
-import { PLANS } from '../../data/initialData';
 import {
   Settings,
   Cpu,
   Layers,
   DollarSign,
   Building2,
-  CreditCard,
   Plus,
   Trash2,
   CheckCircle2,
@@ -40,111 +38,193 @@ interface SettingsViewProps {
   monthlyRevenueTarget: number;
   taxes: TaxConfig[];
   company: CompanyProfile;
-  currentPlanId: string;
-  onUpdateCompany: (comp: CompanyProfile) => void;
-  onUpdateMachines: (machs: Machine[]) => void;
-  onUpdateMaterials: (mats: Material[]) => void;
-  onUpdateFixedCosts: (fcs: FixedCost[]) => void;
-  onUpdateMonthlyRevenueTarget: (val: number) => void;
-  onUpdateTaxes: (taxes: TaxConfig[]) => void;
-  onSwitchPlan: (planId: any) => void;
-  onRemoveMaterial?: (id: string) => void;
+  onSaveCompany: (comp: CompanyProfile) => Promise<void>;
+  onSaveMachine: (machine: Machine) => Promise<void>;
+  onSaveMaterial: (material: Material) => Promise<void>;
+  onSaveFinancial: (settings: FinancialSettingsInput) => Promise<void>;
+  onRemoveMaterial: (id: string) => Promise<void>;
+  onRemoveMachine: (id: string) => Promise<void>;
+  onCreateMachine: (machine: Machine) => Promise<void>;
+  onCreateMaterial: (material: Material) => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   machines,
   materials,
-  fixedCosts,
-  monthlyRevenueTarget,
-  taxes,
-  company,
-  currentPlanId,
-  onUpdateCompany,
-  onUpdateMachines,
-  onUpdateMaterials,
-  onUpdateFixedCosts,
-  onUpdateMonthlyRevenueTarget,
-  onUpdateTaxes,
-  onSwitchPlan,
-  onRemoveMaterial
+  fixedCosts: savedFixedCosts,
+  monthlyRevenueTarget: savedMonthlyRevenueTarget,
+  taxes: savedTaxes,
+  company: savedCompany,
+  onSaveCompany,
+  onSaveMachine,
+  onSaveMaterial,
+  onSaveFinancial,
+  onRemoveMaterial,
+  onRemoveMachine,
+  onCreateMachine,
+  onCreateMaterial
 }) => {
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removalError, setRemovalError] = useState<string | null>(null);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [machineDraft, setMachineDraft] = useState({ name: '', type: 'CO2' as Machine['type'], width: '', height: '', purchasePrice: '' });
+  const [materialDraft, setMaterialDraft] = useState({ name: '', category: 'MDF' as Material['category'], thickness: '', width: '', length: '', unitCost: '' });
+  const [creationMode, setCreationMode] = useState<'machine' | 'material' | null>(null);
+  const [machineEdits, setMachineEdits] = useState<Record<string, Machine>>({});
+  const [materialEdits, setMaterialEdits] = useState<Record<string, Material>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fixedCostDraft, setFixedCostDraft] = useState({ name: '', amount: '', periodicity: 'Mensal' as FixedCost['periodicity'] });
+  const [taxDraft, setTaxDraft] = useState({ name: '', percentage: '', regime: 'Simples Nacional' as TaxConfig['regime'] });
+  const [showFixedCostForm, setShowFixedCostForm] = useState(false);
+  const [showTaxForm, setShowTaxForm] = useState(false);
+  const [financialDraft, setFinancialDraft] = useState<FinancialSettingsInput>({ fixedCosts: savedFixedCosts, monthlyRevenueTarget: savedMonthlyRevenueTarget, taxes: savedTaxes });
+  const [financialDirty, setFinancialDirty] = useState(false);
+  const [savingFinancial, setSavingFinancial] = useState(false);
+  const [financialError, setFinancialError] = useState<string | null>(null);
+  const [companyDraft, setCompanyDraft] = useState<CompanyProfile>(savedCompany);
+  const [companyDirty, setCompanyDirty] = useState(false);
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [companyError, setCompanyError] = useState<string | null>(null);
+  const company = companyDraft;
+  const onUpdateCompany = (value: CompanyProfile) => { setCompanyDraft(value); setCompanyDirty(true); setCompanyError(null); };
+  useEffect(() => { if (!companyDirty) setCompanyDraft(savedCompany); }, [savedCompany]);
+  const saveCompany = async () => {
+    if (savingCompany) return;
+    if (!companyDraft.tradeName.trim()) { setCompanyError('Informe o nome fantasia da oficina.'); return; }
+    setSavingCompany(true); setCompanyError(null);
+    try { await onSaveCompany(companyDraft); setCompanyDirty(false); }
+    catch (error) { setCompanyError(error instanceof Error ? error.message : 'Não foi possível salvar o perfil da oficina.'); }
+    finally { setSavingCompany(false); }
+  };
+  const { fixedCosts, monthlyRevenueTarget, taxes } = financialDraft;
+  const onUpdateFixedCosts = (value: FixedCost[]) => { setFinancialDraft(previous => ({ ...previous, fixedCosts: value })); setFinancialDirty(true); setFinancialError(null); };
+  const onUpdateMonthlyRevenueTarget = (value: number) => { setFinancialDraft(previous => ({ ...previous, monthlyRevenueTarget: value })); setFinancialDirty(true); setFinancialError(null); };
+  const onUpdateTaxes = (value: TaxConfig[]) => { setFinancialDraft(previous => ({ ...previous, taxes: value })); setFinancialDirty(true); setFinancialError(null); };
+  useEffect(() => {
+    if (!financialDirty) setFinancialDraft({ fixedCosts: savedFixedCosts, monthlyRevenueTarget: savedMonthlyRevenueTarget, taxes: savedTaxes });
+  }, [savedFixedCosts, savedMonthlyRevenueTarget, savedTaxes]);
+  const saveFinancial = async () => {
+    if (savingFinancial) return;
+    setSavingFinancial(true); setFinancialError(null);
+    try { await onSaveFinancial(financialDraft); setFinancialDirty(false); }
+    catch (error) { setFinancialError(error instanceof Error ? error.message : 'Não foi possível salvar os parâmetros financeiros.'); }
+    finally { setSavingFinancial(false); }
+  };
+  const editingMachines = machines.map(machine => machineEdits[machine.id] || machine);
+  const editingMaterials = materials.map(material => materialEdits[material.id] || material);
+
+  useEffect(() => {
+    setMachineEdits(previous => Object.fromEntries(Object.entries(previous).filter(([id, draft]) => {
+      const remote = machines.find(machine => machine.id === id);
+      return remote && JSON.stringify(remote) !== JSON.stringify(draft);
+    })));
+  }, [machines]);
+  useEffect(() => {
+    setMaterialEdits(previous => Object.fromEntries(Object.entries(previous).filter(([id, draft]) => {
+      const remote = materials.find(material => material.id === id);
+      return remote && JSON.stringify(remote) !== JSON.stringify(draft);
+    })));
+  }, [materials]);
+
+  const saveMachine = async (machine: Machine) => {
+    if (savingId) return;
+    if (!machine.name.trim() || ![machine.workAreaX_mm, machine.workAreaY_mm].every(value => Number.isFinite(value) && value > 0) || ![machine.laserPowerW, machine.purchasePrice, machine.monthlyWorkHours, machine.energyConsumptionKwh, machine.tubeSpareCost].every(value => Number.isFinite(value) && value >= 0)) {
+      setSaveError('Revise nome, área útil e valores da máquina.'); return;
+    }
+    setSaveError(null); setSavingId(machine.id);
+    try { await onSaveMachine(machine); }
+    catch (error) { setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar a máquina.'); }
+    finally { setSavingId(null); }
+  };
+  const saveMaterial = async (material: Material) => {
+    if (savingId) return;
+    if (!material.name.trim() || ![material.thickness_mm, material.sheetWidth_mm, material.sheetLength_mm].every(value => Number.isFinite(value) && value > 0) || ![material.unitCost, material.shippingCost, material.lossPercentage].every(value => Number.isFinite(value) && value >= 0)) {
+      setSaveError('Revise nome, espessura, dimensões e custos do material.'); return;
+    }
+    setSaveError(null); setSavingId(material.id);
+    try { await onSaveMaterial(material); }
+    catch (error) { setSaveError(error instanceof Error ? error.message : 'Não foi possível salvar o material.'); }
+    finally { setSavingId(null); }
+  };
   const [activeTab, setActiveTab] = useState<
-    'machines' | 'materials' | 'fixed-costs' | 'taxes' | 'company' | 'plans'
+    'machines' | 'materials' | 'fixed-costs' | 'taxes' | 'company'
   >('machines');
 
   const currentTariff = TARIFA_ENERGIA_POR_UF[company.uf] || TARIFA_MEDIA_NACIONAL_KWH;
 
   // Add Machine Handler
-  const handleAddMachine = () => {
+  const handleAddMachine = async () => {
+    const width = Number(machineDraft.width), height = Number(machineDraft.height), purchasePrice = Number(machineDraft.purchasePrice);
+    if (!machineDraft.name.trim() || !machineDraft.width || !machineDraft.height || !machineDraft.purchasePrice || ![width, height, purchasePrice].every(Number.isFinite) || width <= 0 || height <= 0 || purchasePrice < 0) {
+      setCreationError('Informe nome, área útil e preço de compra válidos.'); return;
+    }
     const newMach: Machine = {
-      id: 'mach-' + Date.now(),
-      name: 'Nova CNC Laser CO2',
-      model: 'Controladora Ruida / Tubo 80W',
-      type: 'CO2',
-      laserPowerW: 80,
-      workAreaX_mm: 700,
-      workAreaY_mm: 500,
-      purchasePrice: 24000,
-      depreciationYears: 5,
-      monthlyWorkHours: 160,
-      energyConsumptionKwh: 2.0,
-      monthlyMaintenanceCosts: 200,
-      tubeSpareCost: 3200
+      id: 'mach-' + crypto.randomUUID(),
+      name: machineDraft.name.trim(), model: '', type: machineDraft.type,
+      laserPowerW: 0, workAreaX_mm: width, workAreaY_mm: height,
+      purchasePrice, depreciationYears: 0, monthlyWorkHours: 0,
+      energyConsumptionKwh: 0, monthlyMaintenanceCosts: 0, tubeSpareCost: 0
     };
-    onUpdateMachines([...machines, newMach]);
+    setCreationError(null); setCreating(true);
+    try { await onCreateMachine(newMach); setCreationMode(null); setMachineDraft({ name: '', type: 'CO2', width: '', height: '', purchasePrice: '' }); }
+    catch (error) { setCreationError(error instanceof Error ? error.message : 'Não foi possível cadastrar a máquina.'); }
+    finally { setCreating(false); }
   };
 
   // Remove Machine
-  const handleRemoveMachine = (id: string) => {
-    if (machines.length <= 1) return;
-    onUpdateMachines(machines.filter(m => m.id !== id));
+  const handleRemoveMachine = async (id: string) => {
+    if (removingId) return;
+    setRemovalError(null);
+    setRemovingId(id);
+    try { await onRemoveMachine(id); }
+    catch (error) { setRemovalError(error instanceof Error ? error.message : 'Não foi possível excluir a máquina.'); }
+    finally { setRemovingId(null); }
   };
 
   // Remove Material Handler
-  const handleRemoveMaterial = (id: string) => {
-    if (materials.length <= 1) return;
-    if (onRemoveMaterial) {
-      onRemoveMaterial(id);
-    } else {
-      onUpdateMaterials(materials.filter(m => m.id !== id));
-    }
+  const handleRemoveMaterial = async (id: string) => {
+    if (removingId) return;
+    setRemovalError(null);
+    setRemovingId(id);
+    try { await onRemoveMaterial(id); }
+    catch (error) { setRemovalError(error instanceof Error ? error.message : 'Não foi possível excluir o material.'); }
+    finally { setRemovingId(null); }
   };
 
   // Add Material Handler
-  const handleAddMaterial = () => {
+  const handleAddMaterial = async () => {
+    const thickness = Number(materialDraft.thickness), width = Number(materialDraft.width), length = Number(materialDraft.length), unitCost = Number(materialDraft.unitCost);
+    if (!materialDraft.name.trim() || !materialDraft.thickness || !materialDraft.width || !materialDraft.length || !materialDraft.unitCost || ![thickness, width, length, unitCost].every(Number.isFinite) || thickness <= 0 || width <= 0 || length <= 0 || unitCost < 0) {
+      setCreationError('Informe nome, espessura, medidas da chapa e custo válidos.'); return;
+    }
     const newMat: Material = {
-      id: 'mat-' + Date.now(),
-      name: 'Novo Material MDF / Acrílico',
-      category: 'MDF',
-      thickness_mm: 3.0,
-      sheetWidth_mm: 1850,
-      sheetLength_mm: 2750,
-      unitCost: 90.0,
-      shippingCost: 15.0,
-      lossPercentage: 8.0,
-      density_kg_m3: 750,
-      speedsByMachine: machines.map(m => ({
-        machineId: m.id,
-        cutSpeed_mms: 20,
-        cutPower_pct: 70,
-        engraveSpeed_mms: 250,
-        engravePower_pct: 20,
-        lineInterval_mm: 0.08
-      }))
+      id: 'mat-' + crypto.randomUUID(),
+      name: materialDraft.name.trim(), category: materialDraft.category,
+      thickness_mm: thickness, sheetWidth_mm: width, sheetLength_mm: length,
+      unitCost, shippingCost: 0, lossPercentage: 0, density_kg_m3: 0,
+      speedsByMachine: []
     };
-    onUpdateMaterials([...materials, newMat]);
+    setCreationError(null); setCreating(true);
+    try { await onCreateMaterial(newMat); setCreationMode(null); setMaterialDraft({ name: '', category: 'MDF', thickness: '', width: '', length: '', unitCost: '' }); }
+    catch (error) { setCreationError(error instanceof Error ? error.message : 'Não foi possível cadastrar o material.'); }
+    finally { setCreating(false); }
   };
 
   // Add Fixed Cost
   const handleAddFixedCost = () => {
+    const amount = Number(fixedCostDraft.amount);
+    if (!fixedCostDraft.name.trim() || !fixedCostDraft.amount || !Number.isFinite(amount) || amount < 0) { setCreationError('Informe descrição e valor válidos da despesa.'); return; }
     const newFc: FixedCost = {
-      id: 'fc-' + Date.now(),
-      name: 'Nova Despesa Fixa',
-      amount: 500,
+      id: 'fc-' + crypto.randomUUID(),
+      name: fixedCostDraft.name.trim(),
+      amount,
       category: 'Outros',
-      periodicity: 'Mensal'
+      periodicity: fixedCostDraft.periodicity
     };
     onUpdateFixedCosts([...fixedCosts, newFc]);
+    setFixedCostDraft({ name: '', amount: '', periodicity: 'Mensal' }); setShowFixedCostForm(false); setCreationError(null);
   };
 
   const fixedCostAnalysis = calcFixedCostMarkupPercentage(fixedCosts, monthlyRevenueTarget);
@@ -207,18 +287,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             Perfil da Empresa
           </button>
-          <button
-            onClick={() => setActiveTab('plans')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer ${
-              activeTab === 'plans' ? 'bg-amber-500 text-white font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Planos Comerciais
-          </button>
         </div>
       </div>
 
       <div className="p-6 max-w-7xl mx-auto w-full space-y-6">
+        {removalError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{removalError}</p>}
+        {saveError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{saveError}</p>}
+        {financialError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{financialError}</p>}
+        {companyError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{companyError}</p>}
+        {activeTab === 'company' && companyDirty && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <span className="mr-auto font-semibold">Perfil da oficina com alterações não salvas</span>
+          <button type="button" disabled={savingCompany} onClick={() => { setCompanyDraft(savedCompany); setCompanyDirty(false); setCompanyError(null); }} className="rounded-lg border border-amber-300 px-3 py-1.5 disabled:opacity-50">Cancelar alterações</button>
+          <button type="button" disabled={savingCompany} onClick={() => { void saveCompany(); }} className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-white disabled:opacity-50">{savingCompany ? 'Salvando...' : 'Salvar perfil'}</button>
+        </div>}
+        {(activeTab === 'fixed-costs' || activeTab === 'taxes') && financialDirty && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <span className="mr-auto font-semibold">Parâmetros financeiros com alterações não salvas</span>
+          <button type="button" disabled={savingFinancial} onClick={() => { setFinancialDraft({ fixedCosts: savedFixedCosts, monthlyRevenueTarget: savedMonthlyRevenueTarget, taxes: savedTaxes }); setFinancialDirty(false); setFinancialError(null); }} className="rounded-lg border border-amber-300 px-3 py-1.5 disabled:opacity-50">Cancelar alterações</button>
+          <button type="button" disabled={savingFinancial} onClick={() => { void saveFinancial(); }} className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-white disabled:opacity-50">{savingFinancial ? 'Salvando...' : 'Salvar parâmetros financeiros'}</button>
+        </div>}
         {/* TAB 1: MÁQUINAS LASER */}
         {activeTab === 'machines' && (
           <div className="space-y-4">
@@ -234,7 +320,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <button
-                onClick={handleAddMachine}
+                onClick={() => { setCreationError(null); setCreationMode('machine'); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -242,8 +328,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
+            {creationMode === 'machine' && <form onSubmit={event => { event.preventDefault(); void handleAddMachine(); }} className="rounded-2xl border border-amber-200 bg-white p-4 space-y-3 text-xs">
+              <h4 className="font-bold text-slate-900">Cadastrar máquina</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                <input aria-label="Nome da máquina" placeholder="Nome da máquina" value={machineDraft.name} onChange={e => setMachineDraft({ ...machineDraft, name: e.target.value })} className="rounded-lg border p-2" required />
+                <select aria-label="Tipo da máquina" value={machineDraft.type} onChange={e => setMachineDraft({ ...machineDraft, type: e.target.value as Machine['type'] })} className="rounded-lg border p-2">{(['CO2', 'Diodo', 'Fibra', 'Router', 'Plasma'] as const).map(type => <option key={type}>{type}</option>)}</select>
+                <input aria-label="Mesa X em milímetros" type="number" min="0.01" step="any" placeholder="Mesa X (mm)" value={machineDraft.width} onChange={e => setMachineDraft({ ...machineDraft, width: e.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Mesa Y em milímetros" type="number" min="0.01" step="any" placeholder="Mesa Y (mm)" value={machineDraft.height} onChange={e => setMachineDraft({ ...machineDraft, height: e.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Preço de compra" type="number" min="0" step="any" placeholder="Preço de compra (R$)" value={machineDraft.purchasePrice} onChange={e => setMachineDraft({ ...machineDraft, purchasePrice: e.target.value })} className="rounded-lg border p-2" required />
+              </div>
+              <p className="text-slate-600">Potência, consumo, horas e manutenção começam sem valores informados. Complete esses parâmetros antes de usar custos de máquina.</p>
+              {creationError && <p role="alert" className="text-rose-700">{creationError}</p>}
+              <div className="flex gap-2"><button type="submit" disabled={creating} className="rounded-lg bg-amber-500 px-3 py-2 font-bold text-white disabled:opacity-50">{creating ? 'Salvando...' : 'Salvar máquina'}</button><button type="button" disabled={creating} onClick={() => setCreationMode(null)} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+            </form>}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {machines.map((mach, index) => {
+              {editingMachines.map((mach, index) => {
                 const rates = calcMachineCostRates(mach, company.uf);
                 return (
                   <div
@@ -255,14 +355,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="text"
                         value={mach.name}
                         onChange={e => {
-                          const next = [...machines];
+                          const next = editingMachines.map(machine => ({ ...machine }));
                           next[index].name = e.target.value;
-                          onUpdateMachines(next);
+                          setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                         }}
                         className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-sm font-bold text-slate-900 w-2/3 focus:outline-none focus:border-amber-500"
                       />
                       <button
-                        onClick={() => handleRemoveMachine(mach.id)}
+                        onClick={() => { void handleRemoveMachine(mach.id); }}
+                        disabled={!!removingId}
                         className="text-slate-400 hover:text-rose-600 transition cursor-pointer"
                         title="Remover máquina"
                       >
@@ -277,9 +378,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mach.laserPowerW}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].laserPowerW = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -290,9 +391,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mach.workAreaX_mm}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].workAreaX_mm = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -303,9 +404,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mach.workAreaY_mm}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].workAreaY_mm = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -314,14 +415,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                       <div>
+                        <label className="text-[10px] text-slate-500 block mb-0.5">Depreciação (anos)</label>
+                        <input type="number" min="0" step="any" value={mach.depreciationYears} onChange={e => setMachineEdits(previous => ({ ...previous, [mach.id]: { ...mach, depreciationYears: Number(e.target.value) } }))} className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500 block mb-0.5">Manutenção mensal (R$)</label>
+                        <input type="number" min="0" step="any" value={mach.monthlyMaintenanceCosts} onChange={e => setMachineEdits(previous => ({ ...previous, [mach.id]: { ...mach, monthlyMaintenanceCosts: Number(e.target.value) } }))} className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono" />
+                      </div>
+                      <div>
                         <label className="text-[10px] text-slate-500 block mb-0.5">Preço Compra (R$)</label>
                         <input
                           type="number"
                           value={mach.purchasePrice}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].purchasePrice = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -332,9 +441,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mach.monthlyWorkHours}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].monthlyWorkHours = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -346,9 +455,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           step="0.1"
                           value={mach.energyConsumptionKwh}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].energyConsumptionKwh = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -359,9 +468,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mach.tubeSpareCost}
                           onChange={e => {
-                            const next = [...machines];
+                            const next = editingMachines.map(machine => ({ ...machine }));
                             next[index].tubeSpareCost = Number(e.target.value);
-                            onUpdateMachines(next);
+                            setMachineEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -369,7 +478,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
 
                     {/* Calculated Hourly and Per-Second Cost Badge */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center">
+                    {mach.depreciationYears > 0 && mach.monthlyWorkHours > 0 ? <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center">
                       <div>
                         <span className="text-[10px] text-slate-500 block">Custo por Segundo:</span>
                         <span className="font-mono text-xs text-indigo-700 font-bold">
@@ -383,7 +492,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           R$ {rates.hourly.toFixed(2)} / hora
                         </span>
                       </div>
-                    </div>
+                    </div> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-800">Custo por hora indisponível. Informe depreciação e horas mensais; revise também o consumo elétrico.</p>}
+                    {machineEdits[mach.id] && <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+                      <span className="mr-auto text-amber-700">Alterações não salvas</span>
+                      <button type="button" disabled={!!savingId} onClick={() => setMachineEdits(previous => { const next = { ...previous }; delete next[mach.id]; return next; })} className="rounded-lg border px-3 py-1.5 disabled:opacity-50">Cancelar</button>
+                      <button type="button" disabled={!!savingId} onClick={() => { void saveMachine(mach); }} className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-white disabled:opacity-50">{savingId === mach.id ? 'Salvando...' : 'Salvar máquina'}</button>
+                    </div>}
                   </div>
                 );
               })}
@@ -406,7 +520,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <button
-                onClick={handleAddMaterial}
+                onClick={() => { setCreationError(null); setCreationMode('material'); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -414,8 +528,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
+            {creationMode === 'material' && <form onSubmit={event => { event.preventDefault(); void handleAddMaterial(); }} className="rounded-2xl border border-amber-200 bg-white p-4 space-y-3 text-xs">
+              <h4 className="font-bold text-slate-900">Cadastrar material</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <input aria-label="Nome do material" placeholder="Nome do material" value={materialDraft.name} onChange={e => setMaterialDraft({ ...materialDraft, name: e.target.value })} className="rounded-lg border p-2" required />
+                <select aria-label="Categoria do material" value={materialDraft.category} onChange={e => setMaterialDraft({ ...materialDraft, category: e.target.value as Material['category'] })} className="rounded-lg border p-2">{(['MDF', 'Acrílico', 'Compensado', 'Madeira Maciça', 'EVA', 'Papelão', 'Couro'] as const).map(category => <option key={category}>{category}</option>)}</select>
+                <input aria-label="Espessura em milímetros" type="number" min="0.01" step="any" placeholder="Espessura (mm)" value={materialDraft.thickness} onChange={e => setMaterialDraft({ ...materialDraft, thickness: e.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Largura da chapa em milímetros" type="number" min="0.01" step="any" placeholder="Largura da chapa (mm)" value={materialDraft.width} onChange={e => setMaterialDraft({ ...materialDraft, width: e.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Comprimento da chapa em milímetros" type="number" min="0.01" step="any" placeholder="Comprimento da chapa (mm)" value={materialDraft.length} onChange={e => setMaterialDraft({ ...materialDraft, length: e.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Custo da chapa" type="number" min="0" step="any" placeholder="Custo da chapa (R$)" value={materialDraft.unitCost} onChange={e => setMaterialDraft({ ...materialDraft, unitCost: e.target.value })} className="rounded-lg border p-2" required />
+              </div>
+              <p className="text-slate-600">Velocidades de corte e gravação não são presumidas. Cadastre os parâmetros da combinação material e máquina antes de produzir.</p>
+              {creationError && <p role="alert" className="text-rose-700">{creationError}</p>}
+              <div className="flex gap-2"><button type="submit" disabled={creating} className="rounded-lg bg-amber-500 px-3 py-2 font-bold text-white disabled:opacity-50">{creating ? 'Salvando...' : 'Salvar material'}</button><button type="button" disabled={creating} onClick={() => setCreationMode(null)} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+            </form>}
+
             <div className="grid grid-cols-1 gap-4">
-              {materials.map((mat, index) => {
+              {editingMaterials.map((mat, index) => {
                 const { areaM2, costPerM2 } = calcMaterialM2Cost(mat);
                 return (
                   <div
@@ -428,9 +557,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="text"
                           value={mat.name}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].name = e.target.value;
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-sm font-bold text-slate-900 w-72 focus:outline-none focus:border-amber-500"
                         />
@@ -450,7 +579,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           </strong>
                         </span>
                         <button
-                          onClick={() => handleRemoveMaterial(mat.id)}
+                          onClick={() => { void handleRemoveMaterial(mat.id); }}
+                          disabled={!!removingId}
                           className="text-slate-400 hover:text-rose-600 transition cursor-pointer p-1 rounded hover:bg-slate-100"
                           title="Remover material"
                         >
@@ -466,9 +596,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mat.sheetWidth_mm}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].sheetWidth_mm = Number(e.target.value);
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -479,9 +609,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mat.sheetLength_mm}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].sheetLength_mm = Number(e.target.value);
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -492,9 +622,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mat.unitCost}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].unitCost = Number(e.target.value);
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -505,9 +635,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mat.shippingCost}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].shippingCost = Number(e.target.value);
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
@@ -518,14 +648,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           type="number"
                           value={mat.lossPercentage}
                           onChange={e => {
-                            const next = [...materials];
+                            const next = editingMaterials.map(material => ({ ...material }));
                             next[index].lossPercentage = Number(e.target.value);
-                            onUpdateMaterials(next);
+                            setMaterialEdits(previous => ({ ...previous, [next[index].id]: next[index] }));
                           }}
                           className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-900 font-mono focus:outline-none"
                         />
                       </div>
                     </div>
+                    {materialEdits[mat.id] && <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
+                      <span className="mr-auto text-amber-700">Alterações não salvas</span>
+                      <button type="button" disabled={!!savingId} onClick={() => setMaterialEdits(previous => { const next = { ...previous }; delete next[mat.id]; return next; })} className="rounded-lg border px-3 py-1.5 disabled:opacity-50">Cancelar</button>
+                      <button type="button" disabled={!!savingId} onClick={() => { void saveMaterial(mat); }} className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-white disabled:opacity-50">{savingId === mat.id ? 'Salvando...' : 'Salvar material'}</button>
+                    </div>}
                   </div>
                 );
               })}
@@ -590,12 +725,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Despesas Fixas Cadastradas
                 </span>
                 <button
-                  onClick={handleAddFixedCost}
+                  onClick={() => { setCreationError(null); setShowFixedCostForm(true); }}
                   className="flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg border border-slate-200 transition cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-amber-600" /> Adicionar Despesa
                 </button>
               </div>
+
+              {showFixedCostForm && <form onSubmit={event => { event.preventDefault(); handleAddFixedCost(); }} className="grid grid-cols-1 sm:grid-cols-4 gap-2 rounded-xl border border-amber-200 p-3 text-xs">
+                <input aria-label="Descrição da despesa" placeholder="Descrição da despesa" value={fixedCostDraft.name} onChange={event => setFixedCostDraft({ ...fixedCostDraft, name: event.target.value })} className="rounded-lg border p-2" required />
+                <input aria-label="Valor da despesa" type="number" min="0" step="any" placeholder="Valor (R$)" value={fixedCostDraft.amount} onChange={event => setFixedCostDraft({ ...fixedCostDraft, amount: event.target.value })} className="rounded-lg border p-2" required />
+                <select aria-label="Periodicidade da despesa" value={fixedCostDraft.periodicity} onChange={event => setFixedCostDraft({ ...fixedCostDraft, periodicity: event.target.value as FixedCost['periodicity'] })} className="rounded-lg border p-2">{(['Mensal', 'Diário', 'Semanal', 'Trimestral', 'Semestral', 'Anual'] as const).map(periodicity => <option key={periodicity}>{periodicity}</option>)}</select>
+                <div className="flex gap-2"><button type="submit" className="rounded-lg bg-amber-500 px-3 py-2 font-bold text-white">Adicionar</button><button type="button" onClick={() => setShowFixedCostForm(false)} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+                {creationError && <p role="alert" className="text-rose-700 sm:col-span-4">{creationError}</p>}
+              </form>}
 
               <div className="space-y-2">
                 {fixedCosts.map((fc, idx) => (
@@ -668,6 +811,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               Alíquotas incidentes sobre o faturamento que entram na equação do Mark-up Divisor
             </p>
 
+            <button type="button" onClick={() => { setCreationError(null); setShowTaxForm(true); }} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 font-semibold"><Plus className="h-3.5 w-3.5" />Adicionar alíquota</button>
+            {showTaxForm && <form onSubmit={event => { event.preventDefault(); const percentage = Number(taxDraft.percentage); if (!taxDraft.name.trim() || !taxDraft.percentage || !Number.isFinite(percentage) || percentage < 0 || percentage >= 100) { setCreationError('Informe nome e alíquota válida entre 0% e 100%.'); return; } onUpdateTaxes([...taxes, { id: `tax-${crypto.randomUUID()}`, name: taxDraft.name.trim(), percentage, regime: taxDraft.regime, active: true }]); setTaxDraft({ name: '', percentage: '', regime: 'Simples Nacional' }); setShowTaxForm(false); setCreationError(null); }} className="grid grid-cols-1 sm:grid-cols-4 gap-2 rounded-xl border border-amber-200 p-3">
+              <input aria-label="Nome da alíquota" placeholder="Nome da alíquota" value={taxDraft.name} onChange={event => setTaxDraft({ ...taxDraft, name: event.target.value })} className="rounded-lg border p-2" required />
+              <input aria-label="Percentual da alíquota" type="number" min="0" max="99.99" step="any" placeholder="Alíquota (%)" value={taxDraft.percentage} onChange={event => setTaxDraft({ ...taxDraft, percentage: event.target.value })} className="rounded-lg border p-2" required />
+              <select aria-label="Regime tributário" value={taxDraft.regime} onChange={event => setTaxDraft({ ...taxDraft, regime: event.target.value as TaxConfig['regime'] })} className="rounded-lg border p-2">{(['Simples Nacional', 'MEI', 'Lucro Presumido', 'Lucro Real'] as const).map(regime => <option key={regime}>{regime}</option>)}</select>
+              <div className="flex gap-2"><button type="submit" className="rounded-lg bg-amber-500 px-3 py-2 font-bold text-white">Adicionar</button><button type="button" onClick={() => setShowTaxForm(false)} className="rounded-lg border px-3 py-2">Cancelar</button></div>
+              {creationError && <p role="alert" className="text-rose-700 sm:col-span-4">{creationError}</p>}
+            </form>}
+
             <div className="space-y-2">
               {taxes.map((t, idx) => (
                 <div
@@ -679,15 +831,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       type="checkbox"
                       checked={t.active}
                       onChange={e => {
-                        const next = [...taxes];
+                        const next = taxes.map(tax => ({ ...tax }));
                         next[idx].active = e.target.checked;
                         onUpdateTaxes(next);
                       }}
                       className="rounded border-slate-300 text-amber-500 focus:ring-0"
                     />
-                    <div>
-                      <p className="font-semibold text-slate-900">{t.name}</p>
-                      <p className="text-[10px] text-slate-500">{t.regime}</p>
+                    <div className="flex flex-col gap-1">
+                      <input aria-label="Nome da alíquota" value={t.name} onChange={e => onUpdateTaxes(taxes.map((tax, index) => index === idx ? { ...tax, name: e.target.value } : tax))} className="rounded border bg-white px-2 py-1 font-semibold text-slate-900" />
+                      <select aria-label="Regime tributário" value={t.regime} onChange={e => onUpdateTaxes(taxes.map((tax, index) => index === idx ? { ...tax, regime: e.target.value as TaxConfig['regime'] } : tax))} className="rounded border bg-white px-2 py-1 text-[10px] text-slate-600">{(['Simples Nacional', 'MEI', 'Lucro Presumido', 'Lucro Real'] as const).map(regime => <option key={regime}>{regime}</option>)}</select>
                     </div>
                   </div>
 
@@ -697,13 +849,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       step="0.1"
                       value={t.percentage}
                       onChange={e => {
-                        const next = [...taxes];
+                        const next = taxes.map(tax => ({ ...tax }));
                         next[idx].percentage = Number(e.target.value);
                         onUpdateTaxes(next);
                       }}
                       className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-900 font-mono font-bold w-20 focus:outline-none"
                     />
                     <span className="font-mono text-slate-500">%</span>
+                    <button type="button" aria-label={`Excluir alíquota ${t.name}`} onClick={() => onUpdateTaxes(taxes.filter(tax => tax.id !== t.id))} className="rounded p-1 text-slate-400 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
               ))}
@@ -813,70 +966,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         )}
 
-        {/* TAB 6: PLANOS COMERCIAIS */}
-        {activeTab === 'plans' && (
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-amber-600" />
-                Matriz de Planos Comerciais CNC APP (v2.0)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Alterne entre planos para testar limites e comportamentos de tela
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              {PLANS.map(plan => {
-                const isActive = currentPlanId === plan.id;
-                return (
-                  <div
-                    key={plan.id}
-                    className={`rounded-2xl p-5 border flex flex-col justify-between transition ${
-                      isActive
-                        ? 'bg-amber-50/50 border-amber-500 shadow-md ring-1 ring-amber-500'
-                        : 'bg-white border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-extrabold text-slate-900 text-sm">{plan.name}</h4>
-                        {isActive && (
-                          <span className="text-[9px] bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded">
-                            Atual
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xl font-extrabold text-amber-700 font-mono mb-3">
-                        R$ {plan.priceMonthly.toFixed(2)}
-                        <span className="text-[10px] text-slate-400 font-sans font-normal">/mês</span>
-                      </div>
-
-                      <div className="text-[11px] space-y-1.5 mb-4 text-slate-600">
-                        <p>👥 <strong>{plan.usersLimit}</strong> usuário(s)</p>
-                        <p>📦 Até <strong>{plan.productsLimit || 'CAD'}</strong> produtos</p>
-                        <p>⚡ <strong>{plan.aiCreditsMonthly}</strong> créditos IA/mês</p>
-                        <p>🧾 {plan.hasInvoices ? '✅ NF-e Ilimitada' : '❌ Sem NF-e'}</p>
-                        <p>🛒 {plan.hasMarketplaces ? '✅ ML e Shopee' : '❌ Sem Marketplaces'}</p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => onSwitchPlan(plan.id)}
-                      className={`w-full py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
-                        isActive
-                          ? 'bg-amber-500 text-white shadow-sm'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-                      }`}
-                    >
-                      {isActive ? 'Plano Selecionado' : 'Simular Plano'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

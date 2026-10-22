@@ -1,5 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
-
 export interface CncMetadataBlock {
   materialThickness_mm: number;
   defaultKerf_mm: number;
@@ -16,7 +14,7 @@ export interface CncMetadataBlock {
       description: string;
     };
   };
-  modelName: 'gemini-1.5-pro-002';
+  modelName: 'local-parametric';
   timestamp?: string;
 }
 
@@ -41,21 +39,6 @@ export interface GeneratedCncVector {
   }[];
 }
 
-function getApiKey(): string | undefined {
-  if (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) {
-    return process.env.GEMINI_API_KEY;
-  }
-  try {
-    const metaEnv = (import.meta as unknown as { env?: { VITE_GEMINI_API_KEY?: string } })?.env;
-    if (metaEnv?.VITE_GEMINI_API_KEY) {
-      return metaEnv.VITE_GEMINI_API_KEY;
-    }
-  } catch {
-    // Ignore meta env errors
-  }
-  return undefined;
-}
-
 /**
  * Creates standard CncMetadataBlock for industrial laser/router operations
  */
@@ -76,7 +59,7 @@ export function createStandardMetadataBlock(thicknessMm = 3.0, kerfMm = 0.15): C
         description: 'Gravação superficial vetorial, texturização ou marcação técnica'
       }
     },
-    modelName: 'gemini-1.5-pro-002',
+    modelName: 'local-parametric',
     timestamp: new Date().toISOString()
   };
 }
@@ -321,7 +304,7 @@ function parsePromptParameters(
 }
 
 /**
- * Procedural fallback vector generators that produce 100% valid, closed, production-ready SVGs
+ * Local geometric templates that require technical review before machine use
  * strictly responding to user prompt parameters with semantic layer separation:
  * Cut #FF0000 (red) and Engrave #0000FF (blue), plus thickness metadata
  */
@@ -821,23 +804,7 @@ export function generateProceduralVector(
   };
 }
 
-/**
- * Strips markdown code blocks like ```json ... ``` from an LLM response string
- */
-function cleanJsonOutput(raw: string): string {
-  let cleaned = raw.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
-  return cleaned.trim();
-}
-
-/**
- * Generate vector using Gemini API model or rich parametric procedural fallback
- * Forces semantic layers: red (#FF0000) for cut, blue (#0000FF) for engrave, and default material thickness metadata
- */
+/** Generate a local geometric starting point. External AI requires a protected server integration. */
 export async function generateCncVector(
   prompt: string,
   style: 'cut_engrave' | 'cut_only' | 'relief_3d' = 'cut_engrave',
@@ -845,140 +812,12 @@ export async function generateCncVector(
   overrideWidth?: number,
   overrideHeight?: number
 ): Promise<GeneratedCncVector> {
-  const apiKey = getApiKey();
-
-  if (!apiKey) {
-    // Return high fidelity geometric procedural vector matching user prompt
-    return generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const targetW = overrideWidth || 100;
-    const targetH = overrideHeight || 100;
-
-    const systemInstruction = `Você é um engenheiro sênior especialista em CAD/CAM para corte a Laser CO2 e CNC Router industrial.
-O usuário fornecerá uma descrição em Português do Brasil para um vetor/projeto CNC.
-Você deve responder ESTRITAMENTE em formato JSON (sem markdown fora do json) com a seguinte estrutura completa:
-{
-  "title": "Nome do Projeto em Português",
-  "description": "Explicação técnica detalhada do design industrial",
-  "widthMm": ${targetW},
-  "heightMm": ${targetH},
-  "recommendedMaterial": "MDF Cru 3mm ou Acrílico Cast",
-  "recommendedThicknessMm": 3.0,
-  "materialThickness_mm": 3.0,
-  "metadata": {
-    "materialThickness_mm": 3.0,
-    "defaultKerf_mm": 0.15,
-    "units": "mm",
-    "operationLayers": {
-      "cut": { "color": "#FF0000", "operation": "cut", "description": "Contorno de corte passante" },
-      "engrave": { "color": "#0000FF", "operation": "engrave", "description": "Gravação ou marcação técnica" }
-    },
-    "modelName": "gemini-1.5-pro-002"
-  },
-  "cutLengthMm": 450,
-  "engraveAreaCm2": 25,
-  "estimatedLaserTimeSec": 26,
-  "svgContent": "<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 ${targetW} ${targetH}\\" width=\\"${targetW}mm\\" height=\\"${targetH}mm\\" data-thickness-mm=\\"3.0\\"><metadata id=\\"cnc-metadata\\"><cnc:metadata xmlns:cnc=\\"https://cncminas.com.br/schema/v1\\"><cnc:materialThickness_mm>3.0</cnc:materialThickness_mm><cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm><cnc:units>mm</cnc:units><cnc:layers><cnc:layer name=\\"corte\\" color=\\"#FF0000\\" operation=\\"cut\\"/><cnc:layer name=\\"gravacao\\" color=\\"#0000FF\\" operation=\\"engrave\\"/></cnc:layers></cnc:metadata></metadata><!-- Camadas de corte fechado em #FF0000 e gravacao em #0000FF --></svg>",
-  "layers": [
-    {"name": "Corte Perimetral (#FF0000)", "type": "cut", "color": "#FF0000", "cutLengthMm": 450},
-    {"name": "Gravação Vetorial (#0000FF)", "type": "engrave", "color": "#0000FF", "cutLengthMm": 30}
-  ]
-}
-
-REGRAS TÉCNICAS MANDATÓRIAS:
-1. SEPARAÇÃO SEMÂNTICA RIGOROSA DE CAMADAS:
-   - CAMADA DE CORTE: TODAS as linhas e contornos vazados que devem ser cortados passantes através do material DEVEM usar estritamente stroke="#FF0000" (vermelho puro #FF0000), fill="none", stroke-width entre 0.4 e 0.8, e atributo data-layer="cut" ou id="corte-...".
-   - CAMADA DE GRAVAÇÃO: TODOS os elementos decorativos, marcações, hachuras, logos ou textos que devem ser apenas gravados superficialmente DEVEM usar estritamente stroke="#0000FF" (azul puro #0000FF) ou fill="#0000FF", stroke-width entre 0.3 e 0.6, e atributo data-layer="engrave" ou id="gravacao-...".
-2. CONTORNOS DE CORTE RIGOROSAMENTE FECHADOS:
-   - Os elementos de corte (#FF0000) devem ser loops geométricos perfeitamente fechados (<circle>, <rect>, <polygon> ou caminhos <path d="... Z">) para que a extrusão sólida 3D funcione perfeitamente.
-3. BLOCO DE METADADOS DE ESPESSURA DE MATERIAL:
-   - Forneça por padrão "materialThickness_mm": 3.0 e "recommendedThicknessMm": 3.0.
-   - No SVG gerado, inclua a tag <metadata id="cnc-metadata"> definindo a espessura de 3.0mm e inclua o atributo data-thickness-mm="3.0" na tag raiz <svg>.
-4. ESCALA E DIMENSÕES REAIS EM MILÍMETROS:
-   - O SVG DEVE possuir viewBox="0 0 W H" width="Wmm" height="Hmm".
-5. MÁQUINA ALVO: ${targetMachine === 'router' ? 'CNC Router (compensação de fresa e percursos mecânicos)' : 'Laser CO2 (foco óptico kerf 0.15mm)'}.
-6. ESTILO SOLICITADO: ${style}.`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-pro-002',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `Gere um vetor completo para CNC industrial baseado estritamente neste prompt: "${prompt}". Dimensões sugeridas: ${targetW}x${targetH}mm. Priorize camadas semanticamente separadas (corte passante fechado estritamente em vermelho #FF0000, gravação em azul #0000FF) e metadados de espessura de material (padrão 3.0mm) tanto no objeto JSON quanto no bloco <metadata> do SVG. Estilo: ${style}. Máquina: ${targetMachine}.`
-            }
-          ]
-        }
-      ],
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json'
-      }
-    });
-
-    const text = response.text?.trim() || '';
-    if (text) {
-      const cleaned = cleanJsonOutput(text);
-      const parsed = JSON.parse(cleaned);
-      if (parsed.svgContent && parsed.widthMm && parsed.heightMm) {
-        const thickness = parsed.materialThickness_mm || parsed.recommendedThicknessMm || 3.0;
-        parsed.materialThickness_mm = thickness;
-        parsed.recommendedThicknessMm = thickness;
-
-        // Ensure metadata block is present on object
-        if (!parsed.metadata) {
-          parsed.metadata = createStandardMetadataBlock(thickness, 0.15);
-        } else {
-          parsed.metadata.materialThickness_mm = thickness;
-          parsed.metadata.modelName = 'gemini-1.5-pro-002';
-        }
-
-        // Ensure SVG markup contains <metadata> block and data-thickness-mm attribute
-        parsed.svgContent = ensureSvgMetadataBlock(parsed.svgContent, thickness, 0.15);
-
-        return parsed as GeneratedCncVector;
-      }
-    }
-  } catch (error) {
-    console.warn('Falha na chamada Gemini API (usando motor paramétrico procedural):', error);
-  }
-
   return generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
 }
 
-/**
- * Enhance user prompt with industrial CNC CAD/CAM details using gemini-1.5-pro-002
- */
+/** Append explicit geometry constraints locally; no external AI request is made. */
 export async function optimizeCncPrompt(userPrompt: string): Promise<string> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return `${userPrompt.trim()}, vetor 2D 1:1 em milímetros, espessura recomendada 3.0mm, camadas semanticamente separadas: contorno de corte fechado em vermelho #FF0000 (data-layer="cut") e detalhes gravados em azul #0000FF (data-layer="engrave"), tolerância de kerf 0.15mm, bloco de metadados embutido.`;
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-pro-002',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `Otimize o seguinte prompt de usuário para gerar um vetor CAD/CAM CNC de alta precisão (em Português do Brasil). Seja direto, adicione especificações de escala em mm, espessura padrão de material 3.0mm, camadas de corte em vermelho #FF0000, gravação em azul #0000FF, tolerâncias de kerf 0.15mm e simetria mecânica:\n"${userPrompt}"`
-            }
-          ]
-        }
-      ]
-    });
-    const enhanced = response.text?.trim();
-    if (enhanced) return enhanced;
-  } catch (e) {
-    console.warn('Erro ao otimizar prompt com Gemini 1.5 Pro (gemini-1.5-pro-002):', e);
-  }
-
-  return `${userPrompt.trim()}, vetor 2D 1:1 em milímetros, espessura padrão de material 3.0mm, camada de corte fechado em #FF0000 e gravação em #0000FF, tolerância kerf 0.15mm.`;
+  const prompt = userPrompt.trim();
+  if (!prompt) throw new Error('Descreva a peça antes de aprimorar o texto.');
+  return `${prompt}, vetor 2D em milímetros, contorno de corte fechado em vermelho #FF0000 e detalhes de gravação em azul #0000FF. Revise dimensões, material e tolerâncias antes de fabricar.`;
 }

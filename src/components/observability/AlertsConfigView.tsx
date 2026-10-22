@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  anomalyDetector,
-  AnomalyAlertRule,
-  TriggeredAlert
-} from '../../services/telemetry';
+import { anomalyDetector } from '../../services/telemetry/anomalyDetector';
+import type { AnomalyAlertRule, TriggeredAlert } from '../../services/telemetry/types';
 import {
   ShieldAlert,
   AlertTriangle,

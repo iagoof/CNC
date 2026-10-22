@@ -27,8 +27,10 @@ import {
 import firebaseConfig from '../../../firebase-applet-config.json';
 import { reserveCatalogOrder, productDocumentId } from '../../utils/orderReservation';
 import { convertQuoteInTransaction } from '../../utils/quoteConversion';
+import { planProductionProgress, releaseProductionReservation } from '../../utils/productionProgress';
 import type { PricingContext } from '../../utils/quoteEngine';
 import { selectOwnedProduct, planProductSave, assertProductDeletable, adjustedPhysicalStock } from '../../utils/productIdentity';
+import { validateFinancialSettings, type FinancialSettingsInput } from '../../utils/financialSettings';
 import { ProductionOrder, Material, Quote, CompanyProfile, UF, ProductInventory, SalesOrder, Machine } from '../../types';
 
 // Inicialização oficial do Firebase
@@ -201,6 +203,114 @@ export function subscribeToOrders(
   );
 }
 
+export async function progressProductionInFirestore(orderId: string, userId: string, change: { status: ProductionOrder['status'] } | { scannedQuantity: number }): Promise<number> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para alterar a produção.');
+  const orderRef = doc(db, 'orders', orderId);
+  const initial = await getDoc(orderRef);
+  if (!initial.exists() || initial.data().ownerId !== userId) throw new Error('OP não encontrada nesta conta.');
+  const sku = initial.data().sku;
+  const custom = initial.data().inventoryMode === 'custom';
+  const refs = custom ? null : await resolveOwnedProduct(userId, sku);
+  return runTransaction(db, async transaction => {
+    if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+    const current = await transaction.get(orderRef);
+    if (!current.exists() || current.data().sku !== sku || (current.data().inventoryMode === 'custom') !== custom) throw new Error('A OP mudou. Atualize a tela.');
+    const plan = planProductionProgress(userId, current.data(), change);
+    if (plan.status === current.data().status && plan.scannedQuantity === (current.data().scannedQuantity ?? 0)) return plan.scannedQuantity;
+    if (plan.completedNow && refs) {
+      const target = await transaction.get(refs.target);
+      const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+      if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados. Revise o cadastro.');
+      const product = candidate.exists() ? candidate : target;
+      if (product.exists()) {
+        const data = product.data();
+        const physicalStock = adjustedPhysicalStock(userId, sku, data, current.data().quantityRequested);
+        const inProductionStock = releaseProductionReservation(current.data(), product.id, data);
+        transaction.update(product.ref, { physicalStock, inProductionStock, updatedAt: serverTimestamp() });
+      } else if (current.data().inventoryProductId) {
+        throw new Error('O produto reservado pela OP não foi encontrado.');
+      }
+    }
+    transaction.update(orderRef, { status: plan.status, scannedQuantity: plan.scannedQuantity, updatedAt: serverTimestamp() });
+    return plan.scannedQuantity;
+  });
+}
+
+export async function createInventoryProductionInFirestore(order: ProductionOrder, userId: string): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para criar uma OP.');
+  if (!Number.isSafeInteger(order.quantityRequested) || order.quantityRequested <= 0 || order.status !== 'Aguardando Corte' || order.scannedQuantity !== 0) throw new Error('Quantidade ou estado inicial da OP inválido.');
+  const refs = await resolveOwnedProduct(userId, order.sku);
+  const orderRef = doc(db, 'orders', order.id);
+  await runTransaction(db, async transaction => {
+    if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+    const existing = await transaction.get(orderRef);
+    const target = await transaction.get(refs.target);
+    const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+    if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados. Revise o cadastro.');
+    const product = candidate.exists() ? candidate : target;
+    if (!product.exists() || product.data().ownerId !== userId || product.data().sku !== order.sku) throw new Error('Produto não encontrado nesta conta.');
+    if (existing.exists()) {
+      const saved = existing.data();
+      if (saved.ownerId === userId && saved.sku === order.sku && saved.quantityRequested === order.quantityRequested && saved.inventoryProductId === product.id && saved.inventoryReservedQuantity === order.quantityRequested) return;
+      throw new Error('Identificador de OP já utilizado.');
+    }
+    const current = product.data().inProductionStock ?? 0;
+    const next = current + order.quantityRequested;
+    if (!Number.isSafeInteger(current) || current < 0 || !Number.isSafeInteger(next)) throw new Error('Saldo em produção inválido.');
+    transaction.set(orderRef, { ...order, ownerId: userId, inventoryProductId: product.id, inventoryReservedQuantity: order.quantityRequested, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    transaction.update(product.ref, { inProductionStock: next, updatedAt: serverTimestamp() });
+  });
+}
+
+export async function createCustomProductionInFirestore(order: ProductionOrder, userId: string): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para criar uma OP.');
+  if (!order.sku.startsWith('CUSTOM-') || !Number.isSafeInteger(order.quantityRequested) || order.quantityRequested <= 0 || order.status !== 'Aguardando Corte' || order.scannedQuantity !== 0) throw new Error('Dados da OP sob encomenda inválidos.');
+  const orderRef = doc(db, 'orders', order.id);
+  const refs = await resolveOwnedProduct(userId, order.sku);
+  await runTransaction(db, async transaction => {
+    if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+    const saved = await transaction.get(orderRef);
+    const product = await transaction.get(refs.candidate);
+    if (product.exists()) throw new Error('Este SKU já pertence ao catálogo. Use uma OP com reserva de estoque.');
+    if (saved.exists()) {
+      const data = saved.data();
+      if (data.ownerId === userId && data.inventoryMode === 'custom' && data.sku === order.sku && data.quantityRequested === order.quantityRequested) return;
+      throw new Error('Identificador de OP já utilizado.');
+    }
+    transaction.set(orderRef, { ...order, ownerId: userId, inventoryMode: 'custom', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  });
+}
+
+export async function deleteInventoryProductionInFirestore(orderId: string, userId: string): Promise<void> {
+  if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para excluir uma OP.');
+  if (orderId.startsWith('op-q-')) throw new Error('OP vinculada a orçamento: o cancelamento precisa preservar o pedido comercial.');
+  const orderRef = doc(db, 'orders', orderId);
+  const initial = await getDoc(orderRef);
+  if (!initial.exists()) return;
+  if (initial.data().ownerId !== userId) throw new Error('OP de outra conta.');
+  const sku = initial.data().sku, custom = initial.data().inventoryMode === 'custom', refs = custom ? null : await resolveOwnedProduct(userId, sku);
+  await runTransaction(db, async transaction => {
+    if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+    const current = await transaction.get(orderRef);
+    if (!current.exists()) return;
+    const order = current.data();
+    if (order.ownerId !== userId || order.sku !== sku || (order.inventoryMode === 'custom') !== custom) throw new Error('A OP mudou. Atualize a tela.');
+    if (order.status === 'Pronto/Embalado' || (order.scannedQuantity ?? 0) > 0) throw new Error('Uma OP conferida ou concluída não pode ser excluída.');
+    if (refs) {
+      const target = await transaction.get(refs.target);
+      const candidate = refs.candidate.path === refs.target.path ? target : await transaction.get(refs.candidate);
+      if (target.exists() && candidate.exists() && refs.candidate.path !== refs.target.path) throw new Error('Produtos duplicados.');
+      const product = candidate.exists() ? candidate : target;
+      if (product.exists()) {
+        if (product.data().ownerId !== userId || product.data().sku !== sku) throw new Error('Produto incompatível com a OP.');
+        const inProductionStock = releaseProductionReservation(order, product.id, product.data());
+        transaction.update(product.ref, { inProductionStock, updatedAt: serverTimestamp() });
+      } else if (order.inventoryProductId) throw new Error('Produto reservado não encontrado.');
+    }
+    transaction.delete(orderRef);
+  });
+}
+
 export async function saveOrderToFirestore(order: ProductionOrder, userId: string): Promise<void> {
   const path = `orders/${order.id}`;
   try {
@@ -278,13 +388,13 @@ export function subscribeToMaterials(
           id: docSnap.id,
           name: data.name || '',
           category: data.category || 'MDF',
-          thickness_mm: data.thickness_mm || 3,
-          sheetWidth_mm: data.sheetWidth_mm || 1850,
-          sheetLength_mm: data.sheetLength_mm || 2750,
-          unitCost: data.unitCost || 0,
-          shippingCost: data.shippingCost || 0,
+          thickness_mm: data.thickness_mm ?? 0,
+          sheetWidth_mm: data.sheetWidth_mm ?? 0,
+          sheetLength_mm: data.sheetLength_mm ?? 0,
+          unitCost: data.unitCost ?? 0,
+          shippingCost: data.shippingCost ?? 0,
           lossPercentage: data.lossPercentage ?? 5,
-          density_kg_m3: data.density_kg_m3 || 750,
+          density_kg_m3: data.density_kg_m3 ?? 0,
           speedsByMachine: Array.isArray(data.speedsByMachine) ? data.speedsByMachine : []
         });
       });
@@ -302,10 +412,11 @@ export async function saveMaterialToFirestore(material: Material, userId: string
   const path = `materials/${material.id}`;
   try {
     const docRef = doc(db, 'materials', material.id);
-    const existingSnap = await getDoc(docRef);
-
-    if (existingSnap.exists()) {
-      await updateDoc(docRef, {
+    await runTransaction(db, async transaction => {
+      const existingSnap = await transaction.get(docRef);
+      if (existingSnap.exists() && existingSnap.data().ownerId !== userId) throw new Error('Material pertence a outra conta.');
+      if (existingSnap.exists()) {
+        transaction.update(docRef, {
         name: material.name,
         category: material.category,
         thickness_mm: material.thickness_mm,
@@ -317,9 +428,9 @@ export async function saveMaterialToFirestore(material: Material, userId: string
         density_kg_m3: material.density_kg_m3,
         speedsByMachine: material.speedsByMachine,
         updatedAt: serverTimestamp()
-      });
-    } else {
-      await setDoc(docRef, {
+        });
+      } else {
+        transaction.set(docRef, {
         id: material.id,
         ownerId: userId,
         name: material.name,
@@ -334,17 +445,24 @@ export async function saveMaterialToFirestore(material: Material, userId: string
         speedsByMachine: material.speedsByMachine,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
-    }
+        });
+      }
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
-export async function deleteMaterialFromFirestore(materialId: string): Promise<void> {
+export async function deleteMaterialFromFirestore(materialId: string, userId: string): Promise<void> {
   const path = `materials/${materialId}`;
   try {
-    await deleteDoc(doc(db, 'materials', materialId));
+    const docRef = doc(db, 'materials', materialId);
+    await runTransaction(db, async transaction => {
+      const existing = await transaction.get(docRef);
+      if (!existing.exists()) return;
+      if (existing.data().ownerId !== userId) throw new Error('Material pertence a outra conta.');
+      transaction.delete(docRef);
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
@@ -438,11 +556,21 @@ export async function saveQuoteToFirestore(quote: Quote, userId: string): Promis
   }
 }
 
-export async function deleteQuoteFromFirestore(quoteId: string): Promise<void> {
+export async function deleteQuoteFromFirestore(quoteId: string, userId: string): Promise<void> {
   const path = `quotes/${quoteId}`;
   try {
-    await deleteDoc(doc(db, 'quotes', quoteId));
+    if (auth.currentUser?.uid !== userId) throw new Error('Entre na sua conta para excluir orçamentos.');
+    const quoteRef = doc(db, 'quotes', quoteId);
+    await runTransaction(db, async transaction => {
+      if (auth.currentUser?.uid !== userId) throw new Error('A conta mudou. Atualize a tela.');
+      const snapshot = await transaction.get(quoteRef);
+      if (!snapshot.exists()) return;
+      if (snapshot.data().ownerId !== userId) throw new Error('Orçamento de outra conta.');
+      if (snapshot.data().status === 'Convertido em Pedido') throw new Error('Este orçamento possui pedido vinculado e não pode ser excluído.');
+      transaction.delete(quoteRef);
+    });
   } catch (error) {
+    if (!(error as { code?: string })?.code) throw error;
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
@@ -459,7 +587,7 @@ export interface FirestoreProject {
   engraveAreaCm2?: number;
   materialCategory?: string;
   recommendedThicknessMm?: number;
-  source?: 'ai_prompt' | 'image_trace' | 'parametric_box' | 'catalog';
+  source?: 'ai_prompt' | 'image_trace' | 'parametric_box' | 'catalog' | 'local_vector';
   createdAt?: any;
   updatedAt?: any;
 }
@@ -493,10 +621,13 @@ export async function saveProjectToFirestore(project: FirestoreProject, userId: 
   const path = `projects/${project.id}`;
   try {
     const docRef = doc(db, 'projects', project.id);
-    const existingSnap = await getDoc(docRef);
-
-    if (existingSnap.exists()) {
-      await updateDoc(docRef, {
+    await runTransaction(db, async transaction => {
+      const existingSnap = await transaction.get(docRef);
+      if (existingSnap.exists() && existingSnap.data().ownerId !== userId) {
+        throw new Error('Projeto pertence a outra conta.');
+      }
+      if (existingSnap.exists()) {
+        transaction.update(docRef, {
         name: project.name,
         svgContent: project.svgContent,
         widthMm: project.widthMm,
@@ -507,9 +638,9 @@ export async function saveProjectToFirestore(project: FirestoreProject, userId: 
         recommendedThicknessMm: project.recommendedThicknessMm || 3,
         source: project.source || 'ai_prompt',
         updatedAt: serverTimestamp()
-      });
-    } else {
-      await setDoc(docRef, {
+        });
+      } else {
+        transaction.set(docRef, {
         id: project.id,
         name: project.name,
         ownerId: userId,
@@ -523,17 +654,24 @@ export async function saveProjectToFirestore(project: FirestoreProject, userId: 
         source: project.source || 'ai_prompt',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
-    }
+        });
+      }
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
-export async function deleteProjectFromFirestore(projectId: string): Promise<void> {
+export async function deleteProjectFromFirestore(projectId: string, userId: string): Promise<void> {
   const path = `projects/${projectId}`;
   try {
-    await deleteDoc(doc(db, 'projects', projectId));
+    const docRef = doc(db, 'projects', projectId);
+    await runTransaction(db, async transaction => {
+      const existing = await transaction.get(docRef);
+      if (!existing.exists()) return;
+      if (existing.data().ownerId !== userId) throw new Error('Projeto pertence a outra conta.');
+      transaction.delete(docRef);
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
@@ -589,12 +727,11 @@ export async function saveCompanySettingsToFirestore(
   settings: Partial<FirestoreCompanySettings> & { tradeName: string },
   userId: string
 ): Promise<void> {
+  if (!settings.tradeName.trim()) throw new Error('Informe o nome fantasia da oficina.');
   const settingId = settings.id || `set-${userId}`;
   const path = `settings/${settingId}`;
   try {
     const docRef = doc(db, 'settings', settingId);
-    const existingSnap = await getDoc(docRef);
-
     const dataToSave: Record<string, any> = {
       tradeName: settings.tradeName,
       updatedAt: serverTimestamp()
@@ -608,19 +745,43 @@ export async function saveCompanySettingsToFirestore(
     if (settings.cemigRateKwh !== undefined) dataToSave.cemigRateKwh = Number(settings.cemigRateKwh);
     if (settings.monthlyWorkHours !== undefined) dataToSave.monthlyWorkHours = Number(settings.monthlyWorkHours);
 
-    if (existingSnap.exists()) {
-      await updateDoc(docRef, dataToSave);
-    } else {
-      await setDoc(docRef, {
-        id: settingId,
-        ownerId: userId,
-        ...dataToSave,
-        createdAt: serverTimestamp()
-      });
-    }
+    await runTransaction(db, async transaction => {
+      const existingSnap = await transaction.get(docRef);
+      if (existingSnap.exists() && existingSnap.data().ownerId !== userId) throw new Error('Perfil pertence a outra conta.');
+      if (existingSnap.exists()) transaction.update(docRef, dataToSave);
+      else transaction.set(docRef, { id: settingId, ownerId: userId, ...dataToSave, createdAt: serverTimestamp() });
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+export interface FirestoreFinancialSettings extends FinancialSettingsInput {
+  id: string;
+  ownerId: string;
+}
+
+export function subscribeToFinancialSettings(userId: string, onData: (settings: FirestoreFinancialSettings | null) => void, onError?: (err: Error) => void): Unsubscribe {
+  return onSnapshot(doc(db, 'financial_settings', userId), snapshot => {
+    onData(snapshot.exists() ? snapshot.data() as FirestoreFinancialSettings : null);
+  }, error => {
+    if (onError) onError(error);
+    window.dispatchEvent(new CustomEvent('cnc-sync-error', { detail: 'Falha ao carregar os parâmetros financeiros da conta.' }));
+  });
+}
+
+export async function saveFinancialSettingsToFirestore(input: FinancialSettingsInput, userId: string): Promise<void> {
+  validateFinancialSettings(input);
+  const path = `financial_settings/${userId}`;
+  try {
+    const ref = doc(db, 'financial_settings', userId);
+    await runTransaction(db, async transaction => {
+      const snapshot = await transaction.get(ref);
+      if (snapshot.exists() && snapshot.data().ownerId !== userId) throw new Error('Configurações financeiras pertencem a outra conta.');
+      if (snapshot.exists()) transaction.update(ref, { ...input, updatedAt: serverTimestamp() });
+      else transaction.set(ref, { id: userId, ownerId: userId, ...input, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    });
+  } catch (error) { handleFirestoreError(error, OperationType.WRITE, path); }
 }
 
 // PRODUTOS & ESTOQUE (ProductInventory)
@@ -959,15 +1120,15 @@ export function subscribeToMachines(
           name: d.name,
           model: d.model || '',
           type: d.type || 'CO2',
-          laserPowerW: Number(d.laserPowerW || 0),
-          workAreaX_mm: Number(d.workAreaX_mm || 0),
-          workAreaY_mm: Number(d.workAreaY_mm || 0),
-          purchasePrice: Number(d.purchasePrice || 0),
-          depreciationYears: Number(d.depreciationYears || 5),
-          monthlyWorkHours: Number(d.monthlyWorkHours || 160),
-          energyConsumptionKwh: Number(d.energyConsumptionKwh || 0),
-          monthlyMaintenanceCosts: Number(d.monthlyMaintenanceCosts || 0),
-          tubeSpareCost: Number(d.tubeSpareCost || 0),
+          laserPowerW: Number(d.laserPowerW ?? 0),
+          workAreaX_mm: Number(d.workAreaX_mm ?? 0),
+          workAreaY_mm: Number(d.workAreaY_mm ?? 0),
+          purchasePrice: Number(d.purchasePrice ?? 0),
+          depreciationYears: Number(d.depreciationYears ?? 0),
+          monthlyWorkHours: Number(d.monthlyWorkHours ?? 0),
+          energyConsumptionKwh: Number(d.energyConsumptionKwh ?? 0),
+          monthlyMaintenanceCosts: Number(d.monthlyMaintenanceCosts ?? 0),
+          tubeSpareCost: Number(d.tubeSpareCost ?? 0),
           notes: d.notes || ''
         });
       });
@@ -985,44 +1146,53 @@ export async function saveMachineToFirestore(machine: Machine, userId: string): 
   const path = `machines/${machine.id}`;
   try {
     const docRef = doc(db, 'machines', machine.id);
-    const existingSnap = await getDoc(docRef);
 
     const baseData: Record<string, any> = {
       name: machine.name,
       model: machine.model || '',
       type: machine.type || 'CO2',
-      laserPowerW: Number(machine.laserPowerW || 0),
-      workAreaX_mm: Number(machine.workAreaX_mm || 1),
-      workAreaY_mm: Number(machine.workAreaY_mm || 1),
-      purchasePrice: Number(machine.purchasePrice || 0),
-      depreciationYears: Number(machine.depreciationYears || 5),
-      monthlyWorkHours: Number(machine.monthlyWorkHours || 160),
-      energyConsumptionKwh: Number(machine.energyConsumptionKwh || 0),
-      monthlyMaintenanceCosts: Number(machine.monthlyMaintenanceCosts || 0),
-      tubeSpareCost: Number(machine.tubeSpareCost || 0),
+      laserPowerW: Number(machine.laserPowerW ?? 0),
+      workAreaX_mm: Number(machine.workAreaX_mm ?? 0),
+      workAreaY_mm: Number(machine.workAreaY_mm ?? 0),
+      purchasePrice: Number(machine.purchasePrice ?? 0),
+      depreciationYears: Number(machine.depreciationYears ?? 0),
+      monthlyWorkHours: Number(machine.monthlyWorkHours ?? 0),
+      energyConsumptionKwh: Number(machine.energyConsumptionKwh ?? 0),
+      monthlyMaintenanceCosts: Number(machine.monthlyMaintenanceCosts ?? 0),
+      tubeSpareCost: Number(machine.tubeSpareCost ?? 0),
       notes: machine.notes || '',
       updatedAt: serverTimestamp()
     };
 
-    if (existingSnap.exists()) {
-      await updateDoc(docRef, baseData);
-    } else {
-      await setDoc(docRef, {
+    await runTransaction(db, async transaction => {
+      const existingSnap = await transaction.get(docRef);
+      if (existingSnap.exists() && existingSnap.data().ownerId !== userId) throw new Error('Máquina pertence a outra conta.');
+      if (existingSnap.exists()) {
+        transaction.update(docRef, baseData);
+      } else {
+        transaction.set(docRef, {
         id: machine.id,
         ownerId: userId,
         ...baseData,
         createdAt: serverTimestamp()
-      });
-    }
+        });
+      }
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
-export async function deleteMachineFromFirestore(machineId: string): Promise<void> {
+export async function deleteMachineFromFirestore(machineId: string, userId: string): Promise<void> {
   const path = `machines/${machineId}`;
   try {
-    await deleteDoc(doc(db, 'machines', machineId));
+    const docRef = doc(db, 'machines', machineId);
+    await runTransaction(db, async transaction => {
+      const existing = await transaction.get(docRef);
+      if (!existing.exists()) return;
+      if (existing.data().ownerId !== userId) throw new Error('Máquina pertence a outra conta.');
+      transaction.delete(docRef);
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

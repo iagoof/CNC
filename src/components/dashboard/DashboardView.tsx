@@ -46,10 +46,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return calcMonthPace(monthlyRevenueTarget, currentDay, totalDaysInMonth);
   }, [monthlyRevenueTarget, currentDay, totalDaysInMonth]);
 
-  const paidOrders = orders.filter(o => o.paymentStatus === 'Pago');
+  const paidOrders = orders.filter(o => {
+    if (o.paymentStatus !== 'Pago' || !o.paidAt) return false;
+    const paidAt = new Date(o.paidAt);
+    return Number.isFinite(paidAt.getTime()) && paidAt.getFullYear() === now.getFullYear() && paidAt.getMonth() === now.getMonth();
+  });
   const actualRevenue = paidOrders.reduce((acc, o) => acc + o.total, 0);
   const paceDifference = actualRevenue - pace.targetPaceToday;
-  const isAheadOfPace = paceDifference >= 0;
+  const hasRevenueTarget = Number.isFinite(monthlyRevenueTarget) && monthlyRevenueTarget > 0;
+  const isAheadOfPace = hasRevenueTarget && paceDifference >= 0;
 
   const fixedCostAnalysis = useMemo(() => {
     return calcFixedCostMarkupPercentage(fixedCosts, monthlyRevenueTarget);
@@ -59,23 +64,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return calcEstimatedTaxes(actualRevenue, taxes);
   }, [actualRevenue, taxes]);
 
-  const estimatedDirectCosts = useMemo(() => {
+  const directCostAnalysis = useMemo(() => {
     let sum = 0;
+    let missingCosts = 0;
     paidOrders.forEach(order => {
       order.items.forEach(orderItem => {
         const invItem = inventory.find(i => i.sku === orderItem.sku);
-        if (invItem && invItem.costPrice > 0) {
+        if (invItem && Number.isFinite(invItem.costPrice) && invItem.costPrice > 0) {
           sum += invItem.costPrice * orderItem.quantity;
         } else {
-          sum += orderItem.unitPrice * 0.38;
+          missingCosts++;
         }
       });
     });
-    return sum;
+    return { sum, missingCosts };
   }, [paidOrders, inventory]);
 
-  const estimatedProfit = Math.max(0, actualRevenue - fixedCostAnalysis.totalMonthlyCosts - estimatedTaxes - estimatedDirectCosts);
-  const profitMarginPct = actualRevenue > 0 ? (estimatedProfit / actualRevenue) * 100 : 0;
+  const estimatedProfit = directCostAnalysis.missingCosts === 0
+    ? actualRevenue - fixedCostAnalysis.totalMonthlyCosts - estimatedTaxes - directCostAnalysis.sum
+    : null;
+  const profitMarginPct = estimatedProfit !== null && actualRevenue > 0 ? (estimatedProfit / actualRevenue) * 100 : null;
 
   const totalLaserSecondsInOrders = orders.reduce((acc, o) => {
     return acc + o.items.reduce((sum, item) => sum + (item.laserTimeSeconds || 0), 0);
@@ -92,7 +100,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <Activity className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-slate-900">Painel Geral da Oficina — Juiz de Fora / MG</h1>
+            <h1 className="text-base font-bold text-slate-900">Painel Geral da Oficina</h1>
             <p className="text-xs text-slate-500">
               Acompanhamento de metas, ritmo diário, caixa da loja e horas produtivas de máquina
             </p>
@@ -120,8 +128,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* 1. Ritmo do Mês */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="font-semibold uppercase tracking-wider text-[11px]">Ritmo Esperado (Hoje)</span>
-              {isAheadOfPace ? (
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Recebido no mês</span>
+              {!hasRevenueTarget ? <span className="text-[11px] text-slate-500">Meta não configurada</span> : isAheadOfPace ? (
                 <span className="flex items-center text-emerald-700 font-semibold text-[11px]">
                   <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> Acima
                 </span>
@@ -144,7 +152,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <p className="text-[10px] text-slate-500">
-              {isAheadOfPace
+              {!hasRevenueTarget ? 'Configure a meta mensal nos cadastros financeiros.' : isAheadOfPace
                 ? `+ R$ ${paceDifference.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} acima da meta proporcional!`
                 : `- R$ ${Math.abs(paceDifference).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} para alcançar o ritmo.`}
             </p>
@@ -155,7 +163,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between text-xs text-slate-500">
               <span className="font-semibold uppercase tracking-wider text-[11px]">Meta do Mês</span>
               <span className="text-amber-700 font-mono font-bold">
-                {((actualRevenue / (monthlyRevenueTarget || 1)) * 100).toFixed(1)}%
+                {hasRevenueTarget ? `${((actualRevenue / monthlyRevenueTarget) * 100).toFixed(1)}%` : '—'}
               </span>
             </div>
 
@@ -166,7 +174,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
               <div
                 className="bg-gradient-to-r from-amber-500 to-emerald-500 h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, (actualRevenue / (monthlyRevenueTarget || 1)) * 100)}%` }}
+                style={{ width: `${hasRevenueTarget ? Math.min(100, (actualRevenue / monthlyRevenueTarget) * 100) : 0}%` }}
               />
             </div>
 
@@ -181,12 +189,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* 3. Lucratividade */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span className="font-semibold uppercase tracking-wider text-[11px]">Lucro Líquido Estimado</span>
-              <span className="text-emerald-700 font-mono font-bold">{profitMarginPct.toFixed(1)}%</span>
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Saldo Operacional Estimado</span>
+              <span className="text-slate-700 font-mono font-bold">{profitMarginPct === null ? '—' : `${profitMarginPct.toFixed(1)}%`}</span>
             </div>
 
             <div className="text-2xl font-extrabold text-emerald-700 font-mono">
-              R$ {estimatedProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              {estimatedProfit === null ? 'Indisponível' : `R$ ${estimatedProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
             </div>
 
             <div className="flex justify-between items-center text-xs pt-1 border-t border-slate-100">
@@ -197,7 +205,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <p className="text-[10px] text-slate-500">
-              Impostos estimados: R$ {estimatedTaxes.toFixed(2)} (Simples Nacional)
+              {directCostAnalysis.missingCosts > 0 ? `${directCostAnalysis.missingCosts} item(ns) sem custo direto cadastrado.` : `Impostos estimados: R$ ${estimatedTaxes.toFixed(2)} conforme alíquotas cadastradas.`}
             </p>
           </div>
 
@@ -220,7 +228,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <p className="text-[10px] text-slate-500">
-              {machines.length} máquinas CNC calibradas
+              {machines.length} máquinas cadastradas
             </p>
           </div>
         </div>
@@ -232,10 +240,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <ShoppingBag className="w-4 h-4 text-amber-600" />
-                  Últimos Pedidos dos Canais (Loja, WhatsApp, Marketplaces)
+                  Últimos Pedidos
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Integração unificada com baixa de estoque automática e disparo de OP
+                  Pedidos registrados na sua conta
                 </p>
               </div>
 
@@ -303,7 +311,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <Cpu className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-900 block">Otimizador CAM & G-Code IA</span>
+                    <span className="text-xs font-bold text-slate-900 block">Diagnóstico CAM & G-Code</span>
                     <span className="text-[10px] text-slate-500">Diagnóstico de avanço e percursos</span>
                   </div>
                 </button>
@@ -316,7 +324,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <Sparkles className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-900 block">Estúdio 3D & Vetorizador IA</span>
+                    <span className="text-xs font-bold text-slate-900 block">Estúdio 3D & Vetorizador Local</span>
                     <span className="text-[10px] text-slate-500">Conferir montagem e folga de kerf</span>
                   </div>
                 </button>

@@ -1,6 +1,7 @@
 import type { NestingTransfer } from '../../utils/nestingEngine';
 import { calcLaserCutTimeAndCost } from '../../utils/calculations';
 import { sanitizeSvg } from '../../utils/sanitizeSvg';
+import { binaryMaskFromRgba, traceBinaryMask } from '../../utils/rasterTrace';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -68,7 +69,7 @@ import {
 interface DesignStudioAiViewProps {
   materials: Material[];
   machines: Machine[];
-  onSendTo3D?: (modelType: string) => void;
+  onSendTo3D?: (artifact: GeneratedVectorArtifact) => void;
   onSendToNesting?: (part: NestingTransfer) => void;
   onSendToCam?: (gcode: string, machineType: 'laser' | 'router') => void;
   onSendToQuote?: (item: {
@@ -82,7 +83,7 @@ interface DesignStudioAiViewProps {
     width_mm: number;
     height_mm: number;
   }) => void;
-  onSendToProduction?: (order: Partial<ProductionOrder>) => void;
+  onSendToProduction?: (order: Partial<ProductionOrder>) => Promise<void>;
 }
 
 export interface GeneratedVectorArtifact {
@@ -116,7 +117,6 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
   // Input State
   const [inputMode, setInputMode] = useState<'prompt' | 'upload' | 'cloud'>('prompt');
-  const [activeModel, setActiveModel] = useState<string>('gemini-1.5-pro-002');
   const [promptText, setPromptText] = useState<string>(
     'Porta-copos hexagonal de 100x100mm com cantos arredondados R5, corte externo passante fechado em vermelho puro #FF0000, gravação de geometria sagrada com padrão flor da vida e anel de drenagem perimétrico em azul puro #0000FF, espessura recomendada de 3.0mm em MDF ou acrílico.'
   );
@@ -139,6 +139,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [showKerfLines, setShowKerfLines] = useState<boolean>(true);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
 
   const selectedMaterial = materials.find(m => m.id === selectedMaterialId) || materials[0];
@@ -151,7 +152,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   // ========================================================
   // Projetos dinâmicos vinculados à conta do usuário no Firestore
   const READY_EXAMPLES: GeneratedVectorArtifact[] = useMemo(() => {
-    const sourceList = (projects && projects.length > 0)
+    const hasCloudProjects = Boolean(projects && projects.length > 0);
+    const sourceList = hasCloudProjects
       ? projects
       : DEFAULT_PROJECTS_SEED.map(p => ({ ...p, ownerId: user?.uid || 'local-user' }));
 
@@ -161,7 +163,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       return {
         id: item.id,
         title: item.name,
-        description: `Projeto do Firestore em ${item.materialCategory || 'MDF'} ${thickness}mm (${item.widthMm}x${item.heightMm}mm).`,
+        description: `${hasCloudProjects ? 'Projeto salvo na nuvem' : 'Exemplo de inspiração'} em ${item.materialCategory || 'MDF'} ${thickness}mm (${metrics.widthMm}x${metrics.heightMm}mm).`,
         width_mm: metrics.widthMm,
         height_mm: metrics.heightMm,
         thickness_mm: thickness,
@@ -169,7 +171,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         engraveArea_cm2: metrics.engraveAreaCm2,
         materialName: `${item.materialCategory || 'MDF'} Cru ${thickness},0 mm`,
         model3dType: (item.source === 'parametric_box' ? 'caixa-fingerjoint' : 'mandala-camadas') as any,
-        partsCount: item.source === 'parametric_box' ? 7 : 1,
+        partsCount: metrics.elementCount,
         aiPromptUsed: `Projeto vetorial CNC ${item.name}`,
         svgString: ensureSvgMetadataBlock(item.svgContent, thickness, 0.15),
         estimatedLaserSeconds: Math.max(15, Math.round((item.cutLengthMm || metrics.totalCutLengthMm || 1000) / 25)),
@@ -180,6 +182,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
   // Currently active generated artifact
   const [currentArtifact, setCurrentArtifact] = useState<GeneratedVectorArtifact>(READY_EXAMPLES[0]);
+  const [hasSelectedArtifact, setHasSelectedArtifact] = useState(false);
 
   const currentSpeed = selectedMaterial.speedsByMachine.find(speed => speed.machineId === selectedMachine.id);
   const currentProcessSeconds = currentSpeed ? Math.ceil(calcLaserCutTimeAndCost(
@@ -200,7 +203,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
   // Setup Three.js Scene for the 3D model
   useEffect(() => {
-    if (activeViewMode !== '3d' || !mount3dRef.current) return;
+    if (!hasSelectedArtifact || activeViewMode !== '3d' || !mount3dRef.current) return;
     const container = mount3dRef.current;
     const width = container.clientWidth;
     const height = container.clientHeight || 420;
@@ -313,7 +316,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       modelGroupRef.current = null;
       renderer.dispose();
     };
-  }, [activeViewMode, currentArtifact, selectedFinish]);
+  }, [hasSelectedArtifact, activeViewMode, currentArtifact, selectedFinish]);
 
   // Handle Photo Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,7 +326,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       const reader = new FileReader();
       reader.onload = ev => {
         setUploadedImage(ev.target?.result as string);
-        triggerToast(`Foto "${file.name}" carregada com sucesso! Clique em "Gerar Vetor com IA".`);
+        triggerToast(`Imagem "${file.name}" carregada. Clique em "Traçar silhueta" para gerar o contorno.`);
       };
       reader.readAsDataURL(file);
     }
@@ -332,7 +335,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   // AI Prompt Enhancer: transforms simple user ideas into rigorous CAD/CAM prompts
   const handleEnhancePrompt = async () => {
     setIsProcessing(true);
-    setProcessingStep('Aprimorando prompt com inteligência industrial Gemini...');
+    setProcessingStep('Acrescentando parâmetros técnicos ao texto...');
     try {
       const enhanced = await optimizeCncPrompt(promptText);
       setPromptText(enhanced);
@@ -359,35 +362,35 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       let artifactMetadata: CncMetadataBlock;
 
       if (inputMode === 'upload' && uploadedImage) {
-        setProcessingStep('2/3 Vetorizando silhueta em camadas de corte (#FF0000) e gravação (#0000FF)...');
+        setProcessingStep('2/3 Traçando o contorno da imagem...');
         const img = new Image();
-        img.src = uploadedImage;
-        await new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+          img.src = uploadedImage;
         });
-
-        calculatedWidth = targetWidth || 150;
-        calculatedHeight = Math.round(((img.height || 100) / (img.width || 100)) * calculatedWidth) || 100;
+        if (!img.naturalWidth || !img.naturalHeight || !Number.isFinite(targetWidth) || targetWidth <= 0) throw new Error('Informe uma largura válida para a imagem.');
+        const scale = Math.min(1, 384 / Math.max(img.naturalWidth, img.naturalHeight));
+        const pixelWidth = Math.max(2, Math.round(img.naturalWidth * scale));
+        const pixelHeight = Math.max(2, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('O navegador não oferece leitura de pixels da imagem.');
+        context.drawImage(img, 0, 0, pixelWidth, pixelHeight);
+        const rgba = context.getImageData(0, 0, pixelWidth, pixelHeight).data;
+        const traced = traceBinaryMask(binaryMaskFromRgba(rgba, pixelWidth, pixelHeight), pixelWidth, pixelHeight);
+        calculatedWidth = targetWidth;
+        calculatedHeight = Math.round((pixelHeight / pixelWidth) * calculatedWidth * 100) / 100;
         const thickness = selectedMaterial?.thickness_mm || 3.0;
         artifactThickness = thickness;
         artifactMetadata = createStandardMetadataBlock(thickness, kerfCompensation);
-
-        const rawSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${calculatedWidth} ${calculatedHeight}" width="${calculatedWidth}mm" height="${calculatedHeight}mm" data-thickness-mm="${thickness}">
-  <!-- Camada de Corte Passante Perimetral (#FF0000) -->
-  <rect x="2" y="2" width="${calculatedWidth - 4}" height="${calculatedHeight - 4}" rx="6" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="10" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.6" data-layer="cut" />
-  <circle cx="${calculatedWidth - 10}" cy="10" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.6" data-layer="cut" />
-  <circle cx="10" cy="${calculatedHeight - 10}" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.6" data-layer="cut" />
-  <circle cx="${calculatedWidth - 10}" cy="${calculatedHeight - 10}" r="2.5" fill="none" stroke="#FF0000" stroke-width="0.6" data-layer="cut" />
-  <!-- Camada de Gravação Técnica (#0000FF) -->
-  <ellipse cx="${calculatedWidth / 2}" cy="${calculatedHeight / 2}" rx="${(calculatedWidth - 28) / 2}" ry="${(calculatedHeight - 28) / 2}" fill="none" stroke="#0000FF" stroke-width="0.6" stroke-dasharray="2,2" data-layer="engrave" />
-  <text x="${calculatedWidth / 2}" y="${calculatedHeight / 2 + 3}" font-family="sans-serif" font-size="9" font-weight="bold" text-anchor="middle" fill="#0000FF">${uploadedFileName.slice(0, 20).toUpperCase()}</text>
-</svg>`;
+        const rawSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelWidth} ${pixelHeight}" width="${calculatedWidth}mm" height="${calculatedHeight}mm" data-thickness-mm="${thickness}">${traced.paths.map(path => `<path d="${path}" fill="none" stroke="#FF0000" stroke-width="0.5" data-layer="cut" />`).join('')}</svg>`;
         finalSvg = ensureSvgMetadataBlock(rawSvg, thickness, kerfCompensation);
         generatedTitle = `Vetorizado: ${uploadedFileName.replace(/\.[^/.]+$/, '')}`;
       } else {
-        setProcessingStep('2/3 Gerando camadas de corte (#FF0000) e gravação (#0000FF) com IA...');
+        setProcessingStep('2/3 Construindo modelo geométrico local...');
         const result = await generateCncVector(
           promptText,
           includeEngraving ? 'cut_engrave' : 'cut_only',
@@ -421,7 +424,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
-        description: `Modelo industrial com camadas semânticas (corte passante #FF0000 e gravação #0000FF). Espessura do material: ${artifactThickness}mm.`,
+        description: `Modelo geométrico para revisão técnica. Espessura do material: ${artifactThickness}mm. Confira dimensões, contornos e parâmetros antes de usar na máquina.`,
         width_mm: calculatedWidth,
         height_mm: calculatedHeight,
         thickness_mm: artifactThickness,
@@ -437,8 +440,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       };
 
       setCurrentArtifact(newArtifact);
-      triggerToast(`Vetor gerado com sucesso! Espessura: ${artifactThickness}mm (Corte #FF0000, Gravação #0000FF)`);
-      triggerToast('Vetor e modelo 3D gerados com sucesso!');
+      setHasSelectedArtifact(true);
+      triggerToast('Contorno criado. Revise a geometria e os parâmetros antes de fabricar.');
     } catch (e) {
       console.warn('Erro na geração:', e);
       triggerToast(e instanceof Error ? `Falha na geração: ${e.message}` : 'Não foi possível gerar o projeto.');
@@ -455,10 +458,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
   // Action Hub Handlers
   const handleSendTo3DStudio = () => {
-    if (onSendTo3D) {
-      onSendTo3D(currentArtifact.model3dType);
-    }
-    triggerToast('Modelo enviado para o Estúdio 3D com montagem interativa!');
+    if (!onSendTo3D) { triggerToast('Estúdio 3D indisponível.'); return; }
+    onSendTo3D(currentArtifact);
   };
 
   const handleSendToNestingAction = () => {
@@ -496,26 +497,38 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   };
 
   const handleSendToQuoteAction = () => {
-    if (onSendToQuote) {
+    try {
+      if (!onSendToQuote) throw new Error('Orçamentos indisponíveis.');
+      const metrics = calculateSvgMetrics(currentArtifact.svgString);
+      if (metrics.totalCutLengthMm <= 0) throw new Error('O desenho não contém contornos de corte válidos.');
       onSendToQuote({
-        description: `${currentArtifact.title} (${currentArtifact.width_mm}x${currentArtifact.height_mm}mm em ${selectedMaterial.name})`,
+        description: `${currentArtifact.title} (${metrics.widthMm}x${metrics.heightMm}mm em ${selectedMaterial.name})`,
         materialId: selectedMaterial.id,
-        cutLength_mm: currentArtifact.cutLength_mm,
-        engraveArea_cm2: currentArtifact.engraveArea_cm2,
+        cutLength_mm: metrics.totalCutLengthMm,
+        engraveArea_cm2: metrics.engraveAreaCm2,
         machineId: selectedMachine.id,
-        width_mm: currentArtifact.width_mm,
-        height_mm: currentArtifact.height_mm,
+        width_mm: metrics.widthMm,
+        height_mm: metrics.heightMm,
         quantity: 1
       });
+      triggerToast('Item enviado ao rascunho de orçamento. Complete os dados do cliente.');
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : 'Falha ao enviar o desenho para orçamento.');
     }
-    triggerToast('Item adicionado à proposta de Orçamento com Mark-up Divisor!');
   };
 
-  const handleSendToProductionAction = () => {
+  const customOpRequests = useRef(new Map<string, { id: string; sku: string }>());
+  const [isCreatingOp, setIsCreatingOp] = useState(false);
+  const handleSendToProductionAction = async () => {
     if (currentProcessSeconds === null) { triggerToast('Cadastre velocidades do material antes de criar a ordem.'); return; }
-    if (onSendToProduction) {
-      onSendToProduction({
-        sku: `SKU-AI-${crypto.randomUUID()}`,
+    if (!onSendToProduction || isCreatingOp) return;
+    setIsCreatingOp(true);
+    try {
+      if (!customOpRequests.current.has(currentArtifact.id)) customOpRequests.current.set(currentArtifact.id, { id: `op-${crypto.randomUUID()}`, sku: `CUSTOM-${crypto.randomUUID()}` });
+      const request = customOpRequests.current.get(currentArtifact.id)!;
+      await onSendToProduction({
+        id: request.id,
+        sku: request.sku,
         productName: currentArtifact.title,
         quantityRequested: 1,
         materialName: selectedMaterial.name,
@@ -523,8 +536,10 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         machineId: selectedMachine.id,
         priority: 'Alta'
       });
-    }
-    triggerToast('Ordem de Produção (OP) disparada para o Kanban da fábrica!');
+      customOpRequests.current.delete(currentArtifact.id);
+      triggerToast('OP sob encomenda confirmada no Kanban. Ela não altera o estoque do catálogo.');
+    } catch (error) { triggerToast(error instanceof Error ? error.message : 'Não foi possível criar a OP.'); }
+    finally { setIsCreatingOp(false); }
   };
 
   const handleSaveToFirestore = async () => {
@@ -533,19 +548,22 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       return;
     }
     try {
-      const projId = currentArtifact.id.startsWith('proj-') ? currentArtifact.id : `proj-${Date.now()}`;
+      const existingProject = projects.find(project => project.id === currentArtifact.id);
+      const projId = existingProject ? existingProject.id : `proj-${crypto.randomUUID()}`;
+      const metrics = calculateSvgMetrics(currentArtifact.svgString);
+      if (metrics.totalCutLengthMm <= 0) throw new Error('O desenho não contém contornos de corte válidos.');
       await syncProjectMutation({
         id: projId,
         name: currentArtifact.title || 'Projeto CNC Vetorial',
         ownerId: user.uid,
         svgContent: currentArtifact.svgString,
-        widthMm: currentArtifact.width_mm,
-        heightMm: currentArtifact.height_mm,
-        cutLengthMm: currentArtifact.cutLength_mm,
-        engraveAreaCm2: currentArtifact.engraveArea_cm2,
+        widthMm: metrics.widthMm,
+        heightMm: metrics.heightMm,
+        cutLengthMm: metrics.totalCutLengthMm,
+        engraveAreaCm2: metrics.engraveAreaCm2,
         materialCategory: selectedMaterial?.category || 'MDF',
         recommendedThicknessMm: currentArtifact.thickness_mm || 3,
-        source: 'ai_prompt'
+        source: existingProject?.source || (uploadedImage && currentArtifact.id.startsWith('gen-') ? 'image_trace' : 'local_vector')
       });
       triggerToast('Projeto salvo na nuvem Firestore com sucesso!');
     } catch (err) {
@@ -572,14 +590,28 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         : proj.name.toLowerCase().includes('caixa')
         ? 'caixa-fingerjoint'
         : 'padrao',
-      partsCount: 1,
+      partsCount: metrics.elementCount,
       svgString: proj.svgContent,
       estimatedLaserSeconds: Math.round((proj.cutLengthMm || 1000) / 25) + 15,
       aiPromptUsed: proj.name
     };
     setCurrentArtifact(loaded);
+    setHasSelectedArtifact(true);
     triggerToast(`Projeto "${proj.name}" carregado no estúdio!`);
     } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao carregar o projeto.'); }
+  };
+
+  const handleDeleteCloudProject = async (proj: FirestoreProject) => {
+    if (deletingProjectId || !window.confirm(`Excluir o projeto "${proj.name}" da nuvem?`)) return;
+    setDeletingProjectId(proj.id);
+    try {
+      await deleteProjectMutation(proj.id);
+      triggerToast(`Projeto "${proj.name}" excluído da nuvem.`);
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : 'Falha ao excluir o projeto.');
+    } finally {
+      setDeletingProjectId(null);
+    }
   };
 
   const handleDownloadSvg = () => {
@@ -610,15 +642,13 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   };
 
   const handleDownloadStl = () => {
-    if (modelGroupRef.current) {
-      const positions = partsRef.current.map(part => part.mesh.position.clone());
-      try {
-        partsRef.current.forEach(part => part.mesh.position.copy(part.basePos));
-        exportSceneGroupToStl(modelGroupRef.current, `modelo_3d_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.stl`, 10);
-      } finally { partsRef.current.forEach((part, index) => part.mesh.position.copy(positions[index])); }
-      triggerToast('Arquivo STL para fatiamento/impressão 3D baixado!');
-    } else {
-      triggerToast(modelError || 'Abra a visualização 3D para preparar o modelo antes de exportar.');
+    try {
+      const model = build3DFromSvg(currentArtifact.svgString, currentArtifact.thickness_mm, createLaserMaterials(selectedFinish, false));
+      if (!model.parts.length) throw new Error('O desenho não contém peças sólidas para exportar.');
+      exportSceneGroupToStl(model.group, `modelo_3d_${currentArtifact.width_mm}x${currentArtifact.height_mm}mm.stl`, 10);
+      triggerToast('Arquivo STL gerado dos contornos do SVG para revisão antes da fabricação.');
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : 'Falha ao exportar STL.');
     }
   };
 
@@ -645,7 +675,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900">Design Studio AI</h1>
+              <h1 className="text-base font-bold text-slate-900">Estúdio Vetorial</h1>
 
             </div>
             <p className="text-xs text-slate-500">
@@ -755,6 +785,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                     <button
                       onClick={() => {
                         setCurrentArtifact(item);
+                        setHasSelectedArtifact(true);
                         setPromptText(item.aiPromptUsed);
                         setTargetWidth(item.width_mm);
                         setTargetHeight(item.height_mm);
@@ -783,7 +814,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <Wand2 className="w-4 h-4 text-amber-600" />
-                  1. Entrada Generativa com IA
+                  1. Criar desenho
                 </span>
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs gap-1">
                   <button
@@ -832,7 +863,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                       disabled={isProcessing}
                       className="text-[10px] font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-0.5 rounded cursor-pointer transition"
                     >
-                      <Sparkles className="w-3 h-3 text-amber-600" /> Aprimorar com IA
+                      <Sparkles className="w-3 h-3 text-amber-600" /> Acrescentar parâmetros
                     </button>
                   </div>
 
@@ -849,7 +880,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
               {inputMode === 'upload' && (
                 <div className="space-y-3">
                   <label className="text-[11px] font-semibold text-slate-600 block">
-                    Upload de Imagem para Vetorização 3D:
+                    Imagem para traçar silhueta:
                   </label>
                   <div className="border-2 border-dashed border-slate-200 hover:border-amber-400 rounded-2xl p-5 text-center transition bg-slate-50/50">
                     <input
@@ -865,7 +896,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                         {uploadedFileName || 'Clique ou arraste a imagem aqui'}
                       </span>
                       <span className="text-[10px] text-slate-500 block">
-                        Vetorização automática por nós via Gemini 3.8 Flash
+                        Use desenho de alto contraste. Revise o contorno antes de fabricar.
                       </span>
                     </label>
                   </div>
@@ -921,12 +952,9 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                               Abrir
                             </button>
                             <button
-                              onClick={() => {
-                                if (window.confirm(`Deseja excluir o projeto "${proj.name}" da nuvem?`)) {
-                                  deleteProjectMutation(proj.id);
-                                }
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                              onClick={() => { void handleDeleteCloudProject(proj); }}
+                              disabled={deletingProjectId !== null}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer disabled:opacity-40"
                               title="Excluir da Nuvem"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1010,7 +1038,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 fill-white" />
-                      <span>Gerar Vetor com Gemini 1.5 Pro (002)</span>
+                      <span>{inputMode === 'upload' ? 'Traçar silhueta' : 'Gerar modelo geométrico local'}</span>
                     </>
                   )}
                 </button>
@@ -1020,6 +1048,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
           {/* Right Column: Interactive 3D Assembly + 2D Flat Pattern Viewport */}
           <div className="lg:col-span-7 space-y-5">
+            {hasSelectedArtifact ? <>
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
@@ -1028,7 +1057,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                     {currentArtifact.title}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    {currentArtifact.partsCount} peças • {currentArtifact.width_mm} × {currentArtifact.height_mm} mm • Espessura {currentArtifact.thickness_mm} mm ({currentArtifact.materialName})
+                    {currentArtifact.partsCount} elementos vetoriais • {currentArtifact.width_mm} × {currentArtifact.height_mm} mm • Espessura {currentArtifact.thickness_mm} mm ({currentArtifact.materialName})
                   </p>
                 </div>
 
@@ -1212,7 +1241,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   Painel de Ações Rápidas & Distribuição de Artefatos
                 </h3>
                 <span className="text-[10px] text-slate-500 font-mono">
-                  Oficina Juiz de Fora / MG
+                  Revise o projeto antes de fabricar
                 </span>
               </div>
 
@@ -1228,7 +1257,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   </div>
                   <div>
                     <span className="font-bold text-slate-900 block text-xs">Estúdio 3D Completo</span>
-                    <span className="text-[10px] text-slate-500">Montagem detalhada</span>
+                    <span className="text-[10px] text-slate-500">Visualizar este SVG em 3D</span>
                   </div>
                 </button>
 
@@ -1257,7 +1286,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 transition" />
                   </div>
                   <div>
-                    <span className="font-bold text-slate-900 block text-xs">Otimizador CAM IA</span>
+                    <span className="font-bold text-slate-900 block text-xs">Diagnóstico CAM</span>
                     <span className="text-[10px] text-slate-500">Chip load e avanço</span>
                   </div>
                 </button>
@@ -1280,14 +1309,15 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 {/* 5. To Production Kanban */}
                 <button
                   onClick={handleSendToProductionAction}
-                  className="p-3 rounded-xl border border-slate-200 hover:border-amber-400 bg-slate-50 hover:bg-amber-50/50 text-left transition flex flex-col justify-between group cursor-pointer"
+                  disabled={isCreatingOp}
+                  className="p-3 rounded-xl border border-slate-200 hover:border-amber-400 bg-slate-50 hover:bg-amber-50/50 text-left transition flex flex-col justify-between group cursor-pointer disabled:opacity-50"
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <Clock className="w-4 h-4 text-purple-600" />
                     <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-600 transition" />
                   </div>
                   <div>
-                    <span className="font-bold text-slate-900 block text-xs">Lançar OP de Fábrica</span>
+                    <span className="font-bold text-slate-900 block text-xs">{isCreatingOp ? 'Confirmando OP…' : 'Lançar OP de Fábrica'}</span>
                     <span className="text-[10px] text-slate-500">Kanban chão de fábrica</span>
                   </div>
                 </button>
@@ -1339,6 +1369,14 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 </div>
               </div>
             </div>
+            </> : (
+              <div className="flex min-h-80 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">Nenhum desenho aberto</h3>
+                  <p className="mt-2 text-xs text-slate-500">Gere um vetor, abra um projeto salvo ou escolha um exemplo na Galeria de Inspiração.</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

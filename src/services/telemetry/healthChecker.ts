@@ -6,6 +6,7 @@
 import { SystemHealthReport, SubsystemHealth } from './types';
 import { logger } from './structuredLogger';
 import { performanceMetrics } from './performanceMetrics';
+import { cncCalculationCache, gcodeCache, aiResponseCache } from './telemetryCache';
 
 const appStartTime = Date.now();
 
@@ -49,10 +50,10 @@ export class HealthChecker {
     score = Math.max(0, Math.min(100, score));
 
     const overallStatus: SystemHealthReport['status'] =
-      score >= 85 ? 'HEALTHY' : score >= 60 ? 'DEGRADED' : 'UNHEALTHY';
+      aiHealth.status !== 'HEALTHY' ? 'DEGRADED' : score >= 85 ? 'HEALTHY' : score >= 60 ? 'DEGRADED' : 'UNHEALTHY';
 
     // Estimativa de memória e métricas
-    let memoryUsageMB = 42;
+    let memoryUsageMB: number | null = null;
     if (typeof performance !== 'undefined' && (performance as any).memory) {
       memoryUsageMB = Number(((performance as any).memory.usedJSHeapSize / (1024 * 1024)).toFixed(1));
     }
@@ -62,8 +63,8 @@ export class HealthChecker {
       healthScore: score,
       uptimeMs,
       timestamp,
-      version: '1.4.3-prod',
-      environment: 'production',
+      version: 'diagnóstico-local',
+      environment: 'development',
       subsystems: {
         storage: storageHealth,
         cadEngine: cadHealth,
@@ -73,9 +74,9 @@ export class HealthChecker {
       },
       systemMetrics: {
         memoryUsageMB,
-        errorRateLast5Min: overallStatus === 'HEALTHY' ? 0.2 : overallStatus === 'DEGRADED' ? 4.1 : 16.5,
+        errorRateLast5Min: null,
         requestsPerMinute: performanceMetrics.getRequestsPerMinute(),
-        activeTraces: 3
+        activeTraces: null
       }
     };
 
@@ -117,7 +118,7 @@ export class HealthChecker {
         latencyMs,
         lastChecked: new Date().toISOString(),
         details: passed
-          ? `Operações atômicas de leitura/escrita validadas (${latencyMs}ms)`
+          ? `Leitura e escrita simples no navegador aprovadas (${latencyMs}ms)`
           : 'Inconsistência na persistência de dados',
         metrics: { testLatencyMs: latencyMs }
       };
@@ -149,7 +150,7 @@ export class HealthChecker {
         latencyMs,
         lastChecked: new Date().toISOString(),
         details: valid
-          ? `Mecanismo de álgebra vetorial e corte funcional (${latencyMs}ms)`
+          ? `Teste aritmético local aprovado (${latencyMs}ms); não verifica todo o motor CAD`
           : 'Falha de asserção matemática',
         metrics: { benchmarkLatencyMs: latencyMs }
       };
@@ -181,7 +182,7 @@ export class HealthChecker {
         latencyMs,
         lastChecked: new Date().toISOString(),
         details: valid
-          ? `Validador sintático e ranges de Feed/Speed operacionais (${latencyMs}ms)`
+          ? `Teste de reconhecimento de um comando fixo aprovado (${latencyMs}ms); não verifica o pós-processador nem a máquina`
           : 'Sintaxe G-code inválida detectada',
         metrics: { parsingSpeedMs: latencyMs }
       };
@@ -197,40 +198,27 @@ export class HealthChecker {
   }
 
   private async checkAiGatewaySubsystem(): Promise<SubsystemHealth> {
-    const t0 = performance.now();
-    try {
-      // Verifica conectividade do endpoint e modelo gemini-1.5-pro-002
-      const latencyMs = Number((performance.now() - t0 + 2.5).toFixed(2));
-      return {
-        name: 'Gateway de Inteligência Artificial (Gemini 1.5 Pro)',
-        status: 'HEALTHY',
-        latencyMs,
-        lastChecked: new Date().toISOString(),
-        details: `Modelo 'gemini-1.5-pro-002' configurado com prompt laser SVG semântico`,
-        metrics: { targetModel: 'gemini-1.5-pro-002', pingMs: latencyMs }
-      };
-    } catch (err: any) {
-      return {
-        name: 'Gateway de Inteligência Artificial (Gemini 1.5 Pro)',
-        status: 'DEGRADED',
-        latencyMs: Number((performance.now() - t0).toFixed(2)),
-        lastChecked: new Date().toISOString(),
-        details: `Instabilidade no Gateway IA: ${err?.message}`
-      };
-    }
+    return {
+      name: 'Integração de IA',
+      status: 'DEGRADED',
+      latencyMs: 0,
+      lastChecked: new Date().toISOString(),
+      details: 'Sem teste de endpoint autenticado nesta sessão. Estado do serviço externo não verificado.'
+    };
   }
 
   private async checkCacheSubsystem(): Promise<SubsystemHealth> {
     const t0 = performance.now();
     try {
+      const counts = [cncCalculationCache, gcodeCache, aiResponseCache].map(cache => cache.getMetrics().currentEntriesCount);
       const latencyMs = Number((performance.now() - t0).toFixed(2));
       return {
         name: 'Mecanismo de Cache em Memória & LRU',
         status: 'HEALTHY',
         latencyMs,
         lastChecked: new Date().toISOString(),
-        details: `Buffer de memória com rastreamento hit/miss e auto-evicção ativo`,
-        metrics: { evictionPolicy: 'LRU', ttlDefaultMs: 300000 }
+        details: `Entradas dos caches locais nesta sessão: cálculo ${counts[0]}, G-code ${counts[1]}, IA ${counts[2]}. Isto não mede cache de servidor.`,
+        metrics: { calculationEntries: counts[0], gcodeEntries: counts[1], aiEntries: counts[2] }
       };
     } catch (err: any) {
       return {

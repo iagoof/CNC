@@ -1,5 +1,5 @@
 import type { CompanyProfile, FixedCost, Machine, Material, OrderItem, ProductionOrder, Quote, SalesOrder, TaxConfig } from '../types/index.ts';
-import { calcFixedCostMarkupPercentage, calcLaserCutTimeAndCost, calcMachineCostRates, calcMaterialM2Cost, calcSalePriceMarkupDivisor } from './calculations.ts';
+import { calcFixedCostMarkupPercentage, calcLaserCutTimeAndCost, calcMachineCostRates, calcMaterialM2Cost, calcSalePriceMarkupDivisor, isMachineCostConfigured } from './calculations.ts';
 
 export interface PricingContext {
   materials: Material[];
@@ -18,6 +18,8 @@ export function priceQuote(quote: Pick<Quote, 'items' | 'desiredProfitMarginPct'
   const errors: string[] = [];
   const { fixedCostPct, isDeficitAlert } = calcFixedCostMarkupPercentage(context.fixedCosts, context.monthlyRevenueTarget);
   if (!(context.monthlyRevenueTarget > 0) || !Number.isFinite(context.monthlyRevenueTarget)) errors.push('Informe uma meta mensal válida.');
+  if (context.fixedCosts.some(cost => !Number.isFinite(cost.amount) || cost.amount < 0)) errors.push('Revise os custos fixos cadastrados.');
+  if (context.taxes.some(tax => tax.active && (!Number.isFinite(tax.percentage) || tax.percentage < 0 || tax.percentage >= 100))) errors.push('Revise as alíquotas ativas.');
   if (isDeficitAlert) errors.push('A meta mensal não cobre os custos fixos.');
   if (!Number.isFinite(quote.fixedExtraFee) || quote.fixedExtraFee < 0) errors.push('Taxa fixa inválida.');
   if (!quote.items.length) errors.push('Adicione ao menos uma peça.');
@@ -31,6 +33,7 @@ export function priceQuote(quote: Pick<Quote, 'items' | 'desiredProfitMarginPct'
       && Number.isSafeInteger(item.quantity)
       && [item.cutLength_mm, item.engraveArea_cm2, item.additionalCost].every(n => Number.isFinite(n) && n >= 0);
     if (!mat || !mach || !validNumbers || !item.description.trim()) errors.push(`Revise os dados da peça: ${item.description || 'sem descrição'}.`);
+    if (mach && !isMachineCostConfigured(mach)) errors.push(`Configure custos e horas da máquina para a peça: ${item.description || 'sem descrição'}.`);
     const materialCostUnit = mat ? pieceWidth * pieceHeight / 1e6 * calcMaterialM2Cost(mat).costPerM2 : 0;
     const speed = mat?.speedsByMachine.find(s => s.machineId === mach?.id);
     if (!speed || !Number.isFinite(speed.cutSpeed_mms) || speed.cutSpeed_mms <= 0

@@ -97,6 +97,11 @@ export function calcMachineCostRates(machine: Machine, uf?: UF): { hourly: numbe
   };
 }
 
+export function isMachineCostConfigured(machine: Machine): boolean {
+  return [machine.depreciationYears, machine.monthlyWorkHours].every(value => Number.isFinite(value) && value > 0)
+    && [machine.purchasePrice, machine.energyConsumptionKwh, machine.monthlyMaintenanceCosts, machine.tubeSpareCost].every(value => Number.isFinite(value) && value >= 0);
+}
+
 /**
  * Área da chapa em m² e Custo por Metro Quadrado
  * Área_m² = (Largura_mm × Comprimento_mm) ÷ 1.000.000
