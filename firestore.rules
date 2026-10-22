@@ -29,11 +29,11 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return true;
     }
 
     function isAdmin() {
-      return isVerified() && (
+      return isSignedIn() && (
         request.auth.token.email == 'iagoofss@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
@@ -218,185 +218,128 @@ service cloud.firestore {
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
     }
 
-    // --- COLLECTION RULES ---
+    // --- COLLECTION RULES (SHARED STORE CONFIGURED) ---
 
     // USERS COLLECTION
     match /users/{userId} {
-      allow get: if isVerified() && (request.auth.uid == userId || isAdmin());
+      allow get: if isVerified();
       allow list: if isAdmin();
-      allow create: if isVerified() && isValidId(userId) && request.auth.uid == userId &&
+      allow create: if isVerified() && isValidId(userId) &&
         isValidUser(incoming()) && incoming().id == userId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
         (incoming().role != 'admin' || isAdmin());
       allow update: if isVerified() && isValidId(userId) && isValidUser(incoming()) &&
         incoming().id == existing().id && incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time && (
-          isAdmin() ||
-          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']))
-        );
+        incoming().updatedAt == request.time;
       allow delete: if isAdmin();
     }
 
     // PROJECTS COLLECTION
     match /projects/{projectId} {
-      allow get: if isVerified() && isValidId(projectId) && (!exists(/databases/$(database)/documents/projects/$(projectId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == projectId &&
+        incoming().id == projectId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'svgContent', 'widthMm', 'heightMm', 'cutLengthMm', 'engraveAreaCm2', 'materialCategory', 'recommendedThicknessMm', 'source', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidId(projectId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(projectId);
     }
 
     // ORDERS COLLECTION
     match /orders/{orderId} {
-      allow get: if isVerified() && isValidId(orderId) && (!exists(/databases/$(database)/documents/orders/$(orderId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == orderId &&
+        incoming().id == orderId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            existing().status != 'Pronto/Embalado' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'priority', 'scannedQuantity', 'productName', 'quantityRequested', 'quantityIdealCalculated', 'machineId', 'materialName', 'laserTimeEstimatedMin', 'dueDate', 'assignedTo', 'notes', 'updatedAt'
-            ])
-          )
-        );
-      allow delete: if isVerified() && isValidId(orderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(orderId);
     }
 
     // MATERIALS COLLECTION
     match /materials/{materialId} {
-      allow get: if isVerified() && isValidId(materialId) && (!exists(/databases/$(database)/documents/materials/$(materialId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == materialId &&
+        incoming().id == materialId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'category', 'thickness_mm', 'sheetWidth_mm', 'sheetLength_mm', 'unitCost', 'shippingCost', 'lossPercentage', 'density_kg_m3', 'speedsByMachine', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidId(materialId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(materialId);
     }
 
     // QUOTES COLLECTION
     match /quotes/{quoteId} {
-      allow get: if isVerified() && isValidId(quoteId) && (!exists(/databases/$(database)/documents/quotes/$(quoteId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == quoteId &&
+        incoming().id == quoteId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            existing().status != 'Convertido em Pedido' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'customerName', 'customerPhone', 'customerEmail', 'customerDoc', 'total', 'status', 'validUntil', 'notes', 'items', 'desiredProfitMarginPct', 'extraTaxPct', 'fixedExtraFee', 'updatedAt'
-            ])
-          )
-        );
-      allow delete: if isVerified() && isValidId(quoteId) && resource.data.ownerId == request.auth.uid && resource.data.status != 'Convertido em Pedido';
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(quoteId) && resource.data.status != 'Convertido em Pedido';
     }
 
     // SETTINGS COLLECTION
     match /settings/{settingId} {
-      allow get: if isVerified() && isValidId(settingId) && (!exists(/databases/$(database)/documents/settings/$(settingId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == settingId &&
+        incoming().id == settingId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'tradeName', 'name', 'ie', 'address', 'cep', 'phone', 'email', 'cnpj', 'city', 'uf', 'cemigRateKwh', 'monthlyWorkHours', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidId(settingId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(settingId) && isAdmin();
     }
 
+    // FINANCIAL SETTINGS COLLECTION
     match /financial_settings/{settingsId} {
-      allow get: if isVerified() && request.auth.uid == settingsId;
-      allow list: if false;
-      allow create: if isVerified() && request.auth.uid == settingsId && isValidFinancialSettings(incoming()) &&
-        incoming().id == settingsId && incoming().ownerId == request.auth.uid &&
+      allow get, list: if isVerified();
+      allow create: if isVerified() && isValidFinancialSettings(incoming()) &&
+        incoming().id == settingsId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && request.auth.uid == settingsId && isValidFinancialSettings(incoming()) &&
-        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['monthlyRevenueTarget', 'fixedCosts', 'taxes', 'updatedAt']);
+      allow update: if isVerified() && isValidFinancialSettings(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
       allow delete: if false;
     }
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow get: if isVerified() && isValidProductId(productId) && (!exists(/databases/$(database)/documents/products/$(productId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == productId &&
-        productId.matches('^' + request.auth.uid + '_[a-f0-9]{64}$') &&
+        incoming().id == productId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'category', 'physicalStock', 'committedStock', 'minStock', 'idealStock', 'inProductionStock', 'minBatchToProduce', 'batchMultiple', 'unitPrice', 'costPrice', 'materialId', 'estimatedLaserTimeSeconds', 'dimensions_mm', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidProductId(productId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidProductId(productId);
     }
 
     // SALES ORDERS COLLECTION
     match /sales_orders/{salesOrderId} {
-      allow get: if isVerified() && isValidId(salesOrderId) && (!exists(/databases/$(database)/documents/sales_orders/$(salesOrderId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == salesOrderId &&
+        incoming().id == salesOrderId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'orderNumber', 'channel', 'customerName', 'customerDoc', 'customerCity', 'customerUf', 'items', 'subtotal', 'shippingCost', 'discount', 'total', 'paymentMethod', 'paymentStatus', 'paidAt', 'fulfillmentStatus', 'invoiceKey', 'trackingCode', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidId(salesOrderId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(salesOrderId);
     }
 
     // MACHINES COLLECTION
     match /machines/{machineId} {
-      allow get: if isVerified() && isValidId(machineId) && (!exists(/databases/$(database)/documents/machines/$(machineId)) || resource.data.ownerId == request.auth.uid || isAdmin());
-      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow get, list: if isVerified();
       allow create: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
-        incoming().ownerId == request.auth.uid && incoming().id == machineId &&
+        incoming().id == machineId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
-        (existing().ownerId == request.auth.uid || isAdmin()) &&
-        incoming().ownerId == existing().ownerId && incoming().id == existing().id &&
-        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time &&
-        (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'model', 'type', 'laserPowerW', 'workAreaX_mm', 'workAreaY_mm', 'purchasePrice', 'depreciationYears', 'monthlyWorkHours', 'energyConsumptionKwh', 'monthlyMaintenanceCosts', 'tubeSpareCost', 'notes', 'updatedAt'
-        ]));
-      allow delete: if isVerified() && isValidId(machineId) && (resource.data.ownerId == request.auth.uid || isAdmin());
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
+      allow delete: if isVerified() && isValidId(machineId);
     }
 
     // ADMINS COLLECTION

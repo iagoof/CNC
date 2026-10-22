@@ -3,7 +3,12 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import {
   auth,
   loginWithGoogle,
+  loginWithEmail,
+  registerWithEmail,
+  loginDirectOperator,
   logoutUser,
+  getActiveSessionUser,
+  CncUser,
   testConnection,
   subscribeToOrders,
   saveOrderToFirestore,
@@ -41,13 +46,18 @@ import { ProductionOrder, Material, Quote, ProductInventory, SalesOrder, Machine
 import type { FinancialSettingsInput } from '../../utils/financialSettings';
 import type { PricingContext } from '../../utils/quoteEngine';
 
+export type AnyUser = CncUser | FirebaseUser;
+
 interface FirebaseContextType {
-  user: FirebaseUser | null;
+  user: AnyUser | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
   isLoading: boolean;
   isOnline: boolean;
   login: () => Promise<void>;
+  loginWithEmail: (email: string, pass: string) => Promise<void>;
+  registerWithEmail: (email: string, pass: string, name: string) => Promise<void>;
+  loginDirect: (name?: string, email?: string) => Promise<void>;
   logout: () => Promise<void>;
   syncOrders: (orders: ProductionOrder[], setOrders: React.Dispatch<React.SetStateAction<ProductionOrder[]>>) => (() => void) | undefined;
   syncOrderMutation: (order: ProductionOrder) => Promise<void>;
@@ -80,7 +90,7 @@ interface FirebaseContextType {
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
 export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AnyUser | null>(() => getActiveSessionUser());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -100,14 +110,24 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
     const onSyncError = (event: Event) => setSyncError((event as CustomEvent<string>).detail);
     window.addEventListener('cnc-sync-error', onSyncError);
 
-    // Autenticação não cria dados comerciais nem configurações de exemplo.
+    // Verifica sessão persistente prévia
+    const saved = getActiveSessionUser();
+    if (saved) {
+      setUser(saved);
+      setIsLoading(false);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, currentUser => {
-      setProducts(null);
-      setSalesOrders(null);
-      setMachines(null);
-      setCompanySettings(null);
-      setFinancialSettings(null);
-      setUser(currentUser);
+      if (currentUser) {
+        setUser(currentUser);
+      } else {
+        const local = getActiveSessionUser();
+        if (local) {
+          setUser(local);
+        } else {
+          setUser(null);
+        }
+      }
       setIsLoading(false);
     });
 
@@ -179,16 +199,48 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const handleLogin = async () => {
     try {
-      await loginWithGoogle();
+      const res = await loginWithGoogle();
+      if (res) setUser(res);
     } catch (err) {
       console.error('Falha no login Google:', err);
-      setSyncError('Não foi possível conectar sua conta Google. Tente novamente.');
+      throw err;
+    }
+  };
+
+  const handleLoginWithEmail = async (email: string, pass: string) => {
+    try {
+      const res = await loginWithEmail(email, pass);
+      if (res) setUser(res);
+    } catch (err) {
+      console.error('Falha no login com e-mail:', err);
+      throw err;
+    }
+  };
+
+  const handleRegisterWithEmail = async (email: string, pass: string, name: string) => {
+    try {
+      const res = await registerWithEmail(email, pass, name);
+      if (res) setUser(res);
+    } catch (err) {
+      console.error('Falha no cadastro com e-mail:', err);
+      throw err;
+    }
+  };
+
+  const handleLoginDirect = async (name?: string, email?: string) => {
+    try {
+      const res = await loginDirectOperator(name, email);
+      if (res) setUser(res);
+    } catch (err) {
+      console.error('Falha no login direto:', err);
+      throw err;
     }
   };
 
   const handleLogout = async () => {
     try {
       await logoutUser();
+      setUser(null);
     } catch (err) {
       console.error('Falha no logout:', err);
       setSyncError('Não foi possível sair da conta. Tente novamente.');
@@ -405,6 +457,9 @@ export const FirebaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         isLoading,
         isOnline,
         login: handleLogin,
+        loginWithEmail: handleLoginWithEmail,
+        registerWithEmail: handleRegisterWithEmail,
+        loginDirect: handleLoginDirect,
         logout: handleLogout,
         syncOrders,
         syncOrderMutation,

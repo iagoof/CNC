@@ -13,7 +13,8 @@ import {
   buildLayeredMandala,
   buildIcosahedronLamp,
   buildHeadphoneStand,
-  build3DFromSvg
+  build3DFromSvg,
+  buildGeometricAssembly
 } from './LaserModel3D';
 import { generateCncVector, ensureSvgMetadataBlock } from '../../services/geminiCncService';
 import { convertSvgToDxf, calculateSvgMetrics, exportSceneGroupToStl } from '../../utils/cncExporters';
@@ -276,7 +277,13 @@ export const DesignStudioView: React.FC<DesignStudioProps> = ({ onSendToNesting,
     let modelResult;
     if (transferredArtifact) {
       try {
-        modelResult = build3DFromSvg(transferredArtifact.svgString, transferredArtifact.thickness_mm, materials);
+        modelResult = buildGeometricAssembly(
+          transferredArtifact.svgString,
+          transferredArtifact.thickness_mm,
+          undefined,
+          materials,
+          transferredArtifact.title
+        );
         setCurrentDesignTitle(transferredArtifact.title);
         setModelError(null);
       } catch (error) {

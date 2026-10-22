@@ -15,7 +15,8 @@ import {
   buildLayeredMandala,
   buildIcosahedronLamp,
   buildHeadphoneStand,
-  build3DFromSvg
+  build3DFromSvg,
+  buildGeometricAssembly
 } from './LaserModel3D';
 import {
   generateCncVector,
@@ -257,11 +258,17 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     grid.position.y = -0.02;
     scene.add(grid);
 
-    // Build the 3D model parts based on model3dType
+    // Build the 3D model parts based on model3dType and SVG geometric assembly
     const mats = createLaserMaterials(selectedFinish, false);
     let modelResult;
     try {
-      modelResult = build3DFromSvg(currentArtifact.svgString, currentArtifact.thickness_mm, mats);
+      modelResult = buildGeometricAssembly(
+        currentArtifact.svgString,
+        currentArtifact.thickness_mm,
+        currentArtifact.model3dType,
+        mats,
+        currentArtifact.title
+      );
       setModelError(null);
     } catch (error) {
       setModelError(error instanceof Error ? error.message : 'Não foi possível construir o modelo 3D.');
@@ -441,7 +448,9 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 
       setCurrentArtifact(newArtifact);
       setHasSelectedArtifact(true);
-      triggerToast('Contorno criado. Revise a geometria e os parâmetros antes de fabricar.');
+      setActiveViewMode('3d');
+      setExplodeSlider(0);
+      triggerToast('Modelo vetorial criado, extrudado e montado em 3D com sucesso!');
     } catch (e) {
       console.warn('Erro na geração:', e);
       triggerToast(e instanceof Error ? `Falha na geração: ${e.message}` : 'Não foi possível gerar o projeto.');
@@ -597,6 +606,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     };
     setCurrentArtifact(loaded);
     setHasSelectedArtifact(true);
+    setActiveViewMode('3d');
+    setExplodeSlider(0);
     triggerToast(`Projeto "${proj.name}" carregado no estúdio!`);
     } catch (error) { triggerToast(error instanceof Error ? error.message : 'Falha ao carregar o projeto.'); }
   };
@@ -786,6 +797,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                       onClick={() => {
                         setCurrentArtifact(item);
                         setHasSelectedArtifact(true);
+                        setActiveViewMode('3d');
+                        setExplodeSlider(0);
                         setPromptText(item.aiPromptUsed);
                         setTargetWidth(item.width_mm);
                         setTargetHeight(item.height_mm);

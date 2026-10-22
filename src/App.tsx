@@ -33,8 +33,17 @@ import { ObservabilityDashboard } from './components/observability/Observability
 import { ErrorBoundary } from './components/observability/ErrorBoundary';
 import { initializeSreTelemetry } from './services/telemetry';
 import { useFirebase } from './services/firebase/FirebaseContext';
-import { subscribeToOrders, subscribeToMaterials, subscribeToQuotes, progressProductionInFirestore, createInventoryProductionInFirestore, createCustomProductionInFirestore, deleteInventoryProductionInFirestore } from './services/firebase/firebase';
-import { Info } from 'lucide-react';
+import {
+  subscribeToOrders,
+  subscribeToMaterials,
+  subscribeToQuotes,
+  progressProductionInFirestore,
+  createInventoryProductionInFirestore,
+  createCustomProductionInFirestore,
+  deleteInventoryProductionInFirestore
+} from './services/firebase/firebase';
+import { LoginView } from './components/auth/LoginView';
+import { Info, Flame } from 'lucide-react';
 import { entityId, documentNumber, money } from './utils/quoteEngine';
 import { TARIFA_ENERGIA_POR_UF } from './utils/calculations';
 
@@ -45,6 +54,7 @@ export default function App() {
   const {
     user,
     isAuthenticated,
+    isLoading: isAuthLoading,
     companySettings,
     syncCompanySettingsMutation,
     financialSettings,
@@ -68,7 +78,7 @@ export default function App() {
     deleteMachineMutation
   } = useFirebase();
 
-  const storageKey = (key: string) => user ? `user:${user.uid}:${key}` : key;
+  const storageKey = (key: string) => `shared_cnc_store:${key}`;
   // Account-scoped local recovery cache.
   const VALID_TABS = [
     'dashboard', 'studio-ai', 'studio', 'cam-ai', 'nesting',
@@ -198,7 +208,7 @@ export default function App() {
 
   // Sincroniza configurações da empresa vindas da nuvem Firestore
   useEffect(() => {
-    if (user && companySettings?.ownerId === user.uid) {
+    if (user && companySettings) {
       setCompany(prev => ({
         ...prev,
         tradeName: companySettings.tradeName ?? prev.tradeName,
@@ -216,10 +226,10 @@ export default function App() {
   }, [companySettings, user, setCompany]);
 
   useEffect(() => {
-    if (!user || financialSettings?.ownerId !== user.uid) return;
-    setFixedCosts(financialSettings.fixedCosts);
-    setTaxes(financialSettings.taxes);
-    setMonthlyRevenueTarget(financialSettings.monthlyRevenueTarget);
+    if (!user || !financialSettings) return;
+    setFixedCosts(financialSettings.fixedCosts || []);
+    setTaxes(financialSettings.taxes || []);
+    setMonthlyRevenueTarget(financialSettings.monthlyRevenueTarget || 0);
   }, [user, financialSettings, setFixedCosts, setTaxes, setMonthlyRevenueTarget]);
 
   // Handlers com persistência em nuvem Firestore
@@ -393,6 +403,27 @@ export default function App() {
 
   const technicalReady = materials.length > 0 && machines.length > 0;
   const requiresTechnicalSetup = ['studio-ai', 'cam-ai', 'nesting', 'pricing', 'quotes'].includes(activeTab);
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen w-full bg-slate-950 flex flex-col items-center justify-center p-4 select-none">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-white shadow-lg shadow-amber-500/25 mb-4 animate-pulse">
+          <Flame className="w-8 h-8 fill-white" />
+        </div>
+        <div className="flex items-center gap-2 mb-2">
+          <h1 className="text-xl font-black text-white">CNC APP</h1>
+          <span className="text-xs font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
+            v2.0
+          </span>
+        </div>
+        <p className="text-xs text-slate-400 font-medium">Carregando ambiente da oficina...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return <LoginView />;
+  }
 
   return (
     <ErrorBoundary>

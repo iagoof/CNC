@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de implementação detalhado para a Arquitetura de Observabilidade, Resiliência e SRE Corporativa, contemplando Request ID único, logs JSON estruturados, stack trace com contexto, health check profundo, query logging com medição de latência, rastreamento de cache hit/miss, métricas de performance, suite de testes de regressão automatizados, alertas de anomalias e deploy com rollback automático, além de Painel de Observabilidade integrado no aplicativo.",
-  "updatedAt":  "2026-10-21T16:34:59.980301879Z",
+  "summary":  "Plano de implementação detalhado para a tela de autenticação prévia (Google e E-mail/Senha), remoção da aba lateral 'Conta e conexão', e consolidação da persistência de todos os dados em uma loja única compartilhada no Firestore.",
+  "updatedAt":  "2026-10-22T12:46:01.197695576Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

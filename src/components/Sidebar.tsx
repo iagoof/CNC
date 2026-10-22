@@ -13,15 +13,11 @@ import {
   ShieldCheck,
   Settings,
   Flame,
-  MapPin,
-  Zap,
   Activity,
   Sparkles,
-  LogIn,
   LogOut,
-  Cloud,
-  CheckCircle2,
-  Shield
+  Shield,
+  Circle
 } from 'lucide-react';
 import { useFirebase } from '../services/firebase/FirebaseContext';
 
@@ -52,12 +48,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Cadastros Técnicos', icon: Settings, section: 'Configurações' }
   ];
 
-  const { user, isAuthenticated, isAdmin, login, logout, isOnline } = useFirebase();
+  const { user, isAdmin, logout, isOnline } = useFirebase();
+
+  // Obter as iniciais do nome ou e-mail
+  const getInitials = () => {
+    if (user?.displayName) {
+      const parts = user.displayName.trim().split(' ');
+      if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      return user.displayName.slice(0, 2).toUpperCase();
+    }
+    if (user?.email) {
+      return user.email.slice(0, 2).toUpperCase();
+    }
+    return 'OP';
+  };
 
   return (
     <aside className="w-64 h-screen bg-white border-r border-slate-200 flex flex-col shrink-0 select-none z-30 shadow-sm print:hidden">
       {/* Brand Header */}
-      <div className="p-5 border-b border-slate-100 flex flex-col gap-2.5">
+      <div className="p-5 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-white font-black shadow-md shadow-amber-500/20 shrink-0">
             <Flame className="w-5 h-5 fill-white" />
@@ -73,55 +82,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        <details className="group">
-          <summary className="cursor-pointer rounded-lg px-2 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-amber-500">Conta e conexão</summary>
-          <div className="mt-2">
-        {/* Firebase Cloud Sync Status */}
-        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-2.5 space-y-2">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <div className="flex items-center gap-1.5 text-slate-800">
-              <Cloud className="w-3.5 h-3.5 text-amber-600" />
-              <span>Nuvem Firestore</span>
-            </div>
-            {isOnline ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                <CheckCircle2 className="w-3 h-3" /> Online
-              </span>
-            ) : (
-              <span className="text-[10px] font-bold text-slate-500">Offline</span>
-            )}
-          </div>
-
-          {isAuthenticated ? (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div className="truncate text-[11px] text-slate-700 font-medium">
-                  {user?.displayName || user?.email}
-                </div>
-                {isAdmin && (
-                  <span className="flex items-center gap-0.5 text-[9px] font-bold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded shadow-xs">
-                    <Shield className="w-2.5 h-2.5 fill-current" /> Admin
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={logout}
-                className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-medium text-slate-600 hover:text-red-600 bg-white border border-slate-200 rounded-lg hover:border-red-200 transition-colors cursor-pointer"
-              >
-                <LogOut className="w-3 h-3" /> Sair da Conta
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={login}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 text-xs font-bold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg shadow-sm transition-all cursor-pointer"
-            >
-              <LogIn className="w-3.5 h-3.5" /> Conectar Google
-            </button>
-          )}
+        {/* Indicador de Conexão Firestore */}
+        <div
+          title={isOnline ? 'Conectado à nuvem Firestore' : 'Modo offline'}
+          className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-full"
+        >
+          <Circle
+            className={`w-2 h-2 ${isOnline ? 'fill-emerald-500 text-emerald-500' : 'fill-slate-400 text-slate-400'}`}
+          />
+          <span>{isOnline ? 'Nuvem' : 'Off'}</span>
         </div>
-          </div>
-        </details>
       </div>
 
       {/* Navigation List */}
@@ -133,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left cursor-pointer ${
                 isActive
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/20'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -147,23 +117,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
                 <span className="truncate">{item.label}</span>
               </div>
-
-
             </button>
           );
         })}
       </nav>
 
-      <div className="border-t border-slate-100 p-4">
-        <details>
-          <summary className="cursor-pointer rounded-lg py-2 text-xs text-slate-500 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-amber-500">Sobre a oficina</summary>
-          <div className="mt-2 space-y-2 text-xs text-slate-600">
-            <p className="font-medium text-slate-800">{company.tradeName}</p>
-            <p>{company.city} / {company.uf}</p>
+      {/* Rodapé: Perfil do Operador Autenticado & Encerramento de Sessão */}
+      <div className="border-t border-slate-100 p-3 bg-slate-50/50 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-slate-200/80 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={user.displayName || 'Operador'}
+                className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-700 font-bold text-xs flex items-center justify-center shrink-0">
+                {getInitials()}
+              </div>
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-bold text-slate-800 truncate leading-tight">
+                  {user?.displayName || (user?.email ? user.email.split('@')[0] : 'Operador')}
+                </p>
+                {isAdmin && (
+                  <span className="flex items-center gap-0.5 text-[9px] font-bold bg-amber-500 text-slate-950 px-1 py-0.2 rounded shrink-0">
+                    <Shield className="w-2.5 h-2.5 fill-current" /> Admin
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
+                {user?.email || 'Oficina Conectada'}
+              </p>
+            </div>
           </div>
-        </details>
+
+          <button
+            onClick={logout}
+            title="Sair da plataforma e voltar à tela de login"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Informações da Oficina Compactas */}
+        {company.tradeName && (
+          <div className="px-2 py-1 text-[10px] text-slate-500 flex items-center justify-between">
+            <span className="truncate font-medium">{company.tradeName}</span>
+            <span className="text-slate-400 shrink-0">{company.city}/{company.uf}</span>
+          </div>
+        )}
       </div>
     </aside>
   );
 };
-

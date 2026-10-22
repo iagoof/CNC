@@ -598,7 +598,13 @@ export function generateProceduralVector(
   // ARCHETYPE 6: BOX / ENCLOSURE / FINGER JOINT ORGANIZER
   // =========================================================================
   if (params.hasBox) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}mm" height="${h}mm" data-thickness-mm="${t.toFixed(1)}">
+    const sheetW = Math.max(w, 240);
+    const sheetH = Math.max(h, 180);
+    const pW = Math.round(sheetW * 0.42);
+    const pH = Math.round(sheetH * 0.38);
+    const sW = Math.round(sheetW * 0.28);
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetW} ${sheetH}" width="${sheetW}mm" height="${sheetH}mm" data-thickness-mm="${t.toFixed(1)}">
   <metadata id="cnc-metadata">
     <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
       <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
@@ -610,37 +616,42 @@ export function generateProceduralVector(
       </cnc:layers>
     </cnc:metadata>
   </metadata>
-  <!-- Chapa Perimetral de Encaixes Finger-Joint (#FF0000) -->
-  <rect x="2" y="2" width="${w - 4}" height="${h - 4}" rx="${params.radius || 4}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-chapa" />
-  <!-- Furos / Encaixes Fêmea de Montagem (#FF0000) -->
-  <rect x="10" y="${cy - t / 2}" width="${w * 0.2}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="${w - 10 - w * 0.2}" y="${cy - t / 2}" width="${w * 0.2}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="20" cy="20" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="${w - 20}" cy="20" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="20" cy="${h - 20}" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <circle cx="${w - 20}" cy="${h - 20}" r="3" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  ${style !== 'cut_only' ? `<!-- Gravação Técnica (#0000FF) -->
-  <rect x="25" y="15" width="${w - 50}" height="${h - 30}" rx="3" fill="none" stroke="#0000FF" stroke-width="0.5" stroke-dasharray="3,1" data-layer="engrave" />
-  <text x="${cx}" y="${cy + 3}" font-family="sans-serif" font-size="${Math.min(9, Math.round(w / 14))}" font-weight="bold" text-anchor="middle" fill="#0000FF">${textLabel}</text>
-  <text x="${cx}" y="${cy + 15}" font-family="sans-serif" font-size="4" text-anchor="middle" fill="#0000FF">ENCAIXES PARAMÉTRICOS • CHAPA ${t.toFixed(1)}MM</text>` : ''}
+  <!-- PEÇA 1: FUNDO COM ENCAIXES DENTEADOS (#FF0000) -->
+  <rect x="8" y="8" width="${pW}" height="${pH}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-fundo" />
+  <rect x="18" y="14" width="${pW - 20}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <rect x="18" y="${pH - 14}" width="${pW - 20}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  <!-- PEÇA 2: PAREDE FRONTAL (#FF0000) -->
+  <rect x="${pW + 16}" y="8" width="${pW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-frente" />
+  <!-- PEÇA 3: PAREDE TRASEIRA (#FF0000) -->
+  <rect x="${pW + 16}" y="${pH * 0.7 + 16}" width="${pW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-tras" />
+  <!-- PEÇAS 4 E 5: LATERAIS ESQUERDA E DIREITA (#FF0000) -->
+  <rect x="8" y="${pH + 16}" width="${sW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-lateral-esq" />
+  <rect x="${sW + 16}" y="${pH + 16}" width="${sW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-lateral-dir" />
+  <!-- PEÇA 6: TAMPA COM PUXADOR OVAL (#FF0000) -->
+  <rect x="${pW + 16}" y="${pH * 1.4 + 24}" width="${pW}" height="${pH * 0.75}" rx="2" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-tampa" />
+  <ellipse cx="${pW + 16 + pW / 2}" cy="${pH * 1.4 + 24 + (pH * 0.75) / 2}" rx="12" ry="4.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
+  ${style !== 'cut_only' ? `<!-- Gravação Técnica e Identificação (#0000FF) -->
+  <text x="${pW / 2 + 8}" y="${pH / 2 + 8}" font-family="sans-serif" font-size="5" font-weight="bold" text-anchor="middle" fill="#0000FF">FUNDO DA CAIXA</text>
+  <text x="${pW + 16 + pW / 2}" y="${pH * 0.35 + 8}" font-family="sans-serif" font-size="5" font-weight="bold" text-anchor="middle" fill="#0000FF">FRENTE • ${textLabel}</text>
+  <text x="${pW + 16 + pW / 2}" y="${pH * 1.4 + 18}" font-family="sans-serif" font-size="4.5" text-anchor="middle" fill="#0000FF">TAMPA DESLIZANTE • CHAPA ${t.toFixed(1)}MM</text>` : ''}
 </svg>`;
 
     return {
-      title: `Caixa com Encaixes ${w}x${h}mm (${t}mm)`,
-      description: `Painel paramétrico com rasgos fêmea de ${t}mm e furos de montagem em corte passante (#FF0000) e identificação técnica em #0000FF.`,
-      widthMm: w,
-      heightMm: h,
+      title: `Caixa Organizadora Finger-Joint ${sheetW}x${sheetH}mm`,
+      description: `Conjunto completo de 6 peças para corte CNC (Fundo, Frente, Trás, Laterais e Tampa com puxador) para chapa ${t.toFixed(1)}mm.`,
+      widthMm: sheetW,
+      heightMm: sheetH,
       svgContent: svg,
-      recommendedMaterial: `MDF Cru ${t}mm`,
+      recommendedMaterial: `MDF Cru ou Compensado ${t}mm`,
       recommendedThicknessMm: t,
       materialThickness_mm: t,
       metadata: createStandardMetadataBlock(t, 0.15),
-      cutLengthMm: Math.round(2 * (w + h) + 120),
-      engraveAreaCm2: Math.round((w * h) / 100),
-      estimatedLaserTimeSec: 28,
+      cutLengthMm: Math.round(2 * (pW + pH) * 2 + 4 * (sW + pH * 0.7)),
+      engraveAreaCm2: 24,
+      estimatedLaserTimeSec: 42,
       layers: [
-        { name: 'Corte Externo e Rasgos (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (w + h) + 120) },
-        { name: 'Gravação Moldura e Identificação (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 70 }
+        { name: 'Corte 6 Painéis e Puxador (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (pW + pH) * 2 + 4 * (sW + pH * 0.7)) },
+        { name: 'Gravação Identificação e Posições (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 85 }
       ]
     };
   }
