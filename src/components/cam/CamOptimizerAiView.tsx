@@ -6,19 +6,11 @@ import {
   Pause,
   RotateCcw,
   CheckCircle2,
-  AlertTriangle,
   Code2,
   FileCheck,
-  RotateCw,
-  Sparkles,
   Download,
   Gauge,
-  Zap,
-  ArrowRight,
-  ShieldCheck,
-  Sliders,
-  Layers,
-  Settings
+  ShieldCheck
 } from 'lucide-react';
 
 interface CamOptimizerAiViewProps {
