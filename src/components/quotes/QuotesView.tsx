@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   Copy,
   MessageSquare,
-  Scissors,
   Save,
   CheckCheck
 } from 'lucide-react';
