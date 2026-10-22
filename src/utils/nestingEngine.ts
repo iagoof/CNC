@@ -17,10 +17,6 @@ export interface NestingResult {
   utilizationPct: number; totalCutLength_mm: number; totalEngraveArea_cm2: number; errors: string[];
 }
 const epsilon = 1e-7;
-const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w - epsilon && a.x + a.w > b.x + epsilon
-  && a.y < b.y + b.h - epsilon && a.y + a.h > b.y + epsilon;
-const contains = (a: Rect, b: Rect) => b.x >= a.x - epsilon && b.y >= a.y - epsilon
-  && b.x + b.w <= a.x + a.w + epsilon && b.y + b.h <= a.y + a.h + epsilon;
 
 /** MaxRects Best Short Side Fit. All intersecting free rectangles are split on four sides. */
 export function packNesting(items: NestingItem[], sheetWidth: number, sheetLength: number, margin: number, gap: number): NestingResult {
@@ -47,41 +43,113 @@ export function packNesting(items: NestingItem[], sheetWidth: number, sheetLengt
   if (errors.length) return empty();
   const pieces = items.flatMap(item => Array.from({ length: item.quantity }, (_, index) => ({ ...item, pieceId: `${item.id}:${index}` })))
     .sort((a, b) => b.width * b.height - a.width * a.height || b.width + b.height - a.width - a.height || a.pieceId.localeCompare(b.pieceId));
+
   // Reserve the gap as part of each box; the final row/column may use the sheet edge.
   let free: Rect[] = [{ x: margin, y: margin, w: sheetWidth - 2 * margin + gap, h: sheetLength - 2 * margin + gap }];
   const placed: PlacedBox[] = [];
   let unplacedCount = 0, totalCutLength_mm = 0, totalEngraveArea_cm2 = 0;
+
+  // Performance Optimization (⚡ Bolt):
+  // Avoid intermediate object allocations ({ rect: ... }), closure allocations (.filter, .some),
+  // and inline rectangular intersection / containment logic to optimize CPU cache & memory allocation.
   for (const item of pieces) {
-    let best: { rect: Rect; rotated: boolean; short: number; long: number } | undefined;
-    for (const space of free) {
-      for (const rotated of [false, true]) {
-        const w = rotated ? item.height : item.width, h = rotated ? item.width : item.height;
-        if (w + gap > space.w + epsilon || h + gap > space.h + epsilon) continue;
-        const short = Math.min(space.w - w - gap, space.h - h - gap), long = Math.max(space.w - w - gap, space.h - h - gap);
-        if (!best || short < best.short - epsilon || Math.abs(short - best.short) < epsilon && (long < best.long - epsilon
-          || Math.abs(long - best.long) < epsilon && (space.y < best.rect.y || space.y === best.rect.y && space.x < best.rect.x))) {
-          best = { rect: { x: space.x, y: space.y, w, h }, rotated, short, long };
+    let bestX = 0, bestY = 0, bestW = 0, bestH = 0;
+    let bestRotated = false, bestShort = Infinity, bestLong = Infinity;
+    let found = false;
+
+    const itemW = item.width, itemH = item.height;
+
+    // Find best placement across current free rectangles using MaxRects Best Short Side Fit
+    for (let i = 0; i < free.length; i++) {
+      const space = free[i];
+      const spaceX = space.x, spaceY = space.y, spaceW = space.w, spaceH = space.h;
+
+      // 1. Check unrotated orientation (w = itemW, h = itemH)
+      if (itemW + gap <= spaceW + epsilon && itemH + gap <= spaceH + epsilon) {
+        const remW = spaceW - itemW - gap, remH = spaceH - itemH - gap;
+        const short = remW < remH ? remW : remH;
+        const long = remW < remH ? remH : remW;
+        if (!found || short < bestShort - epsilon || Math.abs(short - bestShort) < epsilon && (long < bestLong - epsilon
+          || Math.abs(long - bestLong) < epsilon && (spaceY < bestY || spaceY === bestY && spaceX < bestX))) {
+          found = true;
+          bestX = spaceX; bestY = spaceY; bestW = itemW; bestH = itemH;
+          bestRotated = false; bestShort = short; bestLong = long;
+        }
+      }
+
+      // 2. Check rotated orientation (w = itemH, h = itemW)
+      if (itemH + gap <= spaceW + epsilon && itemW + gap <= spaceH + epsilon) {
+        const remW = spaceW - itemH - gap, remH = spaceH - itemW - gap;
+        const short = remW < remH ? remW : remH;
+        const long = remW < remH ? remH : remW;
+        if (!found || short < bestShort - epsilon || Math.abs(short - bestShort) < epsilon && (long < bestLong - epsilon
+          || Math.abs(long - bestLong) < epsilon && (spaceY < bestY || spaceY === bestY && spaceX < bestX))) {
+          found = true;
+          bestX = spaceX; bestY = spaceY; bestW = itemH; bestH = itemW;
+          bestRotated = true; bestShort = short; bestLong = long;
         }
       }
     }
-    if (!best) { unplacedCount++; continue; }
-    const box = best.rect;
-    placed.push({ ...box, id: item.pieceId, itemId: item.id, name: item.name, color: item.color,
-      rotated: best.rotated, sourceWidth: item.width, sourceHeight: item.height,
+
+    if (!found) { unplacedCount++; continue; }
+
+    placed.push({ x: bestX, y: bestY, w: bestW, h: bestH, id: item.pieceId, itemId: item.id, name: item.name, color: item.color,
+      rotated: bestRotated, sourceWidth: itemW, sourceHeight: itemH,
       pathsMarkup: item.pathsMarkup, kerfApplied: item.kerfApplied });
     totalCutLength_mm += item.cutLength_mm; totalEngraveArea_cm2 += item.engraveArea_cm2 ?? 0;
-    const reserved = { ...box, w: box.w + gap, h: box.h + gap };
+
+    const resX = bestX, resY = bestY, resW = bestW + gap, resH = bestH + gap;
+    const resRight = resX + resW, resBottom = resY + resH;
+
+    // Split intersecting free rectangles on all 4 sides
     const next: Rect[] = [];
-    for (const space of free) {
-      if (!overlaps(space, reserved)) { next.push(space); continue; }
-      if (reserved.x > space.x + epsilon) next.push({ ...space, w: reserved.x - space.x });
-      if (reserved.x + reserved.w < space.x + space.w - epsilon) next.push({ ...space, x: reserved.x + reserved.w, w: space.x + space.w - reserved.x - reserved.w });
-      if (reserved.y > space.y + epsilon) next.push({ ...space, h: reserved.y - space.y });
-      if (reserved.y + reserved.h < space.y + space.h - epsilon) next.push({ ...space, y: reserved.y + reserved.h, h: space.y + space.h - reserved.y - reserved.h });
+    for (let i = 0; i < free.length; i++) {
+      const space = free[i];
+      const sx = space.x, sy = space.y, sw = space.w, sh = space.h;
+      const sRight = sx + sw, sBottom = sy + sh;
+
+      // Inline overlap check
+      if (!(sx < resRight - epsilon && sRight > resX + epsilon && sy < resBottom - epsilon && sBottom > resY + epsilon)) {
+        next.push(space);
+        continue;
+      }
+
+      if (resX > sx + epsilon) next.push({ x: sx, y: sy, w: resX - sx, h: sh });
+      if (resRight < sRight - epsilon) next.push({ x: resRight, y: sy, w: sRight - resRight, h: sh });
+      if (resY > sy + epsilon) next.push({ x: sx, y: sy, w: sw, h: resY - sy });
+      if (resBottom < sBottom - epsilon) next.push({ x: sx, y: resBottom, w: sw, h: sBottom - resBottom });
     }
-    free = next.filter((rect, index) => rect.w > epsilon && rect.h > epsilon
-      && !next.some((other, otherIndex) => index !== otherIndex && contains(other, rect)
-        && (!contains(rect, other) || otherIndex < index)));
+
+    // Prune redundant / fully-contained rectangles
+    const nextLen = next.length;
+    const filtered: Rect[] = [];
+    for (let i = 0; i < nextLen; i++) {
+      const rect = next[i];
+      const rx = rect.x, ry = rect.y, rw = rect.w, rh = rect.h;
+      if (rw <= epsilon || rh <= epsilon) continue;
+
+      let isContained = false;
+      const rRight = rx + rw, rBottom = ry + rh;
+
+      for (let j = 0; j < nextLen; j++) {
+        if (i === j) continue;
+        const other = next[j];
+        const ox = other.x, oy = other.y, ow = other.w, oh = other.h;
+
+        // Inline contains check: contains(other, rect)
+        if (rx >= ox - epsilon && ry >= oy - epsilon && rRight <= ox + ow + epsilon && rBottom <= oy + oh + epsilon) {
+          // Check if equal dimensions: contains(rect, other)
+          const otherRight = ox + ow, otherBottom = oy + oh;
+          const rectContainsOther = (ox >= rx - epsilon && oy >= ry - epsilon && otherRight <= rRight + epsilon && otherBottom <= rBottom + epsilon);
+          if (!rectContainsOther || j < i) {
+            isContained = true;
+            break;
+          }
+        }
+      }
+      if (!isContained) filtered.push(rect);
+    }
+    free = filtered;
   }
   const sheetAreaM2 = sheetWidth * sheetLength / 1e6;
   const usedAreaM2 = placed.reduce((sum, box) => sum + box.w * box.h / 1e6, 0);
