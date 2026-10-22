@@ -127,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Navigation List */}
-      <nav className="flex-1 overflow-y-auto p-3 space-y-1 text-xs">
+      <nav className="flex-1 overflow-y-auto p-3 space-y-1 text-xs" aria-label="Menu principal">
         {navItems.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -135,13 +135,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1 cursor-pointer ${
                 isActive
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/20'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <Icon
                   className={`w-4 h-4 shrink-0 ${
                     isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'
@@ -149,8 +150,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
                 <span className="truncate">{item.label}</span>
               </div>
-
-
+              {item.badge && (
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-colors shrink-0 ml-1.5 ${
+                    isActive
+                      ? 'bg-amber-600/50 text-white border-amber-300/40'
+                      : 'bg-amber-50 text-amber-800 border-amber-200/80'
+                  }`}
+                >
+                  {item.badge}
+                </span>
+              )}
             </button>
           );
         })}
@@ -169,4 +179,3 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </aside>
   );
 };
-
