@@ -220,3 +220,37 @@ export const DEFAULT_PROJECTS_SEED: Omit<FirestoreProject, 'ownerId'>[] = [
 </svg>`
   }
 ];
+
+import { collection, query, where, getDocs, writeBatch, doc, serverTimestamp } from 'firebase/firestore';
+import { db } from './firebase';
+import { INITIAL_MATERIALS } from '../../data/initialData';
+
+export async function seedInitialMaterials(userId: string): Promise<{ materialsCount: number }> {
+  const result = { materialsCount: 0 };
+  const matSnap = await getDocs(query(collection(db, 'materials'), where('ownerId', '==', userId)));
+  if (matSnap.empty) {
+    const batch = writeBatch(db);
+    for (const mat of INITIAL_MATERIALS) {
+      const docRef = doc(db, 'materials', mat.id);
+      batch.set(docRef, {
+        id: mat.id,
+        ownerId: userId,
+        name: mat.name,
+        category: mat.category,
+        thickness_mm: mat.thickness_mm,
+        sheetWidth_mm: mat.sheetWidth_mm,
+        sheetLength_mm: mat.sheetLength_mm,
+        unitCost: mat.unitCost,
+        shippingCost: mat.shippingCost,
+        lossPercentage: mat.lossPercentage,
+        density_kg_m3: mat.density_kg_m3,
+        speedsByMachine: mat.speedsByMachine,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      result.materialsCount++;
+    }
+    await batch.commit();
+  }
+  return result;
+}
