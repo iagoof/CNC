@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { readSvgGeometry, pointInContour, contourArea } from '../../utils/svgGeometry';
 
 export type LaserMaterialFinish = 'mdf-cru' | 'mdf-branco' | 'acrilico-cristal' | 'compensado-pinus' | 'mdf-preto';
