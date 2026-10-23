@@ -103,7 +103,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left cursor-pointer ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-medium transition-all text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
                 isActive
                   ? 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/20'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -156,8 +157,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <button
             onClick={logout}
+            aria-label="Sair da plataforma"
             title="Sair da plataforma e voltar à tela de login"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 transition-colors shrink-0 cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
           </button>
