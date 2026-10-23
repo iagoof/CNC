@@ -4,6 +4,8 @@ export async function printDocument(html: string): Promise<void> {
   frame.title = 'Documento para impressão';
   frame.style.cssText = 'position:fixed;width:1px;height:1px;left:-10000px;border:0';
   frame.setAttribute('aria-hidden', 'true');
+  // Sandbox iframe to block script execution while allowing print modals and same-origin styling/fonts
+  frame.setAttribute('sandbox', 'allow-modals allow-same-origin');
   let cleanupTimer: ReturnType<typeof setTimeout>;
   const cleanup = () => { clearTimeout(cleanupTimer); frame.remove(); };
   return new Promise((resolve, reject) => {
