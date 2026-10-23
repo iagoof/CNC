@@ -1,3 +1,4 @@
+import { useLocalStorageState } from '../../utils/useLocalStorageState';
 import type { NestingTransfer } from '../../utils/nestingEngine';
 import { calcLaserCutTimeAndCost } from '../../utils/calculations';
 import { sanitizeSvg } from '../../utils/sanitizeSvg';
@@ -104,9 +105,11 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
 }) => {
   const { user, isAuthenticated, projects, syncProjectMutation, deleteProjectMutation, login } = useFirebase();
 
+  const draftKey = `cnc-vector-draft-v1:${user?.uid || 'guest'}`;
+
   // Input State
-  const [inputMode, setInputMode] = useState<'prompt' | 'upload' | 'cloud'>('prompt');
-  const [promptText, setPromptText] = useState<string>(
+  const [inputMode, setInputMode] = useLocalStorageState<'prompt' | 'upload' | 'cloud'>(draftKey + ":input-mode", 'prompt');
+  const [promptText, setPromptText] = useLocalStorageState<string>(draftKey + ":prompt",
     'Porta-copos hexagonal de 100x100mm com cantos arredondados R5, corte externo passante fechado em vermelho puro #FF0000, gravação de geometria sagrada com padrão flor da vida e anel de drenagem perimétrico em azul puro #0000FF, espessura recomendada de 3.0mm em MDF ou acrílico.'
   );
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -115,20 +118,21 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   const [processingStep, setProcessingStep] = useState<string>('');
 
   // Engineering Controls
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>(materials[0]?.id || '');
-  const [targetWidth, setTargetWidth] = useState<number>(100);
-  const [targetHeight, setTargetHeight] = useState<number>(100);
-  const [kerfCompensation, setKerfCompensation] = useState<number>(0.15);
-  const [includeEngraving, setIncludeEngraving] = useState<boolean>(true);
-  const [selectedFinish, setSelectedFinish] = useState<LaserMaterialFinish>('mdf-cru');
+  const [selectedMaterialId, setSelectedMaterialId] = useLocalStorageState<string>(draftKey + ":material", materials[0]?.id || '');
+  const [targetWidth, setTargetWidth] = useLocalStorageState<number>(draftKey + ":width", 100);
+  const [targetHeight, setTargetHeight] = useLocalStorageState<number>(draftKey + ":height", 100);
+  const [kerfCompensation, setKerfCompensation] = useLocalStorageState<number>(draftKey + ":kerf", 0.15);
+  const [includeEngraving, setIncludeEngraving] = useLocalStorageState<boolean>(draftKey + ":engraving", true);
+  const [selectedFinish, setSelectedFinish] = useLocalStorageState<LaserMaterialFinish>(draftKey + ":finish", 'mdf-cru');
 
   // 3D & Vector Canvas Controls
-  const [activeViewMode, setActiveViewMode] = useState<'vector' | '3d'>('3d');
+  const [activeViewMode, setActiveViewMode] = useLocalStorageState<'vector' | '3d'>(draftKey + ":view", '3d');
   const [explodeSlider, setExplodeSlider] = useState<number>(0);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [showKerfLines, setShowKerfLines] = useState<boolean>(true);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [renderedPartsCount, setRenderedPartsCount] = useState(0);
   const [modelError, setModelError] = useState<string | null>(null);
   const [preprocessStats, setPreprocessStats] = useState<PreprocessResult | null>(null);
   const [isHealing, setIsHealing] = useState<boolean>(false);
@@ -172,8 +176,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   }, [projects, user, selectedMachine]);
 
   // Currently active generated artifact
-  const [currentArtifact, setCurrentArtifact] = useState<GeneratedVectorArtifact>(READY_EXAMPLES[0]);
-  const [hasSelectedArtifact, setHasSelectedArtifact] = useState(false);
+  const [currentArtifact, setCurrentArtifact] = useLocalStorageState<GeneratedVectorArtifact>(draftKey + ":artifact", READY_EXAMPLES[0]);
+  const [hasSelectedArtifact, setHasSelectedArtifact] = useLocalStorageState(draftKey + ":selected", false);
 
   const currentSpeed = selectedMaterial.speedsByMachine.find(speed => speed.machineId === selectedMachine.id);
   const currentProcessSeconds = currentSpeed ? Math.ceil(calcLaserCutTimeAndCost(
@@ -215,7 +219,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    container.replaceChildren(renderer.domElement);
+    container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -264,6 +268,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       setModelError(error instanceof Error ? error.message : 'Não foi possível construir o modelo 3D.');
       modelResult = { group: new THREE.Group(), parts: [] };
     }
+    setRenderedPartsCount(modelResult.parts.length);
     scene.add(modelResult.group);
     modelGroupRef.current = modelResult.parts.length ? modelResult.group : null;
     if (modelResult.parts.length) {
@@ -312,6 +317,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       });
       modelGroupRef.current = null;
       renderer.dispose();
+      renderer.domElement.remove();
     };
   }, [hasSelectedArtifact, activeViewMode, currentArtifact, selectedFinish]);
 
@@ -385,6 +391,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     try {
       let finalSvg = '';
       let generatedTitle = promptText.slice(0, 35);
+      let generatedDescription = '';
       let calculatedWidth = targetWidth;
       let calculatedHeight = targetHeight;
       let artifactThickness = selectedMaterial?.thickness_mm || 3.0;
@@ -416,7 +423,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         artifactThickness = thickness;
         artifactMetadata = createStandardMetadataBlock(thickness, kerfCompensation, 'raster-trace-paperjs');
         const rawSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelWidth} ${pixelHeight}" width="${calculatedWidth}mm" height="${calculatedHeight}mm" data-thickness-mm="${thickness}">${traced.paths.map(path => `<path d="${path}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />`).join('')}</svg>`;
-        
+
         // Pré-processamento Paper.js: união de caminhos e resolução de intersecções
         const preprocessed = cleanAndUniteSvgPaths(rawSvg, thickness, kerfCompensation);
         setPreprocessStats(preprocessed);
@@ -434,16 +441,16 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
           kerfCompensation
         );
         artifactThickness = result.materialThickness_mm || result.recommendedThicknessMm || selectedMaterial?.thickness_mm || 3.0;
-        
+
         // Pré-processamento booleano Paper.js para remover pontos de contato indesejados
         const preprocessed = cleanAndUniteSvgPaths(result.svgContent, artifactThickness, kerfCompensation);
         setPreprocessStats(preprocessed);
         finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, artifactThickness, kerfCompensation);
         generatedTitle = result.title;
+        generatedDescription = result.description;
         calculatedWidth = result.widthMm;
         calculatedHeight = result.heightMm;
-        setTargetWidth(result.widthMm);
-        setTargetHeight(result.heightMm);
+
         artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation, 'gemini-3.8-flash');
       }
 
@@ -463,7 +470,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
-        description: `Modelo geométrico gerado e pré-processado com Paper.js. Espessura: ${artifactThickness}mm.`,
+        description: generatedDescription || `Modelo geométrico gerado e pré-processado com Paper.js. Espessura: ${artifactThickness}mm.`,
         width_mm: calculatedWidth,
         height_mm: calculatedHeight,
         thickness_mm: artifactThickness,
@@ -482,7 +489,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       setHasSelectedArtifact(true);
       setActiveViewMode('3d');
       setExplodeSlider(0);
-      triggerToast('Modelo vetorial gerado, unificado com Paper.js e montado em 3D!');
+      triggerToast('Projeto gerado. Revise as peças e as instruções antes de fabricar.');
     } catch (e) {
       console.warn('Erro na geração:', e);
       triggerToast(e instanceof Error ? `Falha na geração: ${e.message}` : 'Não foi possível gerar o projeto.');
@@ -1115,7 +1122,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                         activeViewMode === '3d' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <Box className="w-3.5 h-3.5" /> Montagem 3D
+                      <Box className="w-3.5 h-3.5" /> Peças 3D
                     </button>
                     <button
                       onClick={() => setActiveViewMode('vector')}
@@ -1128,6 +1135,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              <p className="text-xs text-slate-600">{currentArtifact.description}</p>
 
               {/* Paper.js Preprocessing Status & Union Control */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
@@ -1170,14 +1179,16 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
               {modelError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{modelError}</div>}
               {/* Viewport Area */}
               {activeViewMode === '3d' ? (
-                <div className="space-y-3">
+                <div key="viewport-3d" className="space-y-3">
+                  <div className="relative">
                   <div
                     ref={mount3dRef}
                     className="w-full h-80 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden relative cursor-grab active:cursor-grabbing shadow-inner"
                   >
+                  </div>
                     <div className="absolute top-2.5 left-2.5 bg-white/95 border border-slate-200/90 px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-700 shadow-xs flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span>{partsRef.current.length} peças extrudadas do SVG</span>
+                      <span>{renderedPartsCount} peças extrudadas do SVG</span>
                     </div>
 
                     <div className="absolute top-2.5 right-2.5 bg-white/95 border border-slate-200/90 px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-600 shadow-xs">
@@ -1225,14 +1236,14 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                 </div>
               ) : (
                 /* 2D Cut Pattern Viewport */
-                <div className="space-y-3">
+                <div key="viewport-vector" className="space-y-3">
                   <div className="relative w-full h-80 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden flex items-center justify-center p-4">
                     <div
                       style={{
                         transform: `scale(${zoomLevel})`,
                         transition: 'transform 0.15s ease-out'
                       }}
-                      className="max-h-full max-w-full flex items-center justify-center drop-shadow-sm"
+                      className="h-full w-full flex items-center justify-center drop-shadow-sm [&>svg]:w-full [&>svg]:h-full [&>svg]:object-contain"
                       dangerouslySetInnerHTML={{ __html: sanitizeSvg(currentArtifact.svgString) }}
                     />
 

@@ -16,15 +16,21 @@ app.use(express.json({ limit: '20mb' }));
 const GEMINI_FREE_MODEL = 'gemini-3.8-flash';
 
 // Instância do SDK oficial do Google GenAI
-const ai = new GoogleGenAI();
+// Create only on request so local tools also work without an AI credential.
+const getAi = () => new GoogleGenAI();
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error('Tempo limite excedido na chamada da IA Gemini.')), timeoutMs)
-    )
-  ]);
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Tempo limite excedido na chamada da IA Gemini.')), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer!);
+  }
 }
 
 /**
@@ -62,10 +68,11 @@ REGRAS DE CONSTRUÇÃO INDUSTRIAL CNC:
 4. METADADOS TÉCNICOS:
    - Inclua no início do SVG a tag <metadata id="cnc-metadata"> com materialThickness_mm="${thickness}" e defaultKerf_mm="${kerf}".
 5. RESPOSTA:
+   - Para kits e pedidos de montagem, forneça TODAS as peças separadas na chapa com folga entre elas, identificadas por data-part. Nunca substitua o conjunto por um único painel.
    - Responda EXCLUSIVAMENTE com o código SVG completo. Comece com <svg e termine com </svg>.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      getAi().models.generateContent({
         model: GEMINI_FREE_MODEL,
         contents: [
           {
@@ -89,7 +96,7 @@ Compensação de Kerf: ${kerf}mm`
           maxOutputTokens: 8192
         }
       }),
-      4500
+      60000
     );
 
     const responseText = response.text || '';
@@ -138,7 +145,7 @@ Especifique:
 - Forneça apenas o texto aprimorado final, claro e conciso (máximo 3 linhas).`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      getAi().models.generateContent({
         model: GEMINI_FREE_MODEL,
         contents: `Melhore este prompt para fabricação CNC: "${prompt}"`,
         config: {
@@ -147,7 +154,7 @@ Especifique:
           maxOutputTokens: 300
         }
       }),
-      3500
+      30000
     );
 
     const optimized = (response.text || '').trim();
@@ -192,7 +199,7 @@ Analise a amostra de G-code fornecida e retorne um diagnóstico técnico estrutu
 Responda APENAS o JSON válido.`;
 
     const response = await withTimeout(
-      ai.models.generateContent({
+      getAi().models.generateContent({
         model: GEMINI_FREE_MODEL,
         contents: `Analise este G-code para máquina ${machineType}:\n\n${sampleGcode}`,
         config: {
@@ -201,7 +208,7 @@ Responda APENAS o JSON válido.`;
           responseMimeType: 'application/json'
         }
       }),
-      4000
+      30000
     );
 
     let parsedResult;

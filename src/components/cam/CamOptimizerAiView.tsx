@@ -5,6 +5,7 @@ import {
   Play,
   Pause,
   RotateCcw,
+  RotateCw,
   CheckCircle2,
   Code2,
   FileCheck,

@@ -284,7 +284,7 @@ function parsePromptParameters(
   const hasMandala = p.includes('mandala') || p.includes('flor da vida') || p.includes('sagrada') || p.includes('radial') || p.includes('roseta') || p.includes('luminaria') || p.includes('luminária');
   const hasGear = p.includes('engrenagem') || p.includes('gear') || p.includes('dentes') || p.includes('mecanic') || p.includes('mecânic');
   const hasStar = p.includes('estrela') || p.includes('star');
-  const hasKeyring = p.includes('chaveiro') || p.includes('tag') || p.includes('pingente') || p.includes('crachá') || p.includes('identificaç');
+  const hasKeyring = p.includes('chaveiro') || /\btags?\b/.test(p) || p.includes('pingente') || p.includes('crachá') || p.includes('identificaç');
   const hasTrophy = p.includes('trofeu') || p.includes('troféu') || p.includes('premio') || p.includes('prêmio') || p.includes('display');
   const hasTray = p.includes('bandeja') || p.includes('prato') || p.includes('petisqueira') || p.includes('tabua') || p.includes('tábua');
   const hasCircle = p.includes('redondo') || p.includes('circular') || p.includes('disco') || p.includes('anel') || p.includes('circulo') || p.includes('círculo');
@@ -320,15 +320,48 @@ export function generateProceduralVector(
   style: 'cut_engrave' | 'cut_only' | 'relief_3d' = 'cut_engrave',
   targetMachine: 'laser' | 'router' = 'laser',
   widthHint?: number,
-  heightHint?: number
+  heightHint?: number,
+  thicknessHint = 3.0
 ): GeneratedCncVector {
   const params = parsePromptParameters(prompt, widthHint || 100, heightHint || 100);
   const w = params.width;
   const h = params.height;
-  const t = params.thickness;
+  const t = /espessura|\d\s*mm\s*(?:em\s+)?(?:mdf|acr[ií]lico|compensado)/i.test(prompt) ? params.thickness : thicknessHint;
   const cx = Number((w / 2).toFixed(2));
   const cy = Number((h / 2).toFixed(2));
   const textLabel = params.detectedText || (prompt.slice(0, 22).trim().toUpperCase() || 'CNC PRECISION');
+
+  if (/\b(casa|casinha|house)\b/i.test(prompt)) {
+    // A miniature glue kit: dimensions describe the assembled footprint, not the sheet.
+    const depth = h;
+    if (!Number.isFinite(t) || t <= 0 || 2 * t >= Math.min(w, h)) {
+      throw new Error('A espessura deve ser positiva e menor que metade da largura e do comprimento da casa.');
+    }
+    const wall = h * 0.65;
+    const rise = w * 0.35;
+    const roof = Math.hypot(w / 2, rise);
+    const gap = Math.max(6, t * 2);
+    const sheetW = Math.max(2 * w + 3 * gap, 2 * depth + 3 * gap);
+    const row2 = gap + wall + rise + gap;
+    const row3 = row2 + wall + gap;
+    const row4 = row3 + roof + gap;
+    const sheetH = Math.ceil((row4 + depth + gap) * 100) / 100;
+    const cut = 'fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut"';
+    const rect = (id: string, x: number, y: number, width: number, height: number) =>
+      `<rect id="${id}" data-part="${id}" x="${x}" y="${y}" width="${width}" height="${height}" ${cut}/>`;
+    const gable = (id: string, x: number) => `<path id="${id}" data-part="${id}" d="M ${x} ${gap + rise + wall} L ${x} ${gap + rise} L ${x + w / 2} ${gap} L ${x + w} ${gap + rise} L ${x + w} ${gap + rise + wall} Z" ${cut}/>`;
+    const description = `Kit local de casa em miniatura para colagem, com 7 peças: frente, fundo, duas laterais, duas águas do telhado e base. Base ${w} × ${depth} mm; paredes ${wall.toFixed(1)} mm. Monte as laterais entre frente e fundo, cole na base e finalize com o telhado. Sem encaixes automáticos; revise medidas, kerf e montagem antes de cortar.`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetW} ${sheetH}" width="${sheetW}mm" height="${sheetH}mm"><desc>${description}</desc>${gable('frente', gap)}${gable('fundo', w + 2 * gap)}${rect('lateral-esquerda', gap, row2, Math.max(t, depth - 2 * t), wall)}${rect('lateral-direita', depth + 2 * gap, row2, Math.max(t, depth - 2 * t), wall)}${rect('telhado-esquerdo', gap, row3, depth, roof)}${rect('telhado-direito', depth + 2 * gap, row3, depth, roof)}${rect('base', gap, row4, w, depth)}</svg>`;
+    return {
+      title: `Kit casa em miniatura — 7 peças para colagem`, description,
+      widthMm: sheetW, heightMm: sheetH, svgContent: ensureSvgMetadataBlock(svg, t),
+      recommendedMaterial: `MDF ${t}mm`, recommendedThicknessMm: t, materialThickness_mm: t,
+      metadata: createStandardMetadataBlock(t, 0.15, 'local-house-kit'),
+      cutLengthMm: 2 * (2 * wall + w + 2 * roof) + 4 * (depth - 2 * t + wall) + 4 * (depth + roof) + 2 * (w + depth),
+      engraveAreaCm2: 0, estimatedLaserTimeSec: 0,
+      layers: [{ name: 'Corte das 7 peças', type: 'cut', color: '#FF0000', cutLengthMm: 0 }]
+    };
+  }
 
   // =========================================================================
   // ARCHETYPE 1: HEXAGONAL COASTER / GEOMETRIC HEXAGON
@@ -773,6 +806,9 @@ export function generateProceduralVector(
   // =========================================================================
   // ARCHETYPE 9: TRAY / BANDEJA / PLACA RETANGULAR COM CANTOS ARREDONDADOS
   // =========================================================================
+  if (!params.hasTray && !/\b(placa|painel|retângulo|retangulo)\b/i.test(prompt)) {
+    throw new Error('A IA está indisponível e não há modelo local para este pedido. Tente novamente ou escolha um exemplo da galeria.');
+  }
   const cornerR = params.radius || 6;
   const holeR = Math.min(3, Math.max(1.5, Math.round(Math.min(w, h) * 0.03)));
   const holeOffset = Math.round(cornerR + 4);
@@ -861,6 +897,9 @@ export async function generateCncVector(
         const preprocessed = cleanAndUniteSvgPaths(data.svgContent, thicknessMm, kerfMm);
         const finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, thicknessMm, kerfMm);
         const metrics = calculateSvgMetrics(finalSvg);
+        if (/\bkit\b|montagem/i.test(prompt) && metrics.elementCount < 3) {
+          throw new Error('A IA retornou uma peça isolada para um pedido de montagem.');
+        }
 
         return {
           title: data.title || prompt.slice(0, 36).trim(),
@@ -887,10 +926,11 @@ export async function generateCncVector(
   }
 
   // 2. Fallback resiliente: Motor paramétrico industrial com pré-processamento Paper.js
-  const procedural = generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
+  const procedural = generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight, thicknessMm);
   const preprocessed = cleanAndUniteSvgPaths(procedural.svgContent, procedural.materialThickness_mm, kerfMm);
   procedural.svgContent = ensureSvgMetadataBlock(preprocessed.cleanedSvg, procedural.materialThickness_mm, kerfMm);
-  procedural.description += ` • Pré-processamento Paper.js: ${preprocessed.details}`;
+  procedural.metadata = createStandardMetadataBlock(procedural.materialThickness_mm, kerfMm, 'local-procedural');
+  procedural.description = `Modelo local: IA indisponível ou resposta inválida. ${procedural.description} • Pré-processamento Paper.js: ${preprocessed.details}`;
   return procedural;
 }
 

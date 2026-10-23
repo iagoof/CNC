@@ -104,6 +104,10 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
     throw new Error('Nenhuma silhueta suficiente foi detectada na imagem. Certifique-se de que o desenho tenha contraste nítido.');
   }
 
+  if ([...edges.values()].some(outgoing => outgoing.length > 1)) {
+    throw new Error('Os contornos se tocam ou cruzam na diagonal. Separe as peças antes de vetorizar.');
+  }
+
   const paths: string[] = [];
 
   // Decompose directed planar edge graph into closed cycles
@@ -187,7 +191,7 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
     if (nonCollinear.length < 3) continue;
 
     // Apply gentle RDP simplification (epsilon = 0.6) to smooth raster stair steps into clean vectors
-    const simplified = rdpSimplify(nonCollinear.concat([nonCollinear[0]]), 0.6);
+    const simplified = rdpSimplify(nonCollinear.concat([nonCollinear[0]]), 0.2);
     if (
       simplified.length > 1 &&
       simplified[simplified.length - 1][0] === simplified[0][0] &&
@@ -197,7 +201,7 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
     }
 
     // Filter out degenerate single-pixel artifacts (area < 2.5 mm²/px²)
-    if (simplified.length >= 3 && Math.abs(polygonArea(simplified)) >= 2.5) {
+    if (simplified.length >= 3 && Math.abs(polygonArea(simplified)) >= 0.5) {
       paths.push(`M ${simplified.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L ')} Z`);
     }
   }

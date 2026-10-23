@@ -786,112 +786,11 @@ export function build3DFromSvg(
       generatedMeshes.push({ mesh, name: mesh.name, bbox, size });
     }
 
-    // MONTAGEM INTELIGENTE DOS COMPONENTES EM 3D ("montando eles")
-    if (generatedMeshes.length === 1) {
-      // Peça única: centralizada, apoiada no chão
-      const item = generatedMeshes[0];
-      item.mesh.geometry.center();
-      item.mesh.position.set(0, depth / 2, 0);
+    // Keep the SVG sheet layout. Part count alone cannot determine assembly joints.
+    generatedMeshes.forEach((item, i) => {
       subGroup.add(item.mesh);
-      parts.push({
-        name: 'Placa Principal',
-        mesh: item.mesh,
-        explodeVector: new THREE.Vector3(0, 3, 0)
-      });
-    } else if (generatedMeshes.length === 2) {
-      // Conjunto com 2 peças (Corpo Principal + Base de Encaixe)
-      // Identifica qual peça é a base (menor altura Y / proporção achatada)
-      const sorted = [...generatedMeshes].sort((a, b) => (a.size.y / a.size.x) - (b.size.y / b.size.x));
-      const basePart = sorted[0]; // mais achatada = base
-      const bodyPart = sorted[1]; // mais esbelta = corpo
-
-      // Base: deitada no plano XZ
-      basePart.mesh.geometry.center();
-      basePart.mesh.rotation.x = Math.PI / 2;
-      basePart.mesh.position.set(0, depth / 2, 0);
-      subGroup.add(basePart.mesh);
-      parts.push({
-        name: 'Base de Encaixe com Rasgo',
-        mesh: basePart.mesh,
-        explodeVector: new THREE.Vector3(0, -4, 0)
-      });
-
-      // Corpo: em pé a 90°, encaixado na base
-      bodyPart.mesh.geometry.center();
-      bodyPart.mesh.rotation.x = 0;
-      bodyPart.mesh.position.set(0, bodyPart.size.y / 2 + depth, 0);
-      subGroup.add(bodyPart.mesh);
-      parts.push({
-        name: 'Corpo Lapidado com Espiga',
-        mesh: bodyPart.mesh,
-        explodeVector: new THREE.Vector3(0, 6, 0)
-      });
-    } else if (generatedMeshes.length >= 3 && generatedMeshes.length <= 5) {
-      // Multicamadas 3D (ex: Mandala / Porta-Copos em camadas)
-      generatedMeshes.forEach((item, i) => {
-        item.mesh.geometry.center();
-        item.mesh.rotation.x = Math.PI / 2;
-        item.mesh.position.set(0, i * (depth + 0.05), 0);
-        subGroup.add(item.mesh);
-        parts.push({
-          name: `Camada 3D #${i + 1}`,
-          mesh: item.mesh,
-          explodeVector: new THREE.Vector3(0, (i + 1) * 3.5, 0)
-        });
-      });
-    } else if (generatedMeshes.length >= 6) {
-      // Caixa / Estrutura de múltiplos painéis
-      // Painel 0: Fundo
-      // Painéis 1 e 2: Frente e Trás
-      // Painéis 3 e 4: Laterais
-      // Painel 5: Tampa
-      const [p0, p1, p2, p3, p4, p5] = generatedMeshes;
-
-      // Fundo (p0)
-      p0.mesh.geometry.center();
-      p0.mesh.rotation.x = Math.PI / 2;
-      p0.mesh.position.set(0, depth / 2, 0);
-      subGroup.add(p0.mesh);
-      parts.push({ name: 'Fundo da Caixa', mesh: p0.mesh, explodeVector: new THREE.Vector3(0, -6, 0) });
-
-      const boxW = Math.max(p0.size.x, 8);
-      const boxD = Math.max(p0.size.y, 6);
-      const boxH = Math.max(p1.size.y, 5);
-
-      // Frente (p1)
-      p1.mesh.geometry.center();
-      p1.mesh.position.set(0, boxH / 2, boxD / 2);
-      subGroup.add(p1.mesh);
-      parts.push({ name: 'Parede Frontal', mesh: p1.mesh, explodeVector: new THREE.Vector3(0, 0, 7) });
-
-      // Trás (p2)
-      p2.mesh.geometry.center();
-      p2.mesh.rotation.y = Math.PI;
-      p2.mesh.position.set(0, boxH / 2, -boxD / 2);
-      subGroup.add(p2.mesh);
-      parts.push({ name: 'Parede Traseira', mesh: p2.mesh, explodeVector: new THREE.Vector3(0, 0, -7) });
-
-      // Esquerda (p3)
-      p3.mesh.geometry.center();
-      p3.mesh.rotation.y = Math.PI / 2;
-      p3.mesh.position.set(-boxW / 2, boxH / 2, 0);
-      subGroup.add(p3.mesh);
-      parts.push({ name: 'Lateral Esquerda', mesh: p3.mesh, explodeVector: new THREE.Vector3(-8, 0, 0) });
-
-      // Direita (p4)
-      p4.mesh.geometry.center();
-      p4.mesh.rotation.y = -Math.PI / 2;
-      p4.mesh.position.set(boxW / 2, boxH / 2, 0);
-      subGroup.add(p4.mesh);
-      parts.push({ name: 'Lateral Direita', mesh: p4.mesh, explodeVector: new THREE.Vector3(8, 0, 0) });
-
-      // Tampa (p5)
-      p5.mesh.geometry.center();
-      p5.mesh.rotation.x = Math.PI / 2;
-      p5.mesh.position.set(0, boxH + depth / 2, 0);
-      subGroup.add(p5.mesh);
-      parts.push({ name: 'Tampa Corrediça', mesh: p5.mesh, explodeVector: new THREE.Vector3(0, 9, 0) });
-    }
+      parts.push({ name: item.name, mesh: item.mesh, explodeVector: new THREE.Vector3(0, 0, (i + 1) * 2) });
+    });
 
     const overallCenter = new THREE.Box3().setFromObject(subGroup).getCenter(new THREE.Vector3());
     subGroup.position.sub(overallCenter);
@@ -899,9 +798,7 @@ export function build3DFromSvg(
 
     return { group: root, parts };
   } catch (err) {
-    console.warn('Construindo fallback procedural estendido:', err);
-    // Em caso de SVG sem contornos analíticos, gera modelo tridimensional floral/mandala perfeito
-    return buildLayeredMandala(materials);
+    throw new Error('Não foi possível extrudar o SVG: ' + (err instanceof Error ? err.message : String(err)));
   }
 }
 
@@ -920,75 +817,6 @@ export function buildGeometricAssembly(
   group: THREE.Group;
   parts: { name: string; mesh: THREE.Object3D; explodeVector: THREE.Vector3 }[];
 } {
-  const normType = (model3dType || '').toLowerCase();
-  const normTitle = (title || '').toLowerCase();
-
-  // 1. Caixa com Encaixes Finger-Joint montada
-  if (
-    normType === 'caixa-fingerjoint' ||
-    normTitle.includes('caixa') ||
-    normTitle.includes('organizador') ||
-    normTitle.includes('box') ||
-    normTitle.includes('gaveta') ||
-    normTitle.includes('estojo')
-  ) {
-    return buildFingerJointBox(materials);
-  }
-
-  // 2. Troféu com Base e Acrílico montado
-  if (
-    normType === 'trofeu-acrilico' ||
-    normTitle.includes('trofeu') ||
-    normTitle.includes('troféu') ||
-    normTitle.includes('display') ||
-    normTitle.includes('placa')
-  ) {
-    return buildTrophyModel(materials);
-  }
-
-  // 3. Suporte Ergonômico de Notebook com Travas montado
-  if (
-    normType === 'suporte-notebook' ||
-    normTitle.includes('notebook') ||
-    normTitle.includes('laptop') ||
-    normTitle.includes('tablet')
-  ) {
-    return buildLaptopStand(materials);
-  }
-
-  // 4. Mandala Multicamadas 3D / Porta-copos montado
-  if (
-    normType === 'mandala-camadas' ||
-    normTitle.includes('mandala') ||
-    normTitle.includes('flor') ||
-    normTitle.includes('porta-copo') ||
-    normTitle.includes('sagrada') ||
-    normTitle.includes('hexagon')
-  ) {
-    return buildLayeredMandala(materials);
-  }
-
-  // 5. Luminária Geométrica / Abajur com Aletas montado
-  if (
-    normType === 'luminaria-geometrica' ||
-    normTitle.includes('luminaria') ||
-    normTitle.includes('luminária') ||
-    normTitle.includes('abajur') ||
-    normTitle.includes('pendente')
-  ) {
-    return buildIcosahedronLamp(materials);
-  }
-
-  // 6. Suporte de Fone / Headphone montado
-  if (
-    normType === 'suporte-fone' ||
-    normTitle.includes('fone') ||
-    normTitle.includes('headphone')
-  ) {
-    return buildHeadphoneStand(materials);
-  }
-
-  // 7. Vetores dinâmicos do SVG extrudados e montados
   return build3DFromSvg(svgString, thicknessMm, materials);
 }
 
