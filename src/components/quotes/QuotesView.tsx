@@ -2,13 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Quote, Material, Machine, FixedCost, TaxConfig, CompanyProfile, QuoteItem } from '../../types';
 import { priceQuote, entityId, documentNumber } from '../../utils/quoteEngine';
 import {
-  calcMaterialM2Cost,
-  calcMachineCostRates,
-  calcLaserCutTimeAndCost,
-  calcFixedCostMarkupPercentage,
-  calcSalePriceMarkupDivisor
-} from '../../utils/calculations';
-import {
   FileText,
   Plus,
   Send,
