@@ -133,6 +133,8 @@ export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact
  };
  useEffect(()=>{
   if(!initialArtifact||lastImport===initialArtifact.id)return;
+  // Both studios already share this draft. Do not replace its AI provenance on transfer.
+  if(draft.id===initialArtifact.id&&draft.svg===initialArtifact.svgString){setLastImport(initialArtifact.id);return;}
   try{
    const imported=readAssemblyFromSvg(initialArtifact.svgString);
    if(draft.svg)setPrevious(draft);

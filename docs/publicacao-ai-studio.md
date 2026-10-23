@@ -25,6 +25,10 @@ Não existe `OPENAI_API_KEY` configurada neste projeto. Login no Codex/ChatGPT n
 
 O script `scripts/deploy-ai-studio.py` automatiza a publicação no serviço existente, com os argumentos explícitos `--project`, `--region`, `--service`, `--archive` e `--revision` (SHA de 12 caracteres gerado pelo build). Ele mantém o tráfego na revisão anterior, testa a nova revisão por uma URL temporária, realiza uma chamada real de IA e só então promove a nova versão. As configurações e credenciais são copiadas em memória; não são escritas em arquivos. Se o teste falhar, a revisão anterior continua atendendo o domínio público.
 
+A conta autenticada no gcloud precisa de `storage.objects.create` no bucket de fontes e `run.services.update` no serviço, além das demais permissões exigidas pelo Google. Acesso de consulta ao Cloud Run não autoriza publicação. No plano gerenciado pelo AI Studio, essas permissões podem estar limitadas; nesse caso, publique pelo próprio AI Studio em uma sessão com acesso ao aplicativo. A chave Gemini, por si só, não concede permissão de publicação.
+
+Validação local desta versão: 132 testes de domínio/regressão, verificação de tipos e build passaram. Uma chamada real ao Gemini produziu uma casa com sete peças e 50 pares de encaixes. A troca de menu durante a geração, a alternância entre chapa 2D e montagem e a transferência direta para o CAD foram exercitadas no navegador. O modelo de IA e a geometria permanecem no rascunho compartilhado. O pacote autocontido também iniciou fora do repositório e realizou uma geração real sem depender de `node_modules` local.
+
 Os arquivos `.env*`, chaves, tokens, `node_modules` local, configuração do gcloud e dados dos usuários não entram no pacote. O editor do AI Studio e o GitHub são superfícies separadas: publicar diretamente no serviço existente atualiza a plataforma hospedada; o código versionado permanece no GitHub para futuras edições.
 
 Referências: [deploy de fontes pré-compiladas no Cloud Run](https://docs.cloud.google.com/run/docs/deploying-source-code), [saída estruturada do Gemini](https://ai.google.dev/gemini-api/docs/structured-output).
