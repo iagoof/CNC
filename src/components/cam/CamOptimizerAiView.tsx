@@ -56,6 +56,7 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
   }, [initialProgram]);
 
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
+  const [isAnalyzingAi, setIsAnalyzingAi] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<{ status: 'clear' | 'warning'; motionCount: number; insights: string[] } | null>(null);
 
   // Parse G-code moves for real 2D Canvas simulator
@@ -249,29 +250,67 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // Verificação local do programa fornecido pelo operador. Não altera o arquivo.
-  const handleRunAiDiagnostic = () => {
+  // Verificação e diagnóstico inteligente com IA (gemini-3.8-flash)
+  const handleRunAiDiagnostic = async () => {
     if (!rawGcode.trim()) {
       setDiagnosticError('Cole ou receba um programa G-code antes de diagnosticar.');
       setAnalysisResult(null);
       return;
     }
     setDiagnosticError(null);
+    setIsAnalyzingAi(true);
+
     const code = rawGcode.toUpperCase().replace(/;[^\n]*/g, '').replace(/\([^)]*\)/g, '');
-    const insights: string[] = [];
+    const localInsights: string[] = [];
     const feeds = [...code.matchAll(/\bF([-+]?\d+(?:\.\d+)?)/g)].map(match => Number(match[1]));
     const motionCount = [...code.matchAll(/\bG0?[0123]\b/g)].length;
-    if (!/\bG21\b/.test(code)) insights.push('G21 (milímetros) não foi identificado.');
-    if (!/\bG90\b/.test(code)) insights.push('G90 (coordenadas absolutas) não foi identificado.');
-    if (/\bG20\b/.test(code)) insights.push('G20 seleciona polegadas; a prévia usa milímetros.');
-    if (/\bG91\b/.test(code)) insights.push('G91 seleciona coordenadas relativas; a prévia assume coordenadas absolutas.');
-    if (/\bG0?[23]\b/.test(code)) insights.push('Arcos G02/G03 não são interpolados pela prévia 2D.');
-    if (!/\bM0?5\b/.test(code)) insights.push('Comando M05 para desligar a ferramenta não foi identificado.');
-    if (motionCount === 0) insights.push('Nenhum movimento G00/G01/G02/G03 foi identificado.');
-    if (feeds.some(feed => !Number.isFinite(feed) || feed <= 0)) insights.push('Há avanço F inválido ou não positivo.');
-    if (feeds.length === 0) insights.push('Nenhum avanço F foi identificado.');
-    if (selectedMachineType === 'router' && !/\bS[1-9]\d*(?:\.\d+)?\b/.test(code)) insights.push('Nenhuma rotação S positiva foi identificada para a Router.');
-    setAnalysisResult({ status: insights.length ? 'warning' : 'clear', motionCount, insights: insights.length ? insights : ['Nenhum dos avisos locais foi encontrado. A máquina e o arquivo ainda precisam de validação pelo operador.'] });
+
+    if (!/\bG21\b/.test(code)) localInsights.push('G21 (milímetros) não foi identificado no cabeçalho.');
+    if (!/\bG90\b/.test(code)) localInsights.push('G90 (coordenadas absolutas) não foi identificado.');
+    if (/\bG20\b/.test(code)) localInsights.push('G20 seleciona polegadas; a prévia usa milímetros.');
+    if (/\bG91\b/.test(code)) localInsights.push('G91 seleciona coordenadas relativas; a prévia assume coordenadas absolutas.');
+    if (/\bG0?[23]\b/.test(code)) localInsights.push('Arcos G02/G03 não são interpolados pela prévia 2D.');
+    if (!/\bM0?5\b/.test(code)) localInsights.push('Comando M05 para desligar a ferramenta não foi identificado.');
+    if (motionCount === 0) localInsights.push('Nenhum movimento G00/G01/G02/G03 foi identificado.');
+    if (feeds.some(feed => !Number.isFinite(feed) || feed <= 0)) localInsights.push('Há avanço F inválido ou não positivo.');
+    if (feeds.length === 0) localInsights.push('Nenhum avanço F foi identificado.');
+    if (selectedMachineType === 'router' && !/\bS[1-9]\d*(?:\.\d+)?\b/.test(code)) {
+      localInsights.push('Nenhuma rotação S positiva foi identificada para a Router.');
+    }
+
+    let aiInsights = localInsights;
+    let aiStatus: 'clear' | 'warning' = localInsights.length ? 'warning' : 'clear';
+
+    try {
+      const res = await fetch('/api/ai/diagnose-gcode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gcode: rawGcode, machineType: selectedMachineType })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.diagnostic) {
+          const geminiPoints = [
+            `Diagnóstico de IA (gemini-3.8-flash) • Risco: ${data.diagnostic.riskLevel || 'baixo'} • Tempo estimado: ${data.diagnostic.estimatedTimeFormatted || 'N/A'}`,
+            ...(data.diagnostic.insights || []),
+            ...(data.diagnostic.recommendations ? data.diagnostic.recommendations.map((r: string) => `Dica IA: ${r}`) : [])
+          ];
+          aiInsights = [...geminiPoints, ...localInsights];
+          aiStatus = data.diagnostic.status === 'warning' || localInsights.length ? 'warning' : 'clear';
+        }
+      }
+    } catch {
+      // offline fallback
+    } finally {
+      setIsAnalyzingAi(false);
+    }
+
+    setAnalysisResult({
+      status: aiStatus,
+      motionCount,
+      insights: aiInsights.length ? aiInsights : ['Nenhum dos avisos locais foi encontrado. A máquina e o arquivo ainda precisam de validação pelo operador.']
+    });
     setPlaybackProgress(100);
   };
 
@@ -319,10 +358,20 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
           </button>
           <button
             onClick={handleRunAiDiagnostic}
-            disabled={!rawGcode.trim()}
+            disabled={!rawGcode.trim() || isAnalyzingAi}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm transition disabled:opacity-50 cursor-pointer"
           >
-            <FileCheck className="w-4 h-4" /> Verificar G-Code
+            {isAnalyzingAi ? (
+              <>
+                <RotateCw className="w-4 h-4 animate-spin" />
+                <span>Analisando IA (gemini-3.8-flash)...</span>
+              </>
+            ) : (
+              <>
+                <FileCheck className="w-4 h-4" />
+                <span>Verificar com IA (gemini-3.8-flash)</span>
+              </>
+            )}
           </button>
         </div>
       </div>

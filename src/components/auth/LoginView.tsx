@@ -272,6 +272,7 @@ export const LoginView: React.FC = () => {
                 <input
                   type="text"
                   required
+                  autoComplete="name"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="Ex: Carlos Silva (Operação Laser)"
@@ -292,6 +293,7 @@ export const LoginView: React.FC = () => {
               <input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="operador@oficina.com.br"
@@ -311,6 +313,7 @@ export const LoginView: React.FC = () => {
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -338,6 +341,7 @@ export const LoginView: React.FC = () => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  autoComplete="new-password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   placeholder="Repita sua senha"

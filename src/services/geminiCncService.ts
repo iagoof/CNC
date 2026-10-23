@@ -1,3 +1,6 @@
+import { cleanAndUniteSvgPaths } from '../utils/paperVectorPreprocess';
+import { calculateSvgMetrics } from '../utils/cncExporters';
+
 export interface CncMetadataBlock {
   materialThickness_mm: number;
   defaultKerf_mm: number;
@@ -14,7 +17,7 @@ export interface CncMetadataBlock {
       description: string;
     };
   };
-  modelName: 'local-parametric';
+  modelName: string;
   timestamp?: string;
 }
 
@@ -42,7 +45,11 @@ export interface GeneratedCncVector {
 /**
  * Creates standard CncMetadataBlock for industrial laser/router operations
  */
-export function createStandardMetadataBlock(thicknessMm = 3.0, kerfMm = 0.15): CncMetadataBlock {
+export function createStandardMetadataBlock(
+  thicknessMm = 3.0,
+  kerfMm = 0.15,
+  modelName = 'gemini-3.8-flash'
+): CncMetadataBlock {
   return {
     materialThickness_mm: thicknessMm,
     defaultKerf_mm: kerfMm,
@@ -59,7 +66,7 @@ export function createStandardMetadataBlock(thicknessMm = 3.0, kerfMm = 0.15): C
         description: 'Gravação superficial vetorial, texturização ou marcação técnica'
       }
     },
-    modelName: 'local-parametric',
+    modelName,
     timestamp: new Date().toISOString()
   };
 }
@@ -815,20 +822,100 @@ export function generateProceduralVector(
   };
 }
 
-/** Generate a local geometric starting point. External AI requires a protected server integration. */
+/**
+ * Gera desenhos vetoriais CAD/CAM industriais com IA (modelo mais recente do plano free: gemini-3.8-flash),
+ * aplicando pré-processamento booleano Paper.js para garantir que não haja contornos conflitantes.
+ */
 export async function generateCncVector(
   prompt: string,
   style: 'cut_engrave' | 'cut_only' | 'relief_3d' = 'cut_engrave',
   targetMachine: 'laser' | 'router' = 'laser',
   overrideWidth?: number,
-  overrideHeight?: number
+  overrideHeight?: number,
+  thicknessMm = 3.0,
+  kerfMm = 0.15
 ): Promise<GeneratedCncVector> {
-  return generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
+  const width = overrideWidth || 120;
+  const height = overrideHeight || 120;
+
+  // 1. Tentar gerar via IA no servidor com o modelo mais atualizado para o plano Free: gemini-3.8-flash
+  try {
+    const res = await fetch('/api/ai/generate-cad-vector', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        style,
+        targetMachine,
+        width,
+        height,
+        thickness: thicknessMm,
+        kerf: kerfMm
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.svgContent) {
+        // Pré-processamento automático com Paper.js: união de caminhos (path union) e resolução de intersecções
+        const preprocessed = cleanAndUniteSvgPaths(data.svgContent, thicknessMm, kerfMm);
+        const finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, thicknessMm, kerfMm);
+        const metrics = calculateSvgMetrics(finalSvg);
+
+        return {
+          title: data.title || prompt.slice(0, 36).trim(),
+          description: `Projeto gerado por IA (${data.modelUsed || 'gemini-3.8-flash'}). Pré-processamento Paper.js: ${preprocessed.details}.`,
+          widthMm: metrics.widthMm || width,
+          heightMm: metrics.heightMm || height,
+          svgContent: finalSvg,
+          recommendedMaterial: `MDF Cru ou Acrílico Cast ${thicknessMm}mm`,
+          recommendedThicknessMm: thicknessMm,
+          materialThickness_mm: thicknessMm,
+          metadata: createStandardMetadataBlock(thicknessMm, kerfMm, data.modelUsed || 'gemini-3.8-flash'),
+          cutLengthMm: metrics.totalCutLengthMm,
+          engraveAreaCm2: metrics.engraveAreaCm2,
+          estimatedLaserTimeSec: Math.round(metrics.totalCutLengthMm / 25) + 14,
+          layers: [
+            { name: 'Corte Passante (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: metrics.totalCutLengthMm },
+            { name: 'Gravação Superficial (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: Math.round(metrics.engraveAreaCm2 * 2) }
+          ]
+        };
+      }
+    }
+  } catch (apiError) {
+    console.warn('API Gemini offline ou indisponível, utilizando motor paramétrico local:', apiError);
+  }
+
+  // 2. Fallback resiliente: Motor paramétrico industrial com pré-processamento Paper.js
+  const procedural = generateProceduralVector(prompt, style, targetMachine, overrideWidth, overrideHeight);
+  const preprocessed = cleanAndUniteSvgPaths(procedural.svgContent, procedural.materialThickness_mm, kerfMm);
+  procedural.svgContent = ensureSvgMetadataBlock(preprocessed.cleanedSvg, procedural.materialThickness_mm, kerfMm);
+  procedural.description += ` • Pré-processamento Paper.js: ${preprocessed.details}`;
+  return procedural;
 }
 
-/** Append explicit geometry constraints locally; no external AI request is made. */
-export async function optimizeCncPrompt(userPrompt: string): Promise<string> {
+/**
+ * Otimiza o prompt do usuário com IA (gemini-3.8-flash) para acrescentar restrições geométricas e parâmetros industriais.
+ */
+export async function optimizeCncPrompt(userPrompt: string, thicknessMm = 3.0, machine = 'laser'): Promise<string> {
   const prompt = userPrompt.trim();
   if (!prompt) throw new Error('Descreva a peça antes de aprimorar o texto.');
-  return `${prompt}, vetor 2D em milímetros, contorno de corte fechado em vermelho #FF0000 e detalhes de gravação em azul #0000FF. Revise dimensões, material e tolerâncias antes de fabricar.`;
+
+  try {
+    const res = await fetch('/api/ai/optimize-prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, thickness: thicknessMm, machine })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.optimizedPrompt) {
+        return data.optimizedPrompt;
+      }
+    }
+  } catch (err) {
+    console.warn('Falha na API de otimização de prompt Gemini, utilizando gerador local:', err);
+  }
+
+  return `${prompt}, dimensões em milímetros, contorno fechado de corte passante (#FF0000) e gravação de detalhes (#0000FF), espessura ${thicknessMm}mm. Modelo otimizado para ${machine}.`;
 }

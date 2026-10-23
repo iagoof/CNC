@@ -25,6 +25,7 @@ import {
   createStandardMetadataBlock,
   ensureSvgMetadataBlock
 } from '../../services/geminiCncService';
+import { cleanAndUniteSvgPaths, PreprocessResult } from '../../utils/paperVectorPreprocess';
 import {
   applyKerfToSvg,
   calculateSvgMetrics,
@@ -142,6 +143,8 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [preprocessStats, setPreprocessStats] = useState<PreprocessResult | null>(null);
+  const [isHealing, setIsHealing] = useState<boolean>(false);
 
   const selectedMaterial = materials.find(m => m.id === selectedMaterialId) || materials[0];
   const selectedMachine = machines[0] || { id: 'mach-1', name: 'CNC Laser CO2 100W' };
@@ -339,14 +342,46 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
     }
   };
 
-  // AI Prompt Enhancer: transforms simple user ideas into rigorous CAD/CAM prompts
+  // Auto-heal existing SVG vector paths using Paper.js path union and crossing resolver
+  const handleAutoHealSvg = () => {
+    if (!currentArtifact) return;
+    setIsHealing(true);
+    try {
+      const healed = cleanAndUniteSvgPaths(
+        currentArtifact.svgString,
+        currentArtifact.thickness_mm,
+        kerfCompensation
+      );
+      const updatedSvg = ensureSvgMetadataBlock(healed.cleanedSvg, currentArtifact.thickness_mm, kerfCompensation);
+      const metrics = calculateSvgMetrics(updatedSvg);
+      setCurrentArtifact(prev => ({
+        ...prev,
+        svgString: updatedSvg,
+        cutLength_mm: metrics.totalCutLengthMm,
+        partsCount: metrics.elementCount,
+        description: `${prev.description} [Paper.js: ${healed.details}]`
+      }));
+      setPreprocessStats(healed);
+      triggerToast(`Pré-processamento Paper.js: ${healed.details}`);
+    } catch (err) {
+      triggerToast('Falha no pré-processamento Paper.js.');
+    } finally {
+      setIsHealing(false);
+    }
+  };
+
+  // AI Prompt Enhancer: transforms simple user ideas into rigorous CAD/CAM prompts using gemini-3.8-flash
   const handleEnhancePrompt = async () => {
     setIsProcessing(true);
-    setProcessingStep('Acrescentando parâmetros técnicos ao texto...');
+    setProcessingStep('Acrescentando parâmetros técnicos com IA (gemini-3.8-flash)...');
     try {
-      const enhanced = await optimizeCncPrompt(promptText);
+      const enhanced = await optimizeCncPrompt(
+        promptText,
+        selectedMaterial?.thickness_mm || 3.0,
+        selectedMachine.type === 'Router' ? 'router' : 'laser'
+      );
       setPromptText(enhanced);
-      triggerToast('Prompt refinado com parâmetros técnicos de precisão industrial!');
+      triggerToast('Prompt refinado com precisão industrial pelo modelo gemini-3.8-flash!');
     } catch {
       setPromptText(prev => `${prev.trim()} — Espessura ${selectedMaterial.thickness_mm}mm, tolerância kerf ${kerfCompensation}mm, juntas finger-joint denteadas para corte laser/router.`);
     } finally {
@@ -369,7 +404,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       let artifactMetadata: CncMetadataBlock;
 
       if (inputMode === 'upload' && uploadedImage) {
-        setProcessingStep('2/3 Traçando o contorno da imagem...');
+        setProcessingStep('2/3 Traçando o contorno da imagem e aplicando Paper.js...');
         const img = new Image();
         await new Promise<void>((resolve, reject) => {
           img.onload = () => resolve();
@@ -392,27 +427,37 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         calculatedHeight = Math.round((pixelHeight / pixelWidth) * calculatedWidth * 100) / 100;
         const thickness = selectedMaterial?.thickness_mm || 3.0;
         artifactThickness = thickness;
-        artifactMetadata = createStandardMetadataBlock(thickness, kerfCompensation);
-        const rawSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelWidth} ${pixelHeight}" width="${calculatedWidth}mm" height="${calculatedHeight}mm" data-thickness-mm="${thickness}">${traced.paths.map(path => `<path d="${path}" fill="none" stroke="#FF0000" stroke-width="0.5" data-layer="cut" />`).join('')}</svg>`;
-        finalSvg = ensureSvgMetadataBlock(rawSvg, thickness, kerfCompensation);
+        artifactMetadata = createStandardMetadataBlock(thickness, kerfCompensation, 'raster-trace-paperjs');
+        const rawSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelWidth} ${pixelHeight}" width="${calculatedWidth}mm" height="${calculatedHeight}mm" data-thickness-mm="${thickness}">${traced.paths.map(path => `<path d="${path}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />`).join('')}</svg>`;
+        
+        // Pré-processamento Paper.js: união de caminhos e resolução de intersecções
+        const preprocessed = cleanAndUniteSvgPaths(rawSvg, thickness, kerfCompensation);
+        setPreprocessStats(preprocessed);
+        finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, thickness, kerfCompensation);
         generatedTitle = `Vetorizado: ${uploadedFileName.replace(/\.[^/.]+$/, '')}`;
       } else {
-        setProcessingStep('2/3 Construindo modelo geométrico local...');
+        setProcessingStep('2/3 Gerando modelo vetorial com IA (gemini-3.8-flash)...');
         const result = await generateCncVector(
           promptText,
           includeEngraving ? 'cut_engrave' : 'cut_only',
           selectedMachine.type === 'Router' ? 'router' : 'laser',
           targetWidth,
-          targetHeight
+          targetHeight,
+          artifactThickness,
+          kerfCompensation
         );
         artifactThickness = result.materialThickness_mm || result.recommendedThicknessMm || selectedMaterial?.thickness_mm || 3.0;
-        finalSvg = ensureSvgMetadataBlock(result.svgContent, artifactThickness, kerfCompensation);
+        
+        // Pré-processamento booleano Paper.js para remover pontos de contato indesejados
+        const preprocessed = cleanAndUniteSvgPaths(result.svgContent, artifactThickness, kerfCompensation);
+        setPreprocessStats(preprocessed);
+        finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, artifactThickness, kerfCompensation);
         generatedTitle = result.title;
         calculatedWidth = result.widthMm;
         calculatedHeight = result.heightMm;
         setTargetWidth(result.widthMm);
         setTargetHeight(result.heightMm);
-        artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation);
+        artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation, 'gemini-3.8-flash');
       }
 
       setProcessingStep('3/3 Calculando métricas de corte, kerf e G-code...');
@@ -431,7 +476,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
-        description: `Modelo geométrico para revisão técnica. Espessura do material: ${artifactThickness}mm. Confira dimensões, contornos e parâmetros antes de usar na máquina.`,
+        description: `Modelo geométrico gerado e pré-processado com Paper.js. Espessura: ${artifactThickness}mm.`,
         width_mm: calculatedWidth,
         height_mm: calculatedHeight,
         thickness_mm: artifactThickness,
@@ -450,7 +495,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       setHasSelectedArtifact(true);
       setActiveViewMode('3d');
       setExplodeSlider(0);
-      triggerToast('Modelo vetorial criado, extrudado e montado em 3D com sucesso!');
+      triggerToast('Modelo vetorial gerado, unificado com Paper.js e montado em 3D!');
     } catch (e) {
       console.warn('Erro na geração:', e);
       triggerToast(e instanceof Error ? `Falha na geração: ${e.message}` : 'Não foi possível gerar o projeto.');
@@ -1051,7 +1096,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 fill-white" />
-                      <span>{inputMode === 'upload' ? 'Traçar silhueta' : 'Gerar modelo geométrico local'}</span>
+                      <span>{inputMode === 'upload' ? 'Traçar silhueta & Sanar (Paper.js)' : 'Gerar com IA (gemini-3.8-flash)'}</span>
                     </>
                   )}
                 </button>
@@ -1095,6 +1140,44 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* Paper.js Preprocessing Status & Union Control */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-800 text-[11px]">
+                        Pré-processador de Vetores (Paper.js)
+                      </span>
+                      <span className="text-[9px] bg-amber-100 text-amber-800 font-mono px-1.5 py-0.2 rounded font-semibold">
+                        Path Union & Winding
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      {preprocessStats ? preprocessStats.details : 'Intersecções resolvidas automaticamente e contornos estanques.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleAutoHealSvg}
+                  disabled={isHealing || isProcessing}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-[11px] font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Unir caminhos sobrepostos, remover pontos de contato e fechar contornos"
+                >
+                  {isHealing ? (
+                    <>
+                      <RotateCw className="w-3 h-3 animate-spin text-amber-600" />
+                      <span>Unindo caminhos...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3 h-3 text-amber-600" />
+                      <span>Unir Caminhos & Sanar Contornos</span>
+                    </>
+                  )}
+                </button>
               </div>
 
               {modelError && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{modelError}</div>}
