@@ -29,7 +29,7 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return true;
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
 
     function isAdmin() {
