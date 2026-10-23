@@ -59,8 +59,8 @@ test('geração e formatação do SVG', () => {
   assert(result.svgContent.includes(`viewBox="0 0 ${result.totalWidthMm} ${result.totalHeightMm}"`));
 
   for (const face of result.faces) {
-    assert(result.svgContent.includes(`<!-- ${face.name} -->`));
-    assert(result.svgContent.includes(`${face.widthMm} x ${face.heightMm} mm`));
+    assert(result.svgContent.includes(`data-part="${face.id}"`));
+    assert(result.svgContent.includes(`d="${face.pathD}"`));
   }
 });
 
@@ -134,7 +134,7 @@ test('comportamento com diferentes parâmetros de encaixe (tabWidth, kerf, thick
   assert.equal(result.faces.length, 6);
   for (const face of result.faces) {
     assert(face.cutLengthMm > 0);
-    assert(face.pathD.includes('v'));
-    assert(face.pathD.includes('h'));
+    assert(face.pathD.includes('L'));
+    assert(face.pathD.split('L').length > 4 || result.svgContent.includes('data-part="'+face.id+'"'));
   }
 });

@@ -53,10 +53,16 @@ export const NestingView: React.FC<NestingViewProps> = ({ materials, machines, i
   useEffect(() => {
     if (!initialPart || (initialPart.accountId && initialPart.accountId !== accountId)) return;
     try {
-      const item = prepareNestingItem(initialPart, '#f59e0b');
-      const validation = packNesting([item], Math.max(item.width + 10, 100), Math.max(item.height + 10, 100), 0, 0);
-      if (validation.errors.length) throw new Error(validation.errors.join(' '));
-      setItems(prev => prev.some(existing => existing.id === item.id) ? prev : [item, ...prev]);
+      const incoming = initialPart.parts || [initialPart];
+      if (!incoming.length || incoming.length > 100) throw new Error('O conjunto deve conter entre 1 e 100 peças.');
+      const prepared = incoming.map((part, index) => {
+        if (part.accountId && part.accountId !== accountId) throw new Error('Uma peça pertence a outra conta.');
+        const item = prepareNestingItem({ ...part, transferId: initialPart.transferId ? `${initialPart.transferId}:${index}` : part.transferId }, colorPalette[index % colorPalette.length]);
+        const validation = packNesting([item], Math.max(item.width + 10, 100), Math.max(item.height + 10, 100), 0, 0);
+        if (validation.errors.length) throw new Error(validation.errors.join(' '));
+        return item;
+      });
+      setItems(prev => [...prepared.filter(item => !prev.some(existing => existing.id === item.id)), ...prev]);
       setActionError(null);
     } catch (error) { setActionError(error instanceof Error ? error.message : 'Falha ao receber o desenho.'); }
   }, [initialPart, accountId]);

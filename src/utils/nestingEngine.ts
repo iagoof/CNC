@@ -4,7 +4,7 @@ export interface NestingItem {
 }
 export interface NestingTransfer {
   name: string; width: number; height: number; cutLength_mm: number; svgContent?: string;
-  quantity?: number; transferId?: string; accountId?: string;
+    quantity?: number; transferId?: string; accountId?: string; parts?: NestingTransfer[];
 }
 export interface PlacedBox {
   id: string; itemId: string; name: string; x: number; y: number; w: number; h: number;

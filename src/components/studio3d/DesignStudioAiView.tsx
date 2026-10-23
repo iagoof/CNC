@@ -1,3 +1,4 @@
+import { LaserAssemblyWorkspace } from './LaserAssemblyWorkspace';
 import { useLocalStorageState } from '../../utils/useLocalStorageState';
 import type { NestingTransfer } from '../../utils/nestingEngine';
 import { calcLaserCutTimeAndCost } from '../../utils/calculations';
@@ -94,7 +95,7 @@ export interface GeneratedVectorArtifact {
   metadata?: CncMetadataBlock;
 }
 
-export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
+const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
   materials,
   machines,
   onSendTo3D,
@@ -352,12 +353,12 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
         svgString: updatedSvg,
         cutLength_mm: metrics.totalCutLengthMm,
         partsCount: metrics.elementCount,
-        description: `${prev.description} [Paper.js: ${healed.details}]`
+        description: `${prev.description} [Verificação: ${healed.details}]`
       }));
       setPreprocessStats(healed);
-      triggerToast(`Pré-processamento Paper.js: ${healed.details}`);
+      triggerToast(`Verificação: ${healed.details}`);
     } catch (err) {
-      triggerToast('Falha no pré-processamento Paper.js.');
+      triggerToast('Falha na verificação dos contornos.');
     } finally {
       setIsHealing(false);
     }
@@ -398,7 +399,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       let artifactMetadata: CncMetadataBlock;
 
       if (inputMode === 'upload' && uploadedImage) {
-        setProcessingStep('2/3 Traçando o contorno da imagem e aplicando Paper.js...');
+        setProcessingStep('2/3 Traçando e verificando o contorno da imagem...');
         const img = new Image();
         await new Promise<void>((resolve, reject) => {
           img.onload = () => resolve();
@@ -470,7 +471,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       const newArtifact: GeneratedVectorArtifact = {
         id: 'gen-' + Date.now(),
         title: generatedTitle,
-        description: generatedDescription || `Modelo geométrico gerado e pré-processado com Paper.js. Espessura: ${artifactThickness}mm.`,
+        description: generatedDescription || `Modelo geométrico gerado e conferido. Espessura: ${artifactThickness}mm.`,
         width_mm: calculatedWidth,
         height_mm: calculatedHeight,
         thickness_mm: artifactThickness,
@@ -1090,7 +1091,7 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 fill-white" />
-                      <span>{inputMode === 'upload' ? 'Traçar silhueta & Sanar (Paper.js)' : 'Gerar com IA (gemini-3.8-flash)'}</span>
+                      <span>{inputMode === 'upload' ? 'Traçar silhueta' : 'Gerar com IA (gemini-3.8-flash)'}</span>
                     </>
                   )}
                 </button>
@@ -1145,14 +1146,14 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-slate-800 text-[11px]">
-                        Pré-processador de Vetores (Paper.js)
+                        Verificação dos vetores
                       </span>
                       <span className="text-[9px] bg-amber-100 text-amber-800 font-mono px-1.5 py-0.2 rounded font-semibold">
-                        Path Union & Winding
+                        Furos e posições preservados
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-500">
-                      {preprocessStats ? preprocessStats.details : 'Intersecções resolvidas automaticamente e contornos estanques.'}
+                      {preprocessStats ? preprocessStats.details : 'Verifique o arquivo antes de fabricar.'}
                     </p>
                   </div>
                 </div>
@@ -1160,17 +1161,17 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
                   onClick={handleAutoHealSvg}
                   disabled={isHealing || isProcessing}
                   className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-[11px] font-bold text-slate-700 hover:text-slate-900 flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
-                  title="Unir caminhos sobrepostos, remover pontos de contato e fechar contornos"
+                  title="Verificar os contornos sem alterar as peças nem preencher os furos"
                 >
                   {isHealing ? (
                     <>
                       <RotateCw className="w-3 h-3 animate-spin text-amber-600" />
-                      <span>Unindo caminhos...</span>
+                      <span>Verificando...</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-3 h-3 text-amber-600" />
-                      <span>Unir Caminhos & Sanar Contornos</span>
+                      <span>Verificar contornos</span>
                     </>
                   )}
                 </button>
@@ -1476,4 +1477,17 @@ export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = ({
       </div>
     </div>
   );
+};
+
+
+export const DesignStudioAiView: React.FC<DesignStudioAiViewProps> = props => {
+  const { user } = useFirebase();
+  const [mode, setMode] = useLocalStorageState<'assembly' | 'free'>(`cnc-studio-mode:${user?.uid || 'guest'}`, 'assembly');
+  return <div className="flex h-full min-h-0 flex-col">
+    <nav aria-label="Tipo de projeto" className="flex shrink-0 gap-2 border-b bg-white px-5 py-3 text-sm">
+      <button aria-pressed={mode === 'assembly'} className={`rounded-lg px-4 py-2 ${mode === 'assembly' ? 'bg-amber-100 font-semibold text-amber-900' : 'text-slate-600'}`} onClick={() => setMode('assembly')}>Kits com encaixes</button>
+      <button aria-pressed={mode === 'free'} className={`rounded-lg px-4 py-2 ${mode === 'free' ? 'bg-amber-100 font-semibold text-amber-900' : 'text-slate-600'}`} onClick={() => setMode('free')}>Vetor livre e imagens</button>
+    </nav>
+    <div className="min-h-0 flex-1">{mode === 'assembly' ? <LaserAssemblyWorkspace {...props}/> : props.materials.length && props.machines.length ? <FreeVectorStudio {...props}/> : <p className="m-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm">Cadastre um material e uma máquina em Cadastros Técnicos para usar os fluxos de vetor livre. Os kits com encaixes já podem ser criados com espessura manual.</p>}</div>
+  </div>;
 };

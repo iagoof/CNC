@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="69mm" viewBox="0 0 100 69" data-thickness-mm="3" data-kerf="0.15" data-kerf-applied="0.15"><path data-layer="cut" fill="none" stroke="#FF0000" stroke-width="0.1" d="M0.92500,0.92500L99.07500,0.92500L99.07500,35.07500L0.92500,35.07500L0.92500,0.92500Z"/>
+<path data-layer="cut" fill="none" stroke="#FF0000" stroke-width="0.1" d="M20.05000,16.55000L29.95000,16.55000L29.95000,19.45000L20.05000,19.45000L20.05000,16.55000Z"/>
+<path data-layer="cut" fill="none" stroke="#FF0000" stroke-width="0.1" d="M45.02500,16.52500L54.97500,16.52500L54.97500,19.47500L45.02500,19.47500L45.02500,16.52500Z"/>
+<path data-layer="cut" fill="none" stroke="#FF0000" stroke-width="0.1" d="M70.00000,16.50000L80.00000,16.50000L80.00000,19.50000L70.00000,19.50000L70.00000,16.50000Z"/>
+<path data-layer="cut" fill="none" stroke="#FF0000" stroke-width="0.1" d="M34.92500,44.92500L44.92500,44.92500L44.92500,41.92500L55.07500,41.92500L55.07500,44.92500L65.07500,44.92500L65.07500,68.07500L34.92500,68.07500L34.92500,44.92500Z"/></svg>

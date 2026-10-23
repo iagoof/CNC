@@ -1,0 +1,90 @@
+[
+  {
+    "name": "caixa-aberta",
+    "title": "Caixa aberta com encaixes",
+    "parameters": {
+      "shelves": 2,
+      "model": "box",
+      "width": 140,
+      "depth": 100,
+      "height": 85,
+      "thickness": 3,
+      "tabWidth": 10,
+      "clearance": 0.1,
+      "kerf": 0.15,
+      "lid": false
+    },
+    "parts": 5,
+    "joints": 28,
+    "sheetMm": [
+      438,
+      215
+    ]
+  },
+  {
+    "name": "caixa-com-tampa",
+    "title": "Caixa com tampa e encaixes",
+    "parameters": {
+      "shelves": 2,
+      "model": "box",
+      "width": 140,
+      "depth": 100,
+      "height": 85,
+      "thickness": 3,
+      "tabWidth": 10,
+      "clearance": 0.1,
+      "kerf": 0.15,
+      "lid": true
+    },
+    "parts": 6,
+    "joints": 44,
+    "sheetMm": [
+      438,
+      227
+    ]
+  },
+  {
+    "name": "casa",
+    "title": "Casa com encaixes",
+    "parameters": {
+      "shelves": 2,
+      "model": "house",
+      "width": 160,
+      "depth": 120,
+      "height": 100,
+      "thickness": 3,
+      "tabWidth": 10,
+      "clearance": 0.1,
+      "kerf": 0.15,
+      "lid": true
+    },
+    "parts": 7,
+    "joints": 42,
+    "sheetMm": [
+      415,
+      476.4
+    ]
+  },
+  {
+    "name": "organizador",
+    "title": "Organizador com prateleiras",
+    "parameters": {
+      "shelves": 2,
+      "model": "shelf",
+      "width": 180,
+      "depth": 120,
+      "height": 180,
+      "thickness": 3,
+      "tabWidth": 10,
+      "clearance": 0.1,
+      "kerf": 0.15,
+      "lid": true
+    },
+    "parts": 6,
+    "joints": 49,
+    "sheetMm": [
+      435,
+      510
+    ]
+  }
+]

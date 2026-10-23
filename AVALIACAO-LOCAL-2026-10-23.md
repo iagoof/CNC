@@ -27,3 +27,5 @@
 - Falta homologar IA com a credencial da hospedagem e medir latência real. O servidor ainda contém respostas tolerantes do diagnóstico CAM que podem informar baixo risco sem análise da IA; isso exige revisão antes de confiar no diagnóstico remoto.
 - Falta homologar login, permissões Firestore, salvamento em nuvem e fluxos completos com conta de teste. Os testes de domínio não comprovam o funcionamento dessas integrações.
 - O modelo local de casa exige inspeção e protótipo físico. A prévia atual mostra peças extrudadas, sem validar encaixes ou simular montagem final.
+
+Atualização posterior desta sessão: a casa para colagem descrita acima foi substituída por um conjunto com espigas e rasgos, montagem 3D correspondente e telhado encaixado. A entrega atual está documentada em docs/estudios-montagem.md; o relatório acima descreve o estado intermediário anterior.

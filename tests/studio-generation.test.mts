@@ -21,7 +21,7 @@ test('montagem não é interpretada como tag ou chaveiro', () => {
   assert.match(result.title, /casa/i);
   assert.doesNotMatch(result.title, /chaveiro/i);
   assert.equal((result.svgContent.match(/data-part=/g) || []).length, 7);
-  assert.match(result.description, /colagem/i);
+  assert.match(result.description, /pares de encaixes/i);
 });
 test('tag explícita continua sendo um chaveiro', () => {
   assert.match(generateProceduralVector('tag de identificação').title, /chaveiro/i);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { readAssemblyFromSvg, createAssemblyGroup } from '../../utils/laserAssembly';
 import { readSvgGeometry, pointInContour, contourArea } from '../../utils/svgGeometry';
 
 export type LaserMaterialFinish = 'mdf-cru' | 'mdf-branco' | 'acrilico-cristal' | 'compensado-pinus' | 'mdf-preto';
@@ -817,7 +818,12 @@ export function buildGeometricAssembly(
   group: THREE.Group;
   parts: { name: string; mesh: THREE.Object3D; explodeVector: THREE.Vector3 }[];
 } {
-  return build3DFromSvg(svgString, thicknessMm, materials);
+  const assembly = readAssemblyFromSvg(svgString);
+  if (!assembly) return build3DFromSvg(svgString, thicknessMm, materials);
+  const group = createAssemblyGroup(assembly, materials.faceMaterial);
+  return { group, parts: group.children.map(mesh => ({
+    name: mesh.name, mesh, explodeVector: new THREE.Vector3(...mesh.userData.explosionVector).multiplyScalar(assembly.params.height * 0.1)
+  })) };
 }
 
 /**

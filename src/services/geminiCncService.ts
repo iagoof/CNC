@@ -1,5 +1,20 @@
 import { cleanAndUniteSvgPaths } from '../utils/paperVectorPreprocess';
 import { calculateSvgMetrics } from '../utils/cncExporters';
+import { DEFAULT_ASSEMBLY_PARAMS, generateAssemblyFromPrompt, describeAssembly } from './assemblyService';
+
+const isAssemblyPrompt = (prompt: string) => /\b(casa|casinha|house|caixa|box|estojo|bau|baú|organizador|estante)\b|prateleira/i.test(prompt);
+
+function generateEngineeredVector(prompt: string, width = 140, depth = 100, thickness = 3): GeneratedCncVector {
+  const kit = generateAssemblyFromPrompt(prompt, { ...DEFAULT_ASSEMBLY_PARAMS, width, depth, thickness,
+    tabWidth: Math.max(2 * thickness, Math.min(10, Math.min(width, depth) / 8)) });
+  const cutLength = kit.parts.reduce((sum, part) => sum + [part.outline, ...part.holes].reduce((total, ring) =>
+    total + ring.reduce((n, point, i) => n + Math.hypot(point[0] - ring[(i + 1) % ring.length][0], point[1] - ring[(i + 1) % ring.length][1]), 0), 0), 0);
+  return { title: kit.title, description: describeAssembly(kit), widthMm: kit.sheetWidth, heightMm: kit.sheetHeight,
+    svgContent: kit.svg, recommendedMaterial: `Chapa ${kit.params.thickness} mm`, recommendedThicknessMm: kit.params.thickness,
+    materialThickness_mm: kit.params.thickness, metadata: createStandardMetadataBlock(kit.params.thickness, kit.params.kerf, 'parametric-assembly-v1'),
+    cutLengthMm: cutLength, engraveAreaCm2: 0, estimatedLaserTimeSec: 0,
+    layers: [{ name: 'Peças e rasgos', type: 'cut', color: '#FF0000', cutLengthMm: cutLength }] };
+}
 
 export interface CncMetadataBlock {
   materialThickness_mm: number;
@@ -323,6 +338,7 @@ export function generateProceduralVector(
   heightHint?: number,
   thicknessHint = 3.0
 ): GeneratedCncVector {
+  if (isAssemblyPrompt(prompt)) return generateEngineeredVector(prompt, widthHint, heightHint, thicknessHint);
   const params = parsePromptParameters(prompt, widthHint || 100, heightHint || 100);
   const w = params.width;
   const h = params.height;
@@ -330,38 +346,6 @@ export function generateProceduralVector(
   const cx = Number((w / 2).toFixed(2));
   const cy = Number((h / 2).toFixed(2));
   const textLabel = params.detectedText || (prompt.slice(0, 22).trim().toUpperCase() || 'CNC PRECISION');
-
-  if (/\b(casa|casinha|house)\b/i.test(prompt)) {
-    // A miniature glue kit: dimensions describe the assembled footprint, not the sheet.
-    const depth = h;
-    if (!Number.isFinite(t) || t <= 0 || 2 * t >= Math.min(w, h)) {
-      throw new Error('A espessura deve ser positiva e menor que metade da largura e do comprimento da casa.');
-    }
-    const wall = h * 0.65;
-    const rise = w * 0.35;
-    const roof = Math.hypot(w / 2, rise);
-    const gap = Math.max(6, t * 2);
-    const sheetW = Math.max(2 * w + 3 * gap, 2 * depth + 3 * gap);
-    const row2 = gap + wall + rise + gap;
-    const row3 = row2 + wall + gap;
-    const row4 = row3 + roof + gap;
-    const sheetH = Math.ceil((row4 + depth + gap) * 100) / 100;
-    const cut = 'fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut"';
-    const rect = (id: string, x: number, y: number, width: number, height: number) =>
-      `<rect id="${id}" data-part="${id}" x="${x}" y="${y}" width="${width}" height="${height}" ${cut}/>`;
-    const gable = (id: string, x: number) => `<path id="${id}" data-part="${id}" d="M ${x} ${gap + rise + wall} L ${x} ${gap + rise} L ${x + w / 2} ${gap} L ${x + w} ${gap + rise} L ${x + w} ${gap + rise + wall} Z" ${cut}/>`;
-    const description = `Kit local de casa em miniatura para colagem, com 7 peças: frente, fundo, duas laterais, duas águas do telhado e base. Base ${w} × ${depth} mm; paredes ${wall.toFixed(1)} mm. Monte as laterais entre frente e fundo, cole na base e finalize com o telhado. Sem encaixes automáticos; revise medidas, kerf e montagem antes de cortar.`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetW} ${sheetH}" width="${sheetW}mm" height="${sheetH}mm"><desc>${description}</desc>${gable('frente', gap)}${gable('fundo', w + 2 * gap)}${rect('lateral-esquerda', gap, row2, Math.max(t, depth - 2 * t), wall)}${rect('lateral-direita', depth + 2 * gap, row2, Math.max(t, depth - 2 * t), wall)}${rect('telhado-esquerdo', gap, row3, depth, roof)}${rect('telhado-direito', depth + 2 * gap, row3, depth, roof)}${rect('base', gap, row4, w, depth)}</svg>`;
-    return {
-      title: `Kit casa em miniatura — 7 peças para colagem`, description,
-      widthMm: sheetW, heightMm: sheetH, svgContent: ensureSvgMetadataBlock(svg, t),
-      recommendedMaterial: `MDF ${t}mm`, recommendedThicknessMm: t, materialThickness_mm: t,
-      metadata: createStandardMetadataBlock(t, 0.15, 'local-house-kit'),
-      cutLengthMm: 2 * (2 * wall + w + 2 * roof) + 4 * (depth - 2 * t + wall) + 4 * (depth + roof) + 2 * (w + depth),
-      engraveAreaCm2: 0, estimatedLaserTimeSec: 0,
-      layers: [{ name: 'Corte das 7 peças', type: 'cut', color: '#FF0000', cutLengthMm: 0 }]
-    };
-  }
 
   // =========================================================================
   // ARCHETYPE 1: HEXAGONAL COASTER / GEOMETRIC HEXAGON
@@ -637,64 +621,7 @@ export function generateProceduralVector(
   // =========================================================================
   // ARCHETYPE 6: BOX / ENCLOSURE / FINGER JOINT ORGANIZER
   // =========================================================================
-  if (params.hasBox) {
-    const sheetW = Math.max(w, 240);
-    const sheetH = Math.max(h, 180);
-    const pW = Math.round(sheetW * 0.42);
-    const pH = Math.round(sheetH * 0.38);
-    const sW = Math.round(sheetW * 0.28);
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sheetW} ${sheetH}" width="${sheetW}mm" height="${sheetH}mm" data-thickness-mm="${t.toFixed(1)}">
-  <metadata id="cnc-metadata">
-    <cnc:metadata xmlns:cnc="https://cncminas.com.br/schema/v1">
-      <cnc:materialThickness_mm>${t.toFixed(1)}</cnc:materialThickness_mm>
-      <cnc:defaultKerf_mm>0.15</cnc:defaultKerf_mm>
-      <cnc:units>mm</cnc:units>
-      <cnc:layers>
-        <cnc:layer name="corte" color="#FF0000" operation="cut" />
-        <cnc:layer name="gravacao" color="#0000FF" operation="engrave" />
-      </cnc:layers>
-    </cnc:metadata>
-  </metadata>
-  <!-- PEÇA 1: FUNDO COM ENCAIXES DENTEADOS (#FF0000) -->
-  <rect x="8" y="8" width="${pW}" height="${pH}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-fundo" />
-  <rect x="18" y="14" width="${pW - 20}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <rect x="18" y="${pH - 14}" width="${pW - 20}" height="${t}" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  <!-- PEÇA 2: PAREDE FRONTAL (#FF0000) -->
-  <rect x="${pW + 16}" y="8" width="${pW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-frente" />
-  <!-- PEÇA 3: PAREDE TRASEIRA (#FF0000) -->
-  <rect x="${pW + 16}" y="${pH * 0.7 + 16}" width="${pW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-tras" />
-  <!-- PEÇAS 4 E 5: LATERAIS ESQUERDA E DIREITA (#FF0000) -->
-  <rect x="8" y="${pH + 16}" width="${sW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-lateral-esq" />
-  <rect x="${sW + 16}" y="${pH + 16}" width="${sW}" height="${pH * 0.7}" rx="1" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-lateral-dir" />
-  <!-- PEÇA 6: TAMPA COM PUXADOR OVAL (#FF0000) -->
-  <rect x="${pW + 16}" y="${pH * 1.4 + 24}" width="${pW}" height="${pH * 0.75}" rx="2" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" id="corte-tampa" />
-  <ellipse cx="${pW + 16 + pW / 2}" cy="${pH * 1.4 + 24 + (pH * 0.75) / 2}" rx="12" ry="4.5" fill="none" stroke="#FF0000" stroke-width="0.8" data-layer="cut" />
-  ${style !== 'cut_only' ? `<!-- Gravação Técnica e Identificação (#0000FF) -->
-  <text x="${pW / 2 + 8}" y="${pH / 2 + 8}" font-family="sans-serif" font-size="5" font-weight="bold" text-anchor="middle" fill="#0000FF">FUNDO DA CAIXA</text>
-  <text x="${pW + 16 + pW / 2}" y="${pH * 0.35 + 8}" font-family="sans-serif" font-size="5" font-weight="bold" text-anchor="middle" fill="#0000FF">FRENTE • ${textLabel}</text>
-  <text x="${pW + 16 + pW / 2}" y="${pH * 1.4 + 18}" font-family="sans-serif" font-size="4.5" text-anchor="middle" fill="#0000FF">TAMPA DESLIZANTE • CHAPA ${t.toFixed(1)}MM</text>` : ''}
-</svg>`;
-
-    return {
-      title: `Caixa Organizadora Finger-Joint ${sheetW}x${sheetH}mm`,
-      description: `Conjunto completo de 6 peças para corte CNC (Fundo, Frente, Trás, Laterais e Tampa com puxador) para chapa ${t.toFixed(1)}mm.`,
-      widthMm: sheetW,
-      heightMm: sheetH,
-      svgContent: svg,
-      recommendedMaterial: `MDF Cru ou Compensado ${t}mm`,
-      recommendedThicknessMm: t,
-      materialThickness_mm: t,
-      metadata: createStandardMetadataBlock(t, 0.15),
-      cutLengthMm: Math.round(2 * (pW + pH) * 2 + 4 * (sW + pH * 0.7)),
-      engraveAreaCm2: 24,
-      estimatedLaserTimeSec: 42,
-      layers: [
-        { name: 'Corte 6 Painéis e Puxador (#FF0000)', type: 'cut', color: '#FF0000', cutLengthMm: Math.round(2 * (pW + pH) * 2 + 4 * (sW + pH * 0.7)) },
-        { name: 'Gravação Identificação e Posições (#0000FF)', type: 'engrave', color: '#0000FF', cutLengthMm: 85 }
-      ]
-    };
-  }
+  if (params.hasBox) throw new Error('Informe a família e as três medidas do conjunto no modo Kits com encaixes.');
 
   // =========================================================================
   // ARCHETYPE 7: MANDALA / RADIAL / FLORAL / LUMINÁRIA CIRCULAR
@@ -871,6 +798,7 @@ export async function generateCncVector(
   thicknessMm = 3.0,
   kerfMm = 0.15
 ): Promise<GeneratedCncVector> {
+  if (isAssemblyPrompt(prompt)) return generateEngineeredVector(prompt, overrideWidth, overrideHeight, thicknessMm);
   const width = overrideWidth || 120;
   const height = overrideHeight || 120;
 

@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:rules": "node scripts/run-firestore-rules-tests.mjs"
+    "test:rules": "node scripts/run-firestore-rules-tests.mjs",
+    "test:studio": "node --import tsx --test tests/laser-assembly.test.mts tests/studio-generation.test.mts tests/raster-trace.test.mts parametric-box-generator.test.mts",
+    "examples:laser": "node --import tsx scripts/export-laser-assembly-examples.mts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

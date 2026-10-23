@@ -387,8 +387,8 @@ export default function App() {
 
   const tabTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: { title: 'Painel Geral da Oficina', subtitle: 'Gestão, ritmo e metas da oficina' },
-    'studio-ai': { title: 'Estúdio Vetorial', subtitle: 'Modelos geométricos locais e traçado de silhuetas para revisão técnica' },
-    studio: { title: 'Estúdio CAD 3D & Montagem', subtitle: 'Montagem procedural com finger-joints, kerf e vista explodida' },
+    'studio-ai': { title: 'Estúdio Vetorial', subtitle: 'Kits com encaixes, montagem 3D e vetores para corte laser' },
+    studio: { title: 'Estúdio CAD 3D & Montagem', subtitle: 'Montagem das peças de corte, espigas e rasgos, folga e vista explodida' },
     'cam-ai': { title: 'Diagnóstico CAM & G-Code', subtitle: 'Inspeção local do programa e prévia 2D de movimentos lineares' },
     nesting: { title: 'Nesting de Chapas (MaxRects Client-Side)', subtitle: 'Aproveitamento de matéria-prima, retalhos e exportação DXF/SVG' },
     pricing: { title: 'Formação de Preço (Mark-up Divisor)', subtitle: 'Cálculo de custos diretos, margem segura e trava antifraude' },
@@ -402,7 +402,7 @@ export default function App() {
   };
 
   const technicalReady = materials.length > 0 && machines.length > 0;
-  const requiresTechnicalSetup = ['studio-ai', 'cam-ai', 'nesting', 'pricing', 'quotes'].includes(activeTab);
+  const requiresTechnicalSetup = ['cam-ai', 'nesting', 'pricing', 'quotes'].includes(activeTab);
 
   if (isAuthLoading) {
     return (
@@ -489,7 +489,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'studio-ai' && technicalReady && (
+          {activeTab === 'studio-ai' && (
             <DesignStudioAiView
               materials={materials}
               machines={machines}
@@ -527,6 +527,8 @@ export default function App() {
 
           {activeTab === 'studio' && (
             <DesignStudioView
+              materials={materials}
+              machines={machines}
               initialModel={studioModel}
               initialArtifact={studioTransfer?.accountId === (user?.uid || 'guest') ? studioTransfer.artifact : null}
               onSendToNesting={handleSendToNesting}
