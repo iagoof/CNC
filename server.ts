@@ -3,17 +3,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { registerAssemblyAiRoutes } from './server/assemblyAi';
 
-dotenv.config();
+dotenv.config({path:['.env.local','.env'],quiet:true});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json({ limit: '20mb' }));
+registerAssemblyAiRoutes(app);
 
-// Modelo mais atualizado para o plano Free (conforme documentação do @google/genai)
-const GEMINI_FREE_MODEL = 'gemini-3.8-flash';
+const GEMINI_FREE_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 // Instância do SDK oficial do Google GenAI
 // Create only on request so local tools also work without an AI credential.
@@ -54,7 +55,7 @@ app.post('/api/ai/generate-cad-vector', async (req, res) => {
 
   try {
     const systemInstruction = `Você é o Engenheiro Chefe de CAD/CAM e Vetorização Industrial para máquinas de Corte Laser e Router CNC.
-Sua missão é gerar APENAS um código SVG técnico estritamente dimensional e 100% fabricável.
+Sua missão é gerar APENAS um código SVG técnico estritamente dimensional para revisão antes do corte.
 
 REGRAS DE CONSTRUÇÃO INDUSTRIAL CNC:
 1. O SVG deve ter viewBox="0 0 ${width} ${height}" width="${width}mm" height="${height}mm" data-thickness-mm="${thickness}".
@@ -116,9 +117,9 @@ Compensação de Kerf: ${kerf}mm`
       timestamp: new Date().toISOString()
     });
   } catch (error: any) {
-    console.warn('Fallback da API Gemini CAD Vector acionado:', error?.message);
+    console.warn('Falha na API Gemini CAD Vector:', {status:error?.status});
     res.status(503).json({
-      error: error?.message || 'Serviço da IA indisponível no momento.',
+      error: 'Serviço da IA indisponível no momento. Tente novamente.',
       modelUsed: GEMINI_FREE_MODEL,
       useFallback: true
     });
@@ -164,7 +165,7 @@ Especifique:
       modelUsed: GEMINI_FREE_MODEL
     });
   } catch (error: any) {
-    console.warn('Fallback da otimização de prompt ativado:', error?.message);
+    console.warn('Fallback da otimização de prompt ativado:', {status:error?.status});
     res.json({
       success: true,
       optimizedPrompt: `${prompt}, contorno fechado em corte passante (#FF0000) e gravação de detalhes (#0000FF), espessura ${thickness}mm com encaixes tolerados para máquina ${machine}.`,
@@ -256,7 +257,7 @@ Responda APENAS o JSON válido.`;
 // Setup Vite dev server or static dist
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
-  const port = isProd ? (Number(process.env.PORT) || 3000) : 3000;
+  const port = Number(process.env.PORT) || 3000;
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
@@ -278,7 +279,7 @@ async function startServer() {
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[Servidor CNC] Rodando na porta ${port} com IA (${GEMINI_FREE_MODEL}) ativa.`);
+    console.log(`[Servidor CNC] Rodando na porta ${port}. Credencial de IA ${process.env.GEMINI_API_KEY||process.env.GOOGLE_API_KEY?'configurada':'ausente'}.`);
   });
 }
 

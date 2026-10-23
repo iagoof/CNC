@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { APP_RELEASE } from '../../version';
 import {
   Flame,
   Mail,
@@ -144,7 +145,7 @@ export const LoginView: React.FC = () => {
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-2xl font-black tracking-tight text-white">CNC APP</h1>
             <span className="text-xs font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
-              v2.0
+              v{APP_RELEASE}
             </span>
           </div>
           <p className="text-xs text-slate-400 max-w-xs font-medium">

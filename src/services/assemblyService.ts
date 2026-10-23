@@ -18,7 +18,8 @@ export function parseAssemblyPrompt(prompt:string,defaults=DEFAULT_ASSEMBLY_PARA
  else if(/prateleir|estante|organizador/.test(text)) model='shelf';
  else if(/\b(caixa|box|estojo|bau)\b/.test(text)) model='box';
  else throw new Error('Não há família de encaixes para esse objeto. Escolha caixa, casa ou organizador, ou use Vetor livre.');
- const result={...defaults,model};
+ const {openings:previousOpenings,...baseDefaults}=defaults;
+ const result:AssemblyParams={...baseDefaults,model};
  const number='(\\d+(?:[.,]\\d+)?)';
  const dims=text.match(new RegExp(number+'\\s*[x×*]\\s*'+number+'\\s*[x×*]\\s*'+number+'\\s*(mm|cm)?'));
  if(dims) {const scale=dims[4]==='cm'?10:1;result.width=numeric(dims[1])*scale;result.depth=numeric(dims[2])*scale;result.height=numeric(dims[3])*scale;}

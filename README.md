@@ -23,3 +23,5 @@ Consulte `AUDITORIA-PUBLICACAO.md` para evidências e pendências de lançamento
 Os modos Estúdio Vetorial e Estúdio CAD 3D compartilham projetos paramétricos com espigas e rasgos. Use `npm run test:studio` para as regressões e `npm run examples:laser` para gerar exemplos em `artifacts/laser-kits`.
 
 A implementação, os testes de navegador e os limites estão em [docs/estudios-montagem.md](docs/estudios-montagem.md). Os exemplos incluem projeto SVG editável, SVG/DXF com kerf compensado, montagem STL e amostra de encaixe. Calibre espessura, folga e kerf com seu material antes de produzir.
+
+A versão 2.1.0 integra geração real por Gemini nos dois estúdios, com planos estruturados e aberturas verificadas pelo CAD. **Gerar localmente** permanece disponível. Consulte [publicação e configuração da IA](docs/publicacao-ai-studio.md) para preparar o pacote da hospedagem e conferir a versão em `/api/health`.

@@ -35,6 +35,10 @@ Interface: modelos rápidos, interpretação local de três dimensões e unidade
 - tests/studio-assembly.html: fixture local para os dois estúdios e a transferência ao nesting, com dados fictícios.
 - artifacts/laser-kits/LEIA-ME.txt: identificação dos arquivos e parâmetros de exemplo.
 
-### Limites da entrega
+### Limites da entrega inicial
 
 As alterações estão na pasta local; não houve publicação no AI Studio nem envio ao GitHub. Não foi realizado corte físico. Os encaixes precisam de amostra no material real para calibrar espessura, folga e kerf. A geração dos kits é local e paramétrica dentro das famílias disponíveis; SVG livre por IA não recebe promessa de montagem validada. O salvamento em nuvem reutiliza a operação existente, mas não foi exercitado com gravação de dados reais nesta sessão.
+
+### Evolução 2.1.0
+
+A nova implementação conecta os dois estúdios ao Gemini para interpretar o pedido em parâmetros e aberturas verificadas pelo CAD, com identificação do modelo utilizado. O histórico acima descreve a entrega local anterior. A integração de IA e o processo de publicação no serviço já existente do AI Studio estão documentados em [publicacao-ai-studio.md](publicacao-ai-studio.md).

@@ -3,10 +3,18 @@ import * as THREE from 'three';
 export type AssemblyModel = 'box' | 'house' | 'shelf';
 export type V2 = [number, number];
 export type V3 = [number, number, number];
+export interface AssemblyOpening {
+  part: 'front'|'back'|'left'|'right'|'base'|'top'|'roof-left'|'roof-right';
+  shape: 'rectangle'|'ellipse'|'circle';
+  /** Center and size as fractions of the panel's rectangular working area. */
+  x: number; y: number; width: number; height: number;
+}
 export interface AssemblyParams {
   model: AssemblyModel; width: number; depth: number; height: number;
   thickness: number; tabWidth: number; clearance: number; kerf: number; lid: boolean;
   shelves?: number;
+  /** Undefined keeps the family's default windows; [] deliberately removes them. */
+  openings?: AssemblyOpening[];
 }
 export interface AssemblyPart {
   id: string; name: string; outline: V2[]; holes: V2[][];
@@ -35,11 +43,35 @@ const positions = (length: number, width: number, t: number): number[] => {
   return Array.from({length:count},(_,i)=>margin+width/2+(length-2*margin-width)*(count===1 ? 0.5 : i/(count-1)));
 };
 
+const pointSegmentDistance=(p:V2,a:V2,b:V2)=>{
+  const dx=b[0]-a[0],dy=b[1]-a[1],s=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy||1)));
+  return Math.hypot(p[0]-a[0]-s*dx,p[1]-a[1]-s*dy);
+};
+const insideRing=(p:V2,ring:V2[])=>{
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const a=ring[i],b=ring[j];
+    if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;
+  }
+  return inside;
+};
+function ringDistance(a:V2[],b:V2[]):number {
+  let distance=Infinity;
+  const cross2=(p:V2,q:V2,r:V2)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+  for(let i=0;i<a.length;i++)for(let j=0;j<b.length;j++){
+    const p=a[i],q=a[(i+1)%a.length],r=b[j],s=b[(j+1)%b.length];
+    if(cross2(p,q,r)*cross2(p,q,s)<0&&cross2(r,s,p)*cross2(r,s,q)<0)return 0;
+    distance=Math.min(distance,pointSegmentDistance(p,r,s),pointSegmentDistance(q,r,s),pointSegmentDistance(r,p,q),pointSegmentDistance(s,p,q));
+  }
+  return distance;
+}
+
 /** All contours use mm. Slots include clearance, while kerf is a separate export operation. */
 export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
   const p = {shelves:2,...input};
   if(!['box','house','shelf'].includes(p.model)) throw new Error('Família de montagem não suportada.');
-  if(!Object.entries(p).filter(([k])=>!['model','lid'].includes(k)).every(([,v])=>typeof v==='number' && Number.isFinite(v))) throw new Error('Informe medidas finitas.');
+  if(!Object.entries(p).filter(([k])=>!['model','lid','openings'].includes(k)).every(([,v])=>typeof v==='number' && Number.isFinite(v))) throw new Error('Informe medidas finitas.');
+  if(p.openings!==undefined&&(!Array.isArray(p.openings)||p.openings.length>16))throw new Error('Informe no máximo 16 aberturas.');
   const {width:W,depth:D,height:H,thickness:t,tabWidth:tw,clearance:c} = p;
   if(typeof p.lid!=='boolean' || !Number.isInteger(p.shelves) || p.shelves<1 || p.shelves>8) throw new Error('Informe de 1 a 8 prateleiras e uma opção de tampa válida.');
   if(t<1 || t>25 || Math.min(W,D,H)<Math.max(30,12*t) || Math.max(W,D,H)>1200) throw new Error('Dimensões entre 30 e 1200 mm, no mínimo 12 vezes a espessura (1–25 mm).');
@@ -97,7 +129,7 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
   if(p.model==='house') {
     // Internal openings keep a continuous frame and stay clear of the joint rows.
     const windowW=F*0.19, windowH=H*0.22, sill=H*0.48;
-    for(const gable of [front!,back]) {
+    for(const gable of p.openings===undefined?[front!,back]:[]) {
       for(const cx of [F*0.28,F*0.72]) gable.holes.push(rect(windowW,windowH).map(([x,y])=>[x+cx-windowW/2,y+sill]));
     }
     const L=Math.hypot(F/2,rise), co=F/2/L, si=rise/L, over=2*t, seam=t;
@@ -123,6 +155,19 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
       }
       for(const at of positions(F,tw,t)) connect(shelf,0,at,back,at,y-t/2,true);
     }
+  }
+  for(const opening of p.openings||[]) {
+    if(!opening||!['rectangle','ellipse','circle'].includes(opening.shape)||!(['x','y','width','height'] as const).every(k=>typeof opening[k]==='number'&&Number.isFinite(opening[k])))throw new Error('Abertura inválida.');
+    const part=parts.find(part=>part.id===opening.part);
+    if(!part||opening.width<=0||opening.height<=0||opening.width>0.8||opening.height>0.8||opening.x<0||opening.x>1||opening.y<0||opening.y>1)throw new Error('Abertura fora de um painel disponível.');
+    const b=bounds(part),w=b.maxX-b.minX,h=part===front||part===back?H:b.maxY-b.minY;
+    const cx=b.minX+opening.x*w,cy=b.minY+opening.y*h,ow=opening.width*w,oh=opening.height*h;
+    if(Math.min(ow,oh)<2*t)throw new Error('Abertura pequena demais para a espessura da chapa.');
+    const rw=opening.shape==='circle'?Math.min(ow,oh):ow,rh=opening.shape==='circle'?Math.min(ow,oh):oh;
+    const ring:V2[]=opening.shape==='rectangle'?rect(ow,oh).map(([x,y])=>[x+cx-ow/2,y+cy-oh/2]):Array.from({length:48},(_,i)=>[cx+rw/2*Math.cos(i*Math.PI/24),cy+rh/2*Math.sin(i*Math.PI/24)]);
+    const margin=Math.max(2*t,p.kerf*2);
+    if(ring.some(point=>!insideRing(point,part.outline))||ringDistance(ring,part.outline)<margin||part.holes.some(hole=>insideRing(ring[0],hole)||insideRing(hole[0],ring)||ringDistance(ring,hole)<margin))throw new Error(`Abertura em ${part.name} próxima de uma borda ou encaixe. Mova ou reduza a abertura.`);
+    part.holes.push(ring);
   }
   // Resolve edge profiles only after all joints have been assigned.
   for(const part of parts) {

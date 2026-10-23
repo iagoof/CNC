@@ -1,17 +1,18 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "start": "tsx server.ts",
     "build": "vite build",
+    "build:hosting": "npm run build && node scripts/build-hosting.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:rules": "node scripts/run-firestore-rules-tests.mjs",
-    "test:studio": "node --import tsx --test tests/laser-assembly.test.mts tests/studio-generation.test.mts tests/raster-trace.test.mts parametric-box-generator.test.mts",
+    "test:studio": "node --import tsx --test tests/laser-assembly.test.mts tests/assembly-ai.test.mts tests/assembly-ai-client.test.mts tests/studio-generation.test.mts tests/raster-trace.test.mts parametric-box-generator.test.mts",
     "examples:laser": "node --import tsx scripts/export-laser-assembly-examples.mts"
   },
   "dependencies": {

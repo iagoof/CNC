@@ -1,4 +1,5 @@
 import React from 'react';
+import { APP_RELEASE } from '../version';
 import { CompanyProfile } from '../types';
 import {
   LayoutDashboard,
@@ -75,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="font-extrabold text-base tracking-tight text-slate-900">CNC APP</span>
               <span className="text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200/60 px-1.5 py-0.2 rounded font-bold">
-                v2.0
+                v{APP_RELEASE}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 font-medium">ERP & CAM Industrial</p>

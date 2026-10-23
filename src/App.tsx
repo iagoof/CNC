@@ -1,4 +1,5 @@
 import type { NestingTransfer } from './utils/nestingEngine';
+import { APP_RELEASE } from './version';
 import React, { useState, useEffect, useRef } from 'react';
 import { INITIAL_COMPANY, INITIAL_FIXED_COSTS, INITIAL_TAXES } from './data/initialData';
 import {
@@ -413,7 +414,7 @@ export default function App() {
         <div className="flex items-center gap-2 mb-2">
           <h1 className="text-xl font-black text-white">CNC APP</h1>
           <span className="text-xs font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
-            v2.0
+            v{APP_RELEASE}
           </span>
         </div>
         <p className="text-xs text-slate-400 font-medium">Carregando ambiente da oficina...</p>

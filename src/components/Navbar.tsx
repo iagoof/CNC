@@ -1,4 +1,5 @@
 import React from 'react';
+import { APP_RELEASE } from '../version';
 import { CompanyProfile, PlanType } from '../types';
 import {
   LayoutDashboard,
@@ -56,7 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-sm tracking-wider text-white">CUT App</span>
                 <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded font-bold">
-                  v2.0
+                  v{APP_RELEASE}
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium">ERP & CAD/CAM Laser</p>
