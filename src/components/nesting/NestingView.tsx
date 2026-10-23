@@ -14,11 +14,7 @@ import {
   Trash2,
   Download,
   Maximize,
-  DollarSign,
-  AlertCircle,
-  Check,
-  RotateCw,
-  Sparkles
+  DollarSign
 } from 'lucide-react';
 
 interface NestingViewProps {
