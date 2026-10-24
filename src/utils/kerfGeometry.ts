@@ -1,4 +1,4 @@
-import { pointInContour, contourArea, type CncContour, type CncGeometry, type CncPoint } from './svgGeometry.ts';
+import { pointInContour, contourArea, getContourBBox, type CncContour, type CncGeometry, type CncPoint } from './svgGeometry.ts';
 
 const cross = (a: CncPoint, b: CncPoint) => a.x * b.y - a.y * b.x;
 const subtract = (a: CncPoint, b: CncPoint): CncPoint => ({ x: a.x - b.x, y: a.y - b.y });
@@ -66,9 +66,19 @@ export function compensateGeometry(geometry: CncGeometry, kerfMm: number): CncGe
   const cuts = geometry.contours.filter(c => c.layer === 'cut');
   if (cuts.some(c => !c.closed)) throw new Error('Compensação automática requer contornos de corte fechados.');
   if (cuts.reduce((sum, c) => sum + c.points.length, 0) > 10000) throw new Error('Projeto muito complexo para compensação automática.');
+  // Performance optimization (⚡ Bolt): Precalculate AABB bounding boxes
+  // to avoid repeated point-in-polygon checks across non-overlapping cut contours.
+  const bboxes = new Map(cuts.map(c => [c, getContourBBox(c)]));
   const contours = geometry.contours.map(c => {
     if (c.layer !== 'cut') return c;
-    const nesting = cuts.filter(other => other !== c && contourArea(other) > contourArea(c) && pointInContour(c.points[0], other)).length;
+    const p = c.points[0];
+    const nesting = cuts.filter(other => {
+      if (other === c) return false;
+      if (contourArea(other) <= contourArea(c)) return false;
+      const box = bboxes.get(other)!;
+      if (p.x < box.minX || p.x > box.maxX || p.y < box.minY || p.y > box.maxY) return false;
+      return pointInContour(p, other);
+    }).length;
     return offsetRing(c, (nesting % 2 === 0 ? 1 : -1) * kerfMm / 2);
   });
   // Do not allow compensation to merge previously separate parts or close a gap.

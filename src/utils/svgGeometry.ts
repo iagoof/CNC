@@ -266,10 +266,41 @@ export function readSvgGeometry(svgString: string): CncGeometry {
     defaultKerfMm: readMeta('data-kerf', 'defaultKerf_mm', 0.15) };
 }
 
+export interface ContourBBox { minX: number; maxX: number; minY: number; maxY: number }
+
+export function getContourBBox(contour: CncContour): ContourBBox {
+  const pts = contour.points;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
 export function pointInContour(point: CncPoint, contour: CncContour): boolean {
+  const pts = contour.points;
+  if (pts.length < 3) return false;
+
+  // Performance optimization (⚡ Bolt):
+  // Fast axis-aligned bounding box (AABB) early pruning skips expensive
+  // point-in-polygon ray casting loops when point is outside contour bounding box.
+  let minX = pts[0].x, maxX = pts[0].x, minY = pts[0].y, maxY = pts[0].y;
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  if (point.x < minX || point.x > maxX || point.y < minY || point.y > maxY) return false;
+
   let inside = false;
-  for (let i = 1; i < contour.points.length; i++) {
-    const a = contour.points[i - 1], b = contour.points[i];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
     if ((a.y > point.y) !== (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
   }
   return inside;
@@ -279,8 +310,19 @@ export function pointInContour(point: CncPoint, contour: CncContour): boolean {
 export function orderedContours(geometry: CncGeometry): CncContour[] {
   const cuts = geometry.contours.filter(c => c.layer === 'cut');
   const areas = new Map(cuts.map(c => [c, area(c)]));
-  const depths = new Map(cuts.map(c => [c, cuts.filter(other => other !== c && other.closed
-    && areas.get(other)! > areas.get(c)! && pointInContour(c.points[0], other)).length]));
+  // Performance optimization (⚡ Bolt): Precalculate AABB bounding boxes once
+  // to avoid O(N^2) repeated point-in-polygon calculations across non-overlapping contours.
+  const bboxes = new Map(cuts.map(c => [c, getContourBBox(c)]));
+
+  const depths = new Map(cuts.map(c => [c, cuts.filter(other => {
+    if (other === c || !other.closed) return false;
+    if (areas.get(other)! <= areas.get(c)!) return false;
+    const box = bboxes.get(other)!;
+    const p = c.points[0];
+    if (p.x < box.minX || p.x > box.maxX || p.y < box.minY || p.y > box.maxY) return false;
+    return pointInContour(p, other);
+  }).length]));
+
   return [...geometry.contours].sort((a, b) => a.layer !== b.layer ? a.layer === 'engrave' ? -1 : 1
     : a.layer === 'cut' ? depths.get(b)! - depths.get(a)! || areas.get(a)! - areas.get(b)! : a.source - b.source);
 }
