@@ -4,3 +4,6 @@
 ## 2026-10-22 - MaxRects Nesting Hot Loop Optimization
 **Learning:** In 2D rectangular nesting algorithms (`packNesting`), inner loops checking candidate rectangle spaces and pruning redundant bounding boxes create high allocation overhead if temporary objects (`{ rect: ... }`) or array helper functions (`.filter`, `.some`) are used per piece iteration.
 **Action:** Inline spatial comparisons and bounds calculations directly in standard `for` loops, avoiding object creation in hot paths while preserving exact placement ordering.
+## 2026-10-23 - 2D Spatial Containment Bounding Box Pruning
+**Learning:** Spatial containment checks (`pointInContour`) that determine contour nesting levels in `orderedContours` and `compensateGeometry` execute $O(N^2 \cdot P)$ point-in-polygon ray-casting iterations across all contour points.
+**Action:** Precalculate Axis-Aligned Bounding Boxes (AABB) for contours once and perform $O(1)$ range checks prior to running `pointInContour` to prune non-overlapping polygons.
