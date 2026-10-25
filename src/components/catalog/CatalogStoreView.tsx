@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { ProductInventory, SalesOrder, UF } from '../../types';
-import { ShoppingBag, CheckCircle2, Store } from 'lucide-react';
+import { ShoppingBag, CheckCircle2, Store, X } from 'lucide-react';
 import { createCatalogOrder } from '../../utils/catalogOrder';
 import { entityId, documentNumber } from '../../utils/quoteEngine';
 
@@ -184,7 +184,16 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
                   <h3 id="catalog-order-title" className="text-base font-bold">Registrar pedido</h3>
                   <p className="text-xs text-slate-500">{selectedProduct.name}</p>
                 </div>
-                <button autoFocus disabled={saving} onClick={() => setSelectedProduct(null)} className="text-sm p-1">Fechar</button>
+                <button
+                  type="button"
+                  autoFocus
+                  disabled={saving}
+                  onClick={() => setSelectedProduct(null)}
+                  aria-label="Fechar modal de registro de pedido"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               {!orderCompleted ? (
                 <form onSubmit={handleRegisterOrder} aria-busy={saving} className="text-sm"><fieldset disabled={saving} className="space-y-4">
