@@ -48,17 +48,27 @@ app.post('/api/ai/generate-cad-vector', async (req, res) => {
     kerf = 0.15
   } = req.body;
 
-  if (!prompt || typeof prompt !== 'string') {
-    res.status(400).json({ error: 'Prompt de desenho não fornecido.' });
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) {
+    res.status(400).json({ error: 'Prompt de desenho inválido (máx. 4000 caracteres).' });
     return;
   }
+
+  // Security: Sanitize and bound numeric CAD dimensions
+  const parseNum = (val: any, defaultVal: number) => {
+    const num = Number(val);
+    return Number.isFinite(num) ? num : defaultVal;
+  };
+  const safeWidth = Math.min(Math.max(parseNum(width, 120), 10), 2000);
+  const safeHeight = Math.min(Math.max(parseNum(height, 120), 10), 2000);
+  const safeThickness = Math.min(Math.max(parseNum(thickness, 3.0), 0.1), 50);
+  const safeKerf = Math.min(Math.max(parseNum(kerf, 0.15), 0), 5);
 
   try {
     const systemInstruction = `Você é o Engenheiro Chefe de CAD/CAM e Vetorização Industrial para máquinas de Corte Laser e Router CNC.
 Sua missão é gerar APENAS um código SVG técnico estritamente dimensional para revisão antes do corte.
 
 REGRAS DE CONSTRUÇÃO INDUSTRIAL CNC:
-1. O SVG deve ter viewBox="0 0 ${width} ${height}" width="${width}mm" height="${height}mm" data-thickness-mm="${thickness}".
+1. O SVG deve ter viewBox="0 0 ${safeWidth} ${safeHeight}" width="${safeWidth}mm" height="${safeHeight}mm" data-thickness-mm="${safeThickness}".
 2. CAMADA DE CORTE PASSANTE (Perímetros e furos vazados):
    - DEVE usar SEMPRE: stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut"
    - Todos os contornos de corte DEVEM ser FECHADOS (fecham com 'Z' ou são rect/circle/ellipse).
@@ -131,8 +141,8 @@ Compensação de Kerf: ${kerf}mm`
  */
 app.post('/api/ai/optimize-prompt', async (req, res) => {
   const { prompt, thickness = 3.0, machine = 'laser' } = req.body;
-  if (!prompt || typeof prompt !== 'string') {
-    res.status(400).json({ error: 'Prompt não fornecido.' });
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) {
+    res.status(400).json({ error: 'Prompt não fornecido ou excede o limite de 4000 caracteres.' });
     return;
   }
 
@@ -179,8 +189,8 @@ Especifique:
  */
 app.post('/api/ai/diagnose-gcode', async (req, res) => {
   const { gcode, machineType = 'laser' } = req.body;
-  if (!gcode || typeof gcode !== 'string') {
-    res.status(400).json({ error: 'Código G-code não fornecido.' });
+  if (!gcode || typeof gcode !== 'string' || !gcode.trim() || gcode.length > 50000) {
+    res.status(400).json({ error: 'Código G-code não fornecido ou excede o limite de 50000 caracteres.' });
     return;
   }
 
