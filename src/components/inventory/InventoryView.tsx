@@ -298,7 +298,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <button
                             disabled={adjustingSkus.has(item.sku) || item.physicalStock === 0}
                             onClick={() => void handleStockAdjustment(item.sku, -1)}
-                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+                            aria-label={`Dar baixa no estoque do SKU ${item.sku}`}
+                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                             title="Dar Baixa (-1)"
                           >
                             <Minus className="w-3.5 h-3.5" />
@@ -306,7 +307,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <button
                             disabled={adjustingSkus.has(item.sku)}
                             onClick={() => void handleStockAdjustment(item.sku, 1)}
-                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+                            aria-label={`Entrada manual de estoque do SKU ${item.sku}`}
+                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                             title="Entrada Manual (+1)"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -335,7 +337,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <button
                 disabled={isSavingProduct}
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                aria-label="Fechar modal de cadastro de SKU"
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -355,8 +358,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Categoria</label>
+                  <label htmlFor="inventory-new-category" className="text-[10px] font-semibold text-slate-600 block mb-1">Categoria</label>
                   <input
+                    id="inventory-new-category"
                     type="text"
                     value={newCategory}
                     onChange={e => setNewCategory(e.target.value)}
@@ -379,8 +383,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Físico</label>
+                  <label htmlFor="inventory-new-physical" className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Físico</label>
                   <input
+                    id="inventory-new-physical"
                     type="number"
                     value={newPhysical}
                     onChange={e => setNewPhysical(Number(e.target.value))}
@@ -388,8 +393,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Mínimo</label>
+                  <label htmlFor="inventory-new-min-stock" className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Mínimo</label>
                   <input
+                    id="inventory-new-min-stock"
                     type="number"
                     value={newMinStock}
                     onChange={e => setNewMinStock(Number(e.target.value))}
@@ -397,8 +403,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Ideal</label>
+                  <label htmlFor="inventory-new-ideal-stock" className="text-[10px] font-semibold text-slate-600 block mb-1">Estoque Ideal</label>
                   <input
+                    id="inventory-new-ideal-stock"
                     type="number"
                     value={newIdealStock}
                     onChange={e => setNewIdealStock(Number(e.target.value))}
@@ -409,8 +416,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Preço Venda (R$)</label>
+                  <label htmlFor="inventory-new-unit-price" className="text-[10px] font-semibold text-slate-600 block mb-1">Preço Venda (R$)</label>
                   <input
+                    id="inventory-new-unit-price"
                     type="number"
                     step="0.01"
                     value={newUnitPrice}
@@ -419,8 +427,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Preço Custo (R$)</label>
+                  <label htmlFor="inventory-new-cost-price" className="text-[10px] font-semibold text-slate-600 block mb-1">Preço Custo (R$)</label>
                   <input
+                    id="inventory-new-cost-price"
                     type="number"
                     step="0.01"
                     value={newCostPrice}
@@ -429,8 +438,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold text-slate-600 block mb-1">Tempo Laser (s)</label>
+                  <label htmlFor="inventory-new-laser-time" className="text-[10px] font-semibold text-slate-600 block mb-1">Tempo Laser (s)</label>
                   <input
+                    id="inventory-new-laser-time"
                     type="number"
                     value={newLaserTimeSec}
                     onChange={e => setNewLaserTimeSec(Number(e.target.value))}
