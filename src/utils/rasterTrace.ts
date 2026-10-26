@@ -130,6 +130,13 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
     let steps = 0;
     const maxSteps = totalEdges + 500;
 
+    // Performance Optimization (⚡ Bolt):
+    // Parse coordinates once from startKey and maintain primitive currX/currY
+    // across loop iterations to eliminate string split and array allocation overhead.
+    const commaIdx = startKey.indexOf(',');
+    let currX = Number(startKey.slice(0, commaIdx));
+    let currY = Number(startKey.slice(commaIdx + 1));
+
     while (steps++ < maxSteps) {
       const outgoing = edges.get(currentKey);
       if (!outgoing || outgoing.length === 0) {
@@ -137,7 +144,6 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
         break;
       }
 
-      const [currX, currY] = currentKey.split(',').map(Number);
       points.push([currX, currY]);
 
       // At junctions (e.g. saddle points or touching diagonals), choose the rightmost turn
@@ -167,7 +173,9 @@ export function traceBinaryMask(mask: ArrayLike<number>, width: number, height: 
       }
 
       prevPoint = [currX, currY];
-      currentKey = key(next[0], next[1]);
+      currX = next[0];
+      currY = next[1];
+      currentKey = key(currX, currY);
 
       if (currentKey === startKey) {
         break;

@@ -7,3 +7,6 @@
 ## 2026-10-23 - 2D Spatial Containment Bounding Box Pruning
 **Learning:** Spatial containment checks (`pointInContour`) that determine contour nesting levels in `orderedContours` and `compensateGeometry` execute $O(N^2 \cdot P)$ point-in-polygon ray-casting iterations across all contour points.
 **Action:** Precalculate Axis-Aligned Bounding Boxes (AABB) for contours once and perform $O(1)$ range checks prior to running `pointInContour` to prune non-overlapping polygons.
+## 2026-10-23 - Coordinate Key Unpacking Overhead in Raster Boundary Tracing
+**Learning:** In pixel contour extraction algorithms (`traceBinaryMask`), calling `currentKey.split(',').map(Number)` inside the inner edge-traversal loop creates thousands of temporary string and array heap allocations per image tracing operation.
+**Action:** Unpack initial coordinates once from `startKey` and track `currX`/`currY` directly as primitive numbers alongside string map keys during cycle decomposition.
