@@ -39,6 +39,14 @@ service cloud.firestore {
       );
     }
 
+    function isOwner(data) {
+      return isSignedIn() && data.ownerId == request.auth.uid;
+    }
+
+    function isOwnerOrAdmin(data) {
+      return isOwner(data) || isAdmin();
+    }
+
     // --- VALIDATION HELPERS ---
     function isValidUser(data) {
       return data.keys().hasAll(['id', 'email', 'role', 'createdAt', 'updatedAt']) &&
@@ -222,13 +230,14 @@ service cloud.firestore {
 
     // USERS COLLECTION
     match /users/{userId} {
-      allow get: if isVerified();
+      allow get: if isVerified() && (request.auth.uid == userId || isAdmin());
       allow list: if isAdmin();
       allow create: if isVerified() && isValidId(userId) &&
-        isValidUser(incoming()) && incoming().id == userId &&
+        isValidUser(incoming()) && incoming().id == userId && request.auth.uid == userId &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time &&
         (incoming().role != 'admin' || isAdmin());
-      allow update: if isVerified() && isValidId(userId) && isValidUser(incoming()) &&
+      allow update: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdmin()) &&
+        isValidUser(incoming()) &&
         incoming().id == existing().id && incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time;
       allow delete: if isAdmin();
