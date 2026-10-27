@@ -3,7 +3,19 @@ import { pointInContour, contourArea, getContourBBox, type CncContour, type CncG
 const cross = (a: CncPoint, b: CncPoint) => a.x * b.y - a.y * b.x;
 const subtract = (a: CncPoint, b: CncPoint): CncPoint => ({ x: a.x - b.x, y: a.y - b.y });
 const same = (a: CncPoint, b: CncPoint) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-7;
-const signedArea = (points: CncPoint[]) => points.reduce((sum, p, i) => sum + cross(p, points[(i + 1) % points.length]), 0) / 2;
+
+// Performance optimization (⚡ Bolt):
+// Imperative for-loop avoids closure allocation per vertex pair when calculating signed area.
+function signedArea(points: CncPoint[]): number {
+  let sum = 0;
+  const len = points.length;
+  for (let i = 0; i < len; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % len];
+    sum += a.x * b.y - a.y * b.x;
+  }
+  return sum / 2;
+}
 
 function intersects(a: CncPoint, b: CncPoint, c: CncPoint, d: CncPoint): boolean {
   if (Math.max(a.x, b.x) < Math.min(c.x, d.x) - 1e-7 || Math.max(c.x, d.x) < Math.min(a.x, b.x) - 1e-7
@@ -66,15 +78,18 @@ export function compensateGeometry(geometry: CncGeometry, kerfMm: number): CncGe
   const cuts = geometry.contours.filter(c => c.layer === 'cut');
   if (cuts.some(c => !c.closed)) throw new Error('Compensação automática requer contornos de corte fechados.');
   if (cuts.reduce((sum, c) => sum + c.points.length, 0) > 10000) throw new Error('Projeto muito complexo para compensação automática.');
-  // Performance optimization (⚡ Bolt): Precalculate AABB bounding boxes
-  // to avoid repeated point-in-polygon checks across non-overlapping cut contours.
+  // Performance optimization (⚡ Bolt): Precalculate AABB bounding boxes and areas
+  // to avoid repeated point-in-polygon checks and O(N^2) area recalculations across cut contours.
   const bboxes = new Map(cuts.map(c => [c, getContourBBox(c)]));
+  const areas = new Map(cuts.map(c => [c, contourArea(c)]));
+
   const contours = geometry.contours.map(c => {
     if (c.layer !== 'cut') return c;
     const p = c.points[0];
+    const areaC = areas.get(c)!;
     const nesting = cuts.filter(other => {
       if (other === c) return false;
-      if (contourArea(other) <= contourArea(c)) return false;
+      if (areas.get(other)! <= areaC) return false;
       const box = bboxes.get(other)!;
       if (p.x < box.minX || p.x > box.maxX || p.y < box.minY || p.y > box.maxY) return false;
       return pointInContour(p, other);
