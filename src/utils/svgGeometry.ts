@@ -11,7 +11,20 @@ const tolerance = 0.025;
 export const engravingIntervalMm = 0.1;
 const maxPoints = 250000;
 const distance = (a: CncPoint, b: CncPoint) => Math.hypot(a.x - b.x, a.y - b.y);
-export const contourLength = (c: CncContour) => c.points.slice(1).reduce((sum, p, i) => sum + distance(c.points[i], p), 0);
+
+// Performance optimization (⚡ Bolt):
+// Imperative for-loop avoids c.points.slice(1) array allocation and closure calls
+// per point iteration when calculating contour perimeter length.
+export function contourLength(c: CncContour): number {
+  const pts = c.points;
+  let sum = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    sum += Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  return sum;
+}
 
 function physicalMm(value: string | null): number | undefined {
   if (!value) return undefined;
@@ -95,8 +108,19 @@ function textToScanlines(root: Element, unitScale: number): void {
   }
 }
 
+// Performance optimization (⚡ Bolt):
+// Direct Shoelace algorithm loop avoids contour.points.slice(1) array allocation and
+// closure calls on every vertex pair when calculating contour area.
 function area(contour: CncContour): number {
-  return Math.abs(contour.points.slice(1).reduce((sum, p, i) => sum + contour.points[i].x * p.y - p.x * contour.points[i].y, 0) / 2);
+  const pts = contour.points;
+  if (pts.length < 3) return 0;
+  let sum = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[i - 1];
+    const p1 = pts[i];
+    sum += p0.x * p1.y - p1.x * p0.y;
+  }
+  return Math.abs(sum / 2);
 }
 export const contourArea = area;
 
