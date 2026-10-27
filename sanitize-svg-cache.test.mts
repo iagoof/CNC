@@ -43,3 +43,21 @@ test('sanitizeSvg memoization cache stores and returns cached results when DOMPa
   assert.equal(first, second);
   assert(first.includes('<rect'));
 });
+
+test('sanitizeSvg strips dangerous case-varied attributes and unallowed tags with JSDOM', async () => {
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+  (globalThis as any).DOMParser = dom.window.DOMParser;
+  (globalThis as any).XMLSerializer = dom.window.XMLSerializer;
+
+  const maliciousInput = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" ONLOAD="alert(1)" ONERROR="alert(2)" HREF="javascript:alert(3)" /><script>alert(4)</script><SCRIPT>alert(5)</SCRIPT></svg>';
+  const sanitized = sanitizeSvg(maliciousInput);
+
+  assert(!sanitized.includes('ONLOAD'), 'ONLOAD should be stripped');
+  assert(!sanitized.includes('ONERROR'), 'ONERROR should be stripped');
+  assert(!sanitized.includes('HREF'), 'HREF should be stripped');
+  assert(!sanitized.includes('script'), 'script element should be removed');
+  assert(!sanitized.includes('SCRIPT'), 'SCRIPT element should be removed');
+  assert(sanitized.includes('<rect'), 'valid rect element should remain');
+  assert(sanitized.includes('width="100"'), 'valid width attribute should remain');
+});
