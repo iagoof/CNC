@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { ProductInventory, SalesOrder, UF } from '../../types';
-import { ShoppingBag, CheckCircle2, Store, X } from 'lucide-react';
+import { ShoppingBag, CheckCircle2, Store, X, Loader2 } from 'lucide-react';
 import { createCatalogOrder } from '../../utils/catalogOrder';
 import { entityId, documentNumber } from '../../utils/quoteEngine';
 
@@ -196,39 +196,117 @@ export const CatalogStoreView: React.FC<CatalogStoreViewProps> = ({ products, on
                 </button>
               </div>
               {!orderCompleted ? (
-                <form onSubmit={handleRegisterOrder} aria-busy={saving} className="text-sm"><fieldset disabled={saving} className="space-y-4">
-                  {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
-                  <div className="space-y-3">
-                    <label className="block">Nome completo
-                      <input required maxLength={128} value={customerName} onChange={e => setCustomerName(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
-                    </label>
-                    <label className="block">CPF/CNPJ (opcional)
-                      <input maxLength={18} value={customerDoc} onChange={e => setCustomerDoc(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
-                    </label>
-                    <div className="grid grid-cols-[1fr_5rem] gap-3">
-                      <label>Cidade
-                        <input required maxLength={64} value={customerCity} onChange={e => setCustomerCity(e.target.value)} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
-                      </label>
-                      <label htmlFor="catalog-customer-uf">UF
-                        <select id="catalog-customer-uf" aria-label="UF" required value={customerUf} onChange={e => setCustomerUf(e.target.value as UF)} className="mt-1 w-full border border-slate-300 rounded-lg p-2">
-                          <option value="">UF</option>{states.map(uf => <option key={uf}>{uf}</option>)}
-                        </select>
-                      </label>
+                <form onSubmit={handleRegisterOrder} aria-busy={saving} className="text-sm">
+                  <fieldset disabled={saving} className="space-y-4">
+                    {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
+                    <div className="space-y-3">
+                      <div>
+                        <label htmlFor="catalog-customer-name" className="block font-medium text-slate-700">
+                          Nome completo <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="catalog-customer-name"
+                          type="text"
+                          required
+                          autoComplete="name"
+                          maxLength={128}
+                          value={customerName}
+                          onChange={e => setCustomerName(e.target.value)}
+                          className="mt-1 w-full border border-slate-300 rounded-lg p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="catalog-customer-doc" className="block font-medium text-slate-700">
+                          CPF/CNPJ <span className="text-slate-400 font-normal">(opcional)</span>
+                        </label>
+                        <input
+                          id="catalog-customer-doc"
+                          type="text"
+                          maxLength={18}
+                          value={customerDoc}
+                          onChange={e => setCustomerDoc(e.target.value)}
+                          className="mt-1 w-full border border-slate-300 rounded-lg p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        />
+                      </div>
+                      <div className="grid grid-cols-[1fr_5rem] gap-3">
+                        <div>
+                          <label htmlFor="catalog-customer-city" className="block font-medium text-slate-700">
+                            Cidade <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            id="catalog-customer-city"
+                            type="text"
+                            required
+                            autoComplete="address-level2"
+                            maxLength={64}
+                            value={customerCity}
+                            onChange={e => setCustomerCity(e.target.value)}
+                            className="mt-1 w-full border border-slate-300 rounded-lg p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="catalog-customer-uf" className="block font-medium text-slate-700">
+                            UF <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            id="catalog-customer-uf"
+                            aria-label="UF"
+                            required
+                            value={customerUf}
+                            onChange={e => setCustomerUf(e.target.value as UF)}
+                            className="mt-1 w-full border border-slate-300 rounded-lg p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                          >
+                            <option value="">UF</option>
+                            {states.map(uf => <option key={uf}>{uf}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label htmlFor="catalog-customer-qty" className="block font-medium text-slate-700">
+                          Quantidade <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="catalog-customer-qty"
+                          type="number"
+                          required
+                          min={1}
+                          max={10000}
+                          step={1}
+                          value={quantity}
+                          onChange={e => setQuantity(Number(e.target.value))}
+                          className="mt-1 w-full border border-slate-300 rounded-lg p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        />
+                      </div>
                     </div>
-                    <label className="block">Quantidade
-                      <input type="number" required min={1} max={10000} step={1} value={quantity} onChange={e => setQuantity(Number(e.target.value))} className="mt-1 w-full border border-slate-300 rounded-lg p-2" />
-                    </label>
-                  </div>
-                  <p className="font-semibold">Total: {(selectedProduct.unitPrice * quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                  <p className="text-xs text-slate-500">O pedido ficará pendente de pagamento. A cobrança online ainda não está configurada.</p>
-                  <button type="submit" className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 py-3 font-semibold text-white">{saving ? 'Confirmando pedido…' : 'Registrar pedido pendente'}</button>
-                </fieldset></form>
+                    <p className="font-semibold">Total: {(selectedProduct.unitPrice * quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                    <p className="text-xs text-slate-500">O pedido ficará pendente de pagamento. A cobrança online ainda não está configurada.</p>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="w-full rounded-xl bg-amber-500 hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1 py-3 font-semibold text-white flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Confirmando pedido…</span>
+                        </>
+                      ) : (
+                        'Registrar pedido pendente'
+                      )}
+                    </button>
+                  </fieldset>
+                </form>
               ) : (
                 <div role="status" className="py-6 text-center space-y-3">
                   <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
                   <h4 className="font-bold">Pedido registrado</h4>
                   <p className="text-sm text-slate-600">Pagamento e expedição pendentes. Consulte o pedido na Visão Geral.</p>
-                  <button onClick={() => setSelectedProduct(null)} className="px-4 py-2 bg-amber-500 text-white rounded-xl">Voltar ao catálogo</button>
+                  <button
+                    onClick={() => setSelectedProduct(null)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 text-white font-semibold rounded-xl transition-colors cursor-pointer"
+                  >
+                    Voltar ao catálogo
+                  </button>
                 </div>
               )}
             </div>
