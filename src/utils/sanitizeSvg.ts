@@ -30,14 +30,16 @@ export function sanitizeSvg(source: string): string {
   }
 
   for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
-    if (!allowed.has(el.localName) || (el.namespaceURI && el.namespaceURI !== 'http://www.w3.org/2000/svg')) {
+    const localName = el.localName.toLowerCase();
+    if (!allowed.has(localName) || (el.namespaceURI && el.namespaceURI !== 'http://www.w3.org/2000/svg')) {
       el.remove();
       continue;
     }
     for (const attr of Array.from(el.attributes)) {
+      const attrName = attr.name.toLowerCase();
       const value = attr.value.trim();
       const localReference = /^url\(\s*#[a-zA-Z_][\w:.-]*\s*\)$/.test(value);
-      if ((!attributes.has(attr.name) && !/^data-[a-z0-9-]+$/.test(attr.name))
+      if ((!attributes.has(attrName) && !/^data-[a-z0-9-]+$/.test(attrName))
         || /[<>\\\u0000-\u001f]/.test(value)
         || (/url\s*\(/i.test(value) && !localReference)
         || /(?:javascript|data|https?|file):/i.test(value)) el.removeAttributeNode(attr);
