@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - Bounding Box Map Spread Allocation Overhead in Assembly Generation
+**Learning:** Calling `Math.min(...p.outline.map(a => a[0]))` and `Math.max(...)` when computing bounding boxes allocates 4 intermediate arrays (`.map`) and creates spread argument overhead for every assembly part, layout row calculation, and validation step.
+**Action:** Replace functional array `.map()` and spread syntax in 2D bounding box functions (`bounds`) with a single imperative `for` loop over points.

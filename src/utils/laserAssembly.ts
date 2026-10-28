@@ -35,7 +35,20 @@ const world = (p: AssemblyPart, a: V2): V3 => add(p.origin,add(mul(p.u,a[0]),mul
 const rect = (w:number,h:number): V2[] => [[0,0],[w,0],[w,h],[0,h]];
 const fmt = (n:number) => String(Math.round(n*1e6)/1e6);
 export const polygonPath = (points: V2[]) => points.map((p,i)=>`${i ? 'L' : 'M'} ${fmt(p[0])} ${fmt(p[1])}`).join(' ')+' Z';
-const bounds = (p: AssemblyPart) => ({ minX:Math.min(...p.outline.map(a=>a[0])), maxX:Math.max(...p.outline.map(a=>a[0])), minY:Math.min(...p.outline.map(a=>a[1])), maxY:Math.max(...p.outline.map(a=>a[1])) });
+// Performance optimization (⚡ Bolt):
+// Imperative for-loop avoids 4 array allocations (.map) and spread overhead (...pts) per part when calculating bounding box.
+const bounds = (p: AssemblyPart) => {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const pts = p.outline;
+  for (let i = 0; i < pts.length; i++) {
+    const pt = pts[i];
+    if (pt[0] < minX) minX = pt[0];
+    if (pt[0] > maxX) maxX = pt[0];
+    if (pt[1] < minY) minY = pt[1];
+    if (pt[1] > maxY) maxY = pt[1];
+  }
+  return { minX, maxX, minY, maxY };
+};
 const positions = (length: number, width: number, t: number): number[] => {
   const margin = Math.max(2*t,width);
   if(length < 2*margin+width) throw new Error('A peça é pequena para a largura dos encaixes. Reduza a espiga ou aumente o modelo.');
