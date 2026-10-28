@@ -246,9 +246,11 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
           {onDeleteQuote && activeQuote && (
             <button
+              type="button"
               disabled={!!deletingQuoteId || activeQuote.status === 'Convertido em Pedido'}
               onClick={() => void handleDeleteQuoteConfirmed(activeQuote)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer"
+              aria-label={`Excluir orçamento ${activeQuote.quoteNumber}`}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
               title="Excluir Orçamento"
             >
               <Trash2 className="w-4 h-4" />
@@ -310,12 +312,14 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     <span>Válido até: {q.validUntil}</span>
                     {onDeleteQuote && (
                       <button
+                        type="button"
                         disabled={!!deletingQuoteId || q.status === 'Convertido em Pedido'}
                         onClick={(e) => {
                           e.stopPropagation();
                           void handleDeleteQuoteConfirmed(q);
                         }}
-                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition"
+                        aria-label={`Excluir orçamento ${q.quoteNumber}`}
+                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                         title="Excluir Orçamento"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -339,54 +343,59 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nome do Cliente</label>
+                <label htmlFor="quote-customer-name" className="text-[11px] font-semibold text-slate-600 block mb-1">Nome do Cliente</label>
                 <input
+                  id="quote-customer-name"
                   type="text"
                   value={customerName}
                   onChange={e => setCustomerName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">WhatsApp / Telefone</label>
+                <label htmlFor="quote-customer-phone" className="text-[11px] font-semibold text-slate-600 block mb-1">WhatsApp / Telefone</label>
                 <input
+                  id="quote-customer-phone"
                   type="text"
                   value={customerPhone}
                   onChange={e => setCustomerPhone(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Validade da Proposta</label>
+                <label htmlFor="quote-valid-until" className="text-[11px] font-semibold text-slate-600 block mb-1">Validade da Proposta</label>
                 <input
+                  id="quote-valid-until"
                   type="date"
                   value={validUntil}
                   onChange={e => setValidUntil(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Observações Técnicas / Entrega</label>
+                <label htmlFor="quote-notes" className="text-[11px] font-semibold text-slate-600 block mb-1">Observações Técnicas / Entrega</label>
                 <input
+                  id="quote-notes"
                   type="text"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Margem de Lucro Desejada (%)</label>
+                <label htmlFor="quote-desired-margin" className="text-[11px] font-semibold text-slate-600 block mb-1">Margem de Lucro Desejada (%)</label>
                 <input
+                  id="quote-desired-margin"
                   type="number"
                   value={desiredMargin}
                   onChange={e => setDesiredMargin(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono font-bold text-amber-700"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono font-bold text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
@@ -411,16 +420,21 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                 <div key={item.id} className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <input
+                      id={`quote-item-desc-${item.id}`}
                       type="text"
+                      aria-label={`Descrição da peça ${index + 1}`}
                       value={item.description}
                       onChange={e => {
                         setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, description: e.target.value } : entry));
                       }}
-                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold"
+                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                     />
                     <button
+                      type="button"
                       onClick={() => handleRemoveItem(item.id)}
-                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
+                      aria-label={`Remover peça ${item.description || index + 1} do orçamento`}
+                      title="Remover peça do orçamento"
+                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 transition"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -428,13 +442,14 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
                   <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Material</label>
+                      <label htmlFor={`quote-item-mat-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Material</label>
                       <select
+                        id={`quote-item-mat-${item.id}`}
                         value={item.materialId}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, materialId: e.target.value } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       >
                         {materials.map(m => (
                           <option key={m.id} value={m.id}>
@@ -445,13 +460,14 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Máquina</label>
+                      <label htmlFor={`quote-item-mach-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Máquina</label>
                       <select
+                        id={`quote-item-mach-${item.id}`}
                         value={item.machineId}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, machineId: e.target.value } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       >
                         {machines.map(m => (
                           <option key={m.id} value={m.id}>
@@ -462,51 +478,55 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Largura (mm)</label>
+                      <label htmlFor={`quote-item-width-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Largura (mm)</label>
                       <input
+                        id={`quote-item-width-${item.id}`}
                         type="number"
                         value={item.width_mm ?? ''}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, width_mm: Number(e.target.value) } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Altura (mm)</label>
+                      <label htmlFor={`quote-item-height-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Altura (mm)</label>
                       <input
+                        id={`quote-item-height-${item.id}`}
                         type="number"
                         value={item.height_mm ?? ''}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, height_mm: Number(e.target.value) } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Vetor Corte (mm)</label>
+                      <label htmlFor={`quote-item-cut-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Vetor Corte (mm)</label>
                       <input
+                        id={`quote-item-cut-${item.id}`}
                         type="number"
                         value={item.cutLength_mm}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, cutLength_mm: Number(e.target.value) } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">Quantidade</label>
+                      <label htmlFor={`quote-item-qty-${item.id}`} className="text-[10px] text-slate-500 block mb-0.5">Quantidade</label>
                       <input
+                        id={`quote-item-qty-${item.id}`}
                         type="number"
                         min="1"
                         value={item.quantity}
                         onChange={e => {
                           setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, quantity: Number(e.target.value) } : entry));
                         }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono font-bold"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-mono font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       />
                     </div>
                   </div>
