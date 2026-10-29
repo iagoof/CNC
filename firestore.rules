@@ -239,6 +239,7 @@ service cloud.firestore {
       allow update: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdmin()) &&
         isValidUser(incoming()) &&
         incoming().id == existing().id && incoming().createdAt == existing().createdAt &&
+        (incoming().role == existing().role || isAdmin()) &&
         incoming().updatedAt == request.time;
       allow delete: if isAdmin();
     }

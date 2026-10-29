@@ -1,3 +1,8 @@
+## 2026-10-29 - Prevent User Role Escalation on Profile Update
+**Vulnerability:** Authenticated non-admin users could elevate their privileges by updating their own user profile document (`/users/{userId}`) with `role: 'admin'`.
+**Learning:** While profile creation checked `(incoming().role != 'admin' || isAdmin())`, profile updates only verified user ID and timestamp immutability.
+**Prevention:** Always restrict privilege/role fields during document updates in security rules by requiring `incoming().role == existing().role || isAdmin()`.
+
 ## 2026-10-26 - Restrict User Profile Access and Account Creation Spoofing
 **Vulnerability:** Any authenticated user with a verified email could access or read any other user's profile document (`/users/{userId}`) and potentially set arbitrary `userId`s during profile creation.
 **Learning:** Firestore rules permissions must validate that `request.auth.uid == userId` for individual document paths like `/users/{userId}` to prevent direct IDOR (Insecure Direct Object Reference) access.
