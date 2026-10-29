@@ -160,21 +160,33 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
         {/* Search, Filter & New SKU */}
         <div className="flex items-center gap-2.5">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <input
               type="text"
+              aria-label="Buscar SKU ou Nome do produto"
               placeholder="Buscar SKU ou Nome..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-amber-500 transition"
+              className={`bg-slate-50 border border-slate-200 rounded-xl pl-9 ${searchTerm ? 'pr-8' : 'pr-3'} py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-amber-500 focus-visible:ring-2 focus-visible:ring-amber-500 transition`}
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                aria-label="Limpar busca"
+                className="absolute right-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition-colors cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           <select
             value={filterCategory}
+            aria-label="Filtrar por Categoria"
             onChange={e => setFilterCategory(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 transition cursor-pointer"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500 focus-visible:ring-2 focus-visible:ring-amber-500 transition cursor-pointer"
           >
             <option value="all">Todas Categorias</option>
             {categories.map(cat => (
@@ -186,7 +198,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Novo SKU</span>
@@ -288,7 +300,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           {(isDeficit || isBelowMin) && (
                             <button
                               onClick={() => handleQuickCreateOp(item)}
-                              className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
+                              aria-label={`Gerar Ordem de Produção ideal para ${item.sku}`}
+                              className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold transition cursor-pointer flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                               title="Gerar Ordem de Produção Ideal"
                             >
                               <Wrench className="w-3 h-3" />
