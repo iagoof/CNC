@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - Laser Assembly Bounding Box and Path Formatting Allocation Overhead
+**Learning:** Calculating panel AABB bounding boxes (`p.outline.map(a=>a[0])`) and formatting polygon paths (`points.map(...).join(' ')`) during laser assembly generation and validation creates multiple short-lived array allocations and spread calls per panel vertex set.
+**Action:** Replace `points.map(...)` and `Math.min(...p.outline.map(...))` with single-pass imperative `for` loops to compute AABB bounds and assemble SVG path strings without intermediate heap allocations.

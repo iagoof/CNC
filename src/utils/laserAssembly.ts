@@ -34,8 +34,35 @@ const cross = (a: V3,b: V3): V3 => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]
 const world = (p: AssemblyPart, a: V2): V3 => add(p.origin,add(mul(p.u,a[0]),mul(p.v,a[1])));
 const rect = (w:number,h:number): V2[] => [[0,0],[w,0],[w,h],[0,h]];
 const fmt = (n:number) => String(Math.round(n*1e6)/1e6);
-export const polygonPath = (points: V2[]) => points.map((p,i)=>`${i ? 'L' : 'M'} ${fmt(p[0])} ${fmt(p[1])}`).join(' ')+' Z';
-const bounds = (p: AssemblyPart) => ({ minX:Math.min(...p.outline.map(a=>a[0])), maxX:Math.max(...p.outline.map(a=>a[0])), minY:Math.min(...p.outline.map(a=>a[1])), maxY:Math.max(...p.outline.map(a=>a[1])) });
+// Performance optimization (⚡ Bolt):
+// Imperative for-loop avoids points.map(...) string array allocation and .join(' ')
+// overhead on every polygon path rendering call.
+export const polygonPath = (points: V2[]): string => {
+  const len = points.length;
+  if (len === 0) return 'Z';
+  let d = 'M ' + fmt(points[0][0]) + ' ' + fmt(points[0][1]);
+  for (let i = 1; i < len; i++) {
+    const p = points[i];
+    d += ' L ' + fmt(p[0]) + ' ' + fmt(p[1]);
+  }
+  return d + ' Z';
+};
+
+// Performance optimization (⚡ Bolt):
+// Single-pass O(N) imperative loop avoids 4 array allocations (map) and 4 stack spread
+// operations per call when computing assembly part AABB bounding boxes.
+const bounds = (p: AssemblyPart) => {
+  const pts = p.outline;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const x = pts[i][0], y = pts[i][1];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+};
 const positions = (length: number, width: number, t: number): number[] => {
   const margin = Math.max(2*t,width);
   if(length < 2*margin+width) throw new Error('A peça é pequena para a largura dos encaixes. Reduza a espiga ou aumente o modelo.');
@@ -207,12 +234,23 @@ export function validateAssembly(kit:LaserAssembly):string[] {
   const ids=new Set(kit.parts.map(p=>p.id));
   for(const j of kit.joints) {
     if(!ids.has(j.tabPart)||!ids.has(j.socketPart)) issues.push(`Encaixe ${j.id} sem peça correspondente.`);
-    if(Math.hypot(...j.tabCenter.map((v,i)=>v-j.socketCenter[i]))>1e-5) issues.push(`Encaixe ${j.id} desalinhado.`);
+    // Performance optimization (⚡ Bolt): Direct component subtraction avoids 3D point map & spread allocations.
+    const dx = j.tabCenter[0] - j.socketCenter[0];
+    const dy = j.tabCenter[1] - j.socketCenter[1];
+    const dz = j.tabCenter[2] - j.socketCenter[2];
+    if(Math.hypot(dx, dy, dz)>1e-5) issues.push(`Encaixe ${j.id} desalinhado.`);
     if(j.slotWidth<j.tabWidth || j.slotThickness<kit.params.thickness) issues.push(`Rasgo ${j.id} menor que a espiga.`);
   }
   for(const part of kit.parts) {
     const b=bounds(part);
-    for(const h of part.holes) if(h.some(([x,y])=>x<=b.minX || x>=b.maxX || y<=b.minY || y>=b.maxY)) issues.push(`Rasgo fora da peça ${part.name}.`);
+    for(const h of part.holes) {
+      let holeOut = false;
+      for (let i = 0; i < h.length; i++) {
+        const x = h[i][0], y = h[i][1];
+        if (x <= b.minX || x >= b.maxX || y <= b.minY || y >= b.maxY) { holeOut = true; break; }
+      }
+      if (holeOut) issues.push(`Rasgo fora da peça ${part.name}.`);
+    }
   }
   return [...new Set(issues)];
 }
