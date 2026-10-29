@@ -100,6 +100,9 @@ test('campos desconhecidos, estoque negativo e timestamps falsos são negados', 
 });
 test('usuário comum não pode promover o próprio perfil a administrador', async () => {
   await denied(setDoc(doc(a.db, 'users', 'rules-user-A'), { id: 'rules-user-A', email: 'rules-user-A@example.test', role: 'admin', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+  const userRef = doc(a.db, 'users', 'rules-user-A');
+  await setDoc(userRef, { id: 'rules-user-A', email: 'rules-user-A@example.test', role: 'operator', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  await denied(updateDoc(userRef, { role: 'admin', updatedAt: serverTimestamp() }));
 });
 
 function sale(id: string, sku: string): SalesOrder {
