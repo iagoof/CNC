@@ -208,7 +208,8 @@ export const ProductionKanbanView: React.FC<ProductionKanbanViewProps> = ({
                                     onDeleteOrder(order.id);
                                   }
                                 }}
-                                className="text-slate-400 hover:text-rose-600 transition p-0.5 rounded hover:bg-slate-100"
+                                aria-label={`Excluir ordem de produção ${order.orderNumber}`}
+                                className="text-slate-400 hover:text-rose-600 transition p-0.5 rounded hover:bg-slate-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1"
                                 title="Excluir Ordem de Produção"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
