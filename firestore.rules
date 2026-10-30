@@ -40,7 +40,7 @@ service cloud.firestore {
     }
 
     function isOwner(data) {
-      return isSignedIn() && data.ownerId == request.auth.uid;
+      return isSignedIn() && data != null && 'ownerId' in data && data.ownerId == request.auth.uid;
     }
 
     function isOwnerOrAdmin(data) {
@@ -245,110 +245,120 @@ service cloud.firestore {
 
     // PROJECTS COLLECTION
     match /projects/{projectId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
-        incoming().id == projectId &&
+        incoming().id == projectId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(projectId) && isValidProject(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(projectId) && isOwnerOrAdmin(existing()) && isValidProject(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(projectId);
+      allow delete: if isVerified() && isValidId(projectId) && isOwnerOrAdmin(existing());
     }
 
     // ORDERS COLLECTION
     match /orders/{orderId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
-        incoming().id == orderId &&
+        incoming().id == orderId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(orderId) && isValidOrder(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(orderId) && isOwnerOrAdmin(existing()) && isValidOrder(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(orderId);
+      allow delete: if isVerified() && isValidId(orderId) && isOwnerOrAdmin(existing());
     }
 
     // MATERIALS COLLECTION
     match /materials/{materialId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
-        incoming().id == materialId &&
+        incoming().id == materialId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(materialId) && isValidMaterial(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(materialId) && isOwnerOrAdmin(existing()) && isValidMaterial(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(materialId);
+      allow delete: if isVerified() && isValidId(materialId) && isOwnerOrAdmin(existing());
     }
 
     // QUOTES COLLECTION
     match /quotes/{quoteId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
-        incoming().id == quoteId &&
+        incoming().id == quoteId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(quoteId) && isValidQuote(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(quoteId) && isOwnerOrAdmin(existing()) && isValidQuote(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(quoteId) && resource.data.status != 'Convertido em Pedido';
+      allow delete: if isVerified() && isValidId(quoteId) && isOwnerOrAdmin(existing()) && resource.data.status != 'Convertido em Pedido';
     }
 
     // SETTINGS COLLECTION
     match /settings/{settingId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
-        incoming().id == settingId &&
+        incoming().id == settingId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(settingId) && isValidSettings(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(settingId) && isOwnerOrAdmin(existing()) && isValidSettings(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
       allow delete: if isVerified() && isValidId(settingId) && isAdmin();
     }
 
     // FINANCIAL SETTINGS COLLECTION
     match /financial_settings/{settingsId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidFinancialSettings(incoming()) &&
-        incoming().id == settingsId &&
+        incoming().id == settingsId && incoming().ownerId == request.auth.uid && settingsId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidFinancialSettings(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isOwnerOrAdmin(existing()) && isValidFinancialSettings(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
       allow delete: if false;
     }
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        incoming().id == productId &&
+        incoming().id == productId && incoming().ownerId == request.auth.uid &&
+        productId.matches('^' + request.auth.uid + '_.*') &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidProductId(productId) && isOwnerOrAdmin(existing()) && isValidProduct(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId && incoming().sku == existing().sku &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidProductId(productId);
+      allow delete: if isVerified() && isValidProductId(productId) && isOwnerOrAdmin(existing());
     }
 
     // SALES ORDERS COLLECTION
     match /sales_orders/{salesOrderId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
-        incoming().id == salesOrderId &&
+        incoming().id == salesOrderId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(salesOrderId) && isValidSalesOrder(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(salesOrderId) && isOwnerOrAdmin(existing()) && isValidSalesOrder(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(salesOrderId);
+      allow delete: if isVerified() && isValidId(salesOrderId) && isOwnerOrAdmin(existing());
     }
 
     // MACHINES COLLECTION
     match /machines/{machineId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (resource == null || isOwnerOrAdmin(existing()));
+      allow list: if isVerified() && isOwnerOrAdmin(resource.data);
       allow create: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
-        incoming().id == machineId &&
+        incoming().id == machineId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isVerified() && isValidId(machineId) && isValidMachine(incoming()) &&
-        incoming().id == existing().id &&
+      allow update: if isVerified() && isValidId(machineId) && isOwnerOrAdmin(existing()) && isValidMachine(incoming()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidId(machineId);
+      allow delete: if isVerified() && isValidId(machineId) && isOwnerOrAdmin(existing());
     }
 
     // ADMINS COLLECTION
