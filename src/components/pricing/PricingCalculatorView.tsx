@@ -134,11 +134,12 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Material</label>
+                <label htmlFor="pricing-material" className="text-[11px] font-semibold text-slate-500 block mb-1">Material</label>
                 <select
+                  id="pricing-material"
                   value={selectedMaterialId}
                   onChange={e => setSelectedMaterialId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   {materials.map(m => (
                     <option key={m.id} value={m.id}>
@@ -149,11 +150,12 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Máquina</label>
+                <label htmlFor="pricing-machine" className="text-[11px] font-semibold text-slate-500 block mb-1">Máquina</label>
                 <select
+                  id="pricing-machine"
                   value={selectedMachineId}
                   onChange={e => setSelectedMachineId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   {machines.map(m => (
                     <option key={m.id} value={m.id}>
@@ -166,56 +168,61 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Largura Bounding (mm)</label>
+                <label htmlFor="pricing-part-width" className="text-[11px] font-semibold text-slate-500 block mb-1">Largura Bounding (mm)</label>
                 <input
+                  id="pricing-part-width"
                   type="number"
                   value={partWidthMm}
                   onChange={e => setPartWidthMm(Math.max(1, Number(e.target.value)))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Comprimento (mm)</label>
+                <label htmlFor="pricing-part-height" className="text-[11px] font-semibold text-slate-500 block mb-1">Comprimento (mm)</label>
                 <input
+                  id="pricing-part-height"
                   type="number"
                   value={partHeightMm}
                   onChange={e => setPartHeightMm(Math.max(1, Number(e.target.value)))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Vetor Corte (mm)</label>
+                <label htmlFor="pricing-cut-length" className="text-[11px] font-semibold text-slate-500 block mb-1">Vetor Corte (mm)</label>
                 <input
+                  id="pricing-cut-length"
                   type="number"
                   value={cutLengthMm}
                   onChange={e => setCutLengthMm(Math.max(0, Number(e.target.value)))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Gravação Scan (cm²)</label>
+                <label htmlFor="pricing-engrave-area" className="text-[11px] font-semibold text-slate-500 block mb-1">Gravação Scan (cm²)</label>
                 <input
+                  id="pricing-engrave-area"
                   type="number"
                   value={engraveAreaCm2}
                   onChange={e => setEngraveAreaCm2(Math.max(0, Number(e.target.value)))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+              <label htmlFor="pricing-additional-supplies" className="text-[11px] font-semibold text-slate-500 block mb-1">
                 Insumos Adicionais (Cola, Fita, Embalagem) - R$
               </label>
               <input
+                id="pricing-additional-supplies"
                 type="number"
                 step="0.5"
                 value={additionalSuppliesCost}
                 onChange={e => setAdditionalSuppliesCost(Math.max(0, Number(e.target.value)))}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               />
             </div>
           </div>
@@ -250,8 +257,8 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">Canal de Venda:</label>
-              <div className="flex gap-2">
+              <span id="pricing-channel-label" className="text-[11px] font-semibold text-slate-500 block mb-1">Canal de Venda:</span>
+              <div className="flex gap-2" role="group" aria-labelledby="pricing-channel-label">
                 {[
                   { label: '0% Balcão JF', val: 0 },
                   { label: '12% Mercado Livre', val: 12 },
@@ -260,11 +267,12 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
                   <button
                     key={opt.val}
                     type="button"
+                    aria-pressed={marketplaceFeePct === opt.val}
                     onClick={() => setMarketplaceFeePct(opt.val)}
-                    className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-semibold border transition ${
+                    className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
                       marketplaceFeePct === opt.val
-                        ? 'bg-amber-500 text-white border-amber-600'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     {opt.label}
@@ -275,16 +283,21 @@ export const PricingCalculatorView: React.FC<PricingCalculatorViewProps> = ({
 
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs">
-                <span className="font-semibold text-slate-800">Margem de Lucro Desejada:</span>
+                <label htmlFor="pricing-profit-margin" className="font-semibold text-slate-800">Margem de Lucro Desejada:</label>
                 <span className="text-emerald-700 font-bold font-mono text-sm">{desiredProfitMargin}%</span>
               </div>
               <input
+                id="pricing-profit-margin"
                 type="range"
+                aria-label="Margem de lucro desejada"
+                aria-valuemin={5}
+                aria-valuemax={pricingResult ? Math.floor(pricingResult.maxAllowedMarginPct) : 60}
+                aria-valuenow={desiredProfitMargin}
                 min={5}
                 max={pricingResult ? Math.floor(pricingResult.maxAllowedMarginPct) : 60}
                 value={desiredProfitMargin}
                 onChange={e => setDesiredProfitMargin(Number(e.target.value))}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               />
               <div className="flex justify-between text-[10px] text-slate-500">
                 <span>Mínimo viável: 15%</span>
