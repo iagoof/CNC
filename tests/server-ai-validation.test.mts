@@ -72,3 +72,15 @@ test('diagnose-gcode recusa gcode ausente ou gigante', async () => {
     assert.equal(hugeRes.status, 400);
   });
 });
+
+test('servidor aplica cabeçalhos de segurança HTTP e desativa x-powered-by', async () => {
+  await withServer(async baseUrl => {
+    const res = await fetch(`${baseUrl}/api/health`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(res.headers.get('x-xss-protection'), '0');
+    assert.equal(res.headers.get('x-powered-by'), null);
+  });
+});
