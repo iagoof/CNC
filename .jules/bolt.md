@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - Assembly Bounds and Polygon Path Intermediate Allocations
+**Learning:** Calling `Math.min(...p.outline.map(a => a[0]))` inside `bounds` produces 4 intermediate heap arrays per part, while `points.map(...).join(' ')` in `polygonPath` allocates temporary mapped string arrays during parametric assembly vector serialization.
+**Action:** Compute min/max coordinates in a single-pass `for` loop across `outline`, and concatenate SVG path commands directly in `polygonPath` to avoid intermediate array and closure allocations.

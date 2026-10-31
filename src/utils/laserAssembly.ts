@@ -34,8 +34,35 @@ const cross = (a: V3,b: V3): V3 => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]
 const world = (p: AssemblyPart, a: V2): V3 => add(p.origin,add(mul(p.u,a[0]),mul(p.v,a[1])));
 const rect = (w:number,h:number): V2[] => [[0,0],[w,0],[w,h],[0,h]];
 const fmt = (n:number) => String(Math.round(n*1e6)/1e6);
-export const polygonPath = (points: V2[]) => points.map((p,i)=>`${i ? 'L' : 'M'} ${fmt(p[0])} ${fmt(p[1])}`).join(' ')+' Z';
-const bounds = (p: AssemblyPart) => ({ minX:Math.min(...p.outline.map(a=>a[0])), maxX:Math.max(...p.outline.map(a=>a[0])), minY:Math.min(...p.outline.map(a=>a[1])), maxY:Math.max(...p.outline.map(a=>a[1])) });
+// Performance Optimization (⚡ Bolt):
+// Imperative loop directly appends path commands, eliminating intermediate array allocation
+// from .map() and closure invocations on every vertex when generating SVG contours.
+export const polygonPath = (points: V2[]): string => {
+  const len = points.length;
+  if (len === 0) return 'Z';
+  let d = `M ${fmt(points[0][0])} ${fmt(points[0][1])}`;
+  for (let i = 1; i < len; i++) {
+    d += ` L ${fmt(points[i][0])} ${fmt(points[i][1])}`;
+  }
+  return d + ' Z';
+};
+
+// Performance Optimization (⚡ Bolt):
+// Single-pass imperative loop avoids 4 intermediate array allocations (.map(a => a[0|1]))
+// and spread arguments into Math.min/Math.max per part boundary evaluation.
+const bounds = (p: AssemblyPart) => {
+  const o = p.outline;
+  if (!o.length) return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  let minX = o[0][0], maxX = o[0][0], minY = o[0][1], maxY = o[0][1];
+  for (let i = 1; i < o.length; i++) {
+    const x = o[i][0], y = o[i][1];
+    if (x < minX) minX = x;
+    else if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    else if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+};
 const positions = (length: number, width: number, t: number): number[] => {
   const margin = Math.max(2*t,width);
   if(length < 2*margin+width) throw new Error('A peça é pequena para a largura dos encaixes. Reduza a espiga ou aumente o modelo.');
