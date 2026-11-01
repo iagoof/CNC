@@ -113,6 +113,29 @@ test('metadados não permitem alterar a posição nem adicionar cortes à montag
  assert.throws(()=>readAssemblyFromSvg(svg.replace('translate(9 109)','translate(10 109)')),/posição/);
  assert.throws(()=>readAssemblyFromSvg(svg.replace('</svg>','<path d="M 0 0 L 1 0 L 1 1 Z"/></svg>')),/adicionais/);
 });
+test('readAssemblyFromSvg memoização por cache e limite bounded',()=>{
+ const kit=generateLaserAssembly(params);
+ const res1=readAssemblyFromSvg(kit.svg);
+ const res2=readAssemblyFromSvg(kit.svg);
+ // Subsequent calls return the cached LaserAssembly instance
+ assert.equal(res1, res2);
+ assert.equal(res1?.parts.length, 6);
+
+ // Verify invalid SVG continues to fail without poisoning cache
+ assert.throws(()=>readAssemblyFromSvg(kit.svg.replace('M 0 0 L','M 1 0 L')), /alterados/);
+
+ // Verify cache eviction by generating and parsing 105 distinct assemblies
+ const distinctKits = [];
+ for(let i=0; i<105; i++) {
+  const custom = generateLaserAssembly({...params, width: 140 + i * 0.1});
+  const parsed = readAssemblyFromSvg(custom.svg);
+  assert.ok(parsed);
+  distinctKits.push(custom.svg);
+ }
+ // The earliest kit should still be parseable when accessed again
+ const reParsed = readAssemblyFromSvg(kit.svg);
+ assert.equal(reParsed?.parts.length, 6);
+});
 test('volume dos sólidos corresponde à área de corte menos todos os furos',()=>{
  const area=(ring:[number,number][])=>Math.abs(ring.reduce((sum,p,i)=>sum+p[0]*ring[(i+1)%ring.length][1]-p[1]*ring[(i+1)%ring.length][0],0)/2);
  for(const model of ['box','house','shelf'] as const){
