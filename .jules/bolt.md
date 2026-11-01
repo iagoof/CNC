@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - DOMParser Double-Validation Bottleneck in Laser Assembly Extraction
+**Learning:** `readAssemblyFromSvg` re-validates and reconstructs CAD assemblies by running two separate `DOMParser.parseFromString` passes (input SVG + canonical SVG) plus full DOM queries and geometric comparisons. When called repeatedly in React render loops, 3D preview updates, and export handlers for the same SVG, this introduces 20-40ms blocking lag per call.
+**Action:** Memoize successful `readAssemblyFromSvg` results using a bounded Map cache (max 100 entries) with LRU eviction, avoiding repeated XML DOM deserialization while preserving full validation on cache misses and changes.
