@@ -32,6 +32,23 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T
 
 export function createCncApp() {
   const app = express();
+
+  // Security: Disable X-Powered-By header to avoid exposing server implementation/technology details
+  app.disable('x-powered-by');
+
+  // Security: Apply baseline defensive HTTP headers across all served routes and APIs
+  app.use((_req, res, next) => {
+    // Prevent MIME-sniffing attacks
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Prevent clickjacking by restricting framing to same-origin
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // Limit referrer information passed on cross-origin requests
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // Disable legacy buggy XSS auditor
+    res.setHeader('X-XSS-Protection', '0');
+    next();
+  });
+
   app.use(express.json({ limit: '20mb' }));
   registerAssemblyAiRoutes(app);
 
