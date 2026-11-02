@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-11-02 - Assembly Part Bounds and Polygon Path Generation Allocation Overhead
+**Learning:** In parametric laser assembly generation (`generateLaserAssembly`), computing part bounding boxes via `Math.min(...outline.map(a => a[0]))` allocates 4 temporary arrays and performs 4 spread operations per part during packaging, validation, and nesting. Similarly, serializing SVG paths via `points.map(...).join(' ')` allocates intermediate string arrays per vertex for all outlines and opening holes.
+**Action:** Use a single-pass imperative loop to determine minimum and maximum coordinates simultaneously without allocating arrays or spreading into `Math.min`/`Math.max`, and build polygon path strings via imperative loop concatenation.
