@@ -34,8 +34,33 @@ const cross = (a: V3,b: V3): V3 => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]
 const world = (p: AssemblyPart, a: V2): V3 => add(p.origin,add(mul(p.u,a[0]),mul(p.v,a[1])));
 const rect = (w:number,h:number): V2[] => [[0,0],[w,0],[w,h],[0,h]];
 const fmt = (n:number) => String(Math.round(n*1e6)/1e6);
-export const polygonPath = (points: V2[]) => points.map((p,i)=>`${i ? 'L' : 'M'} ${fmt(p[0])} ${fmt(p[1])}`).join(' ')+' Z';
-const bounds = (p: AssemblyPart) => ({ minX:Math.min(...p.outline.map(a=>a[0])), maxX:Math.max(...p.outline.map(a=>a[0])), minY:Math.min(...p.outline.map(a=>a[1])), maxY:Math.max(...p.outline.map(a=>a[1])) });
+// Performance Optimization (⚡ Bolt):
+// Direct imperative string building avoids allocating intermediate string arrays per vertex in points.map().
+export const polygonPath = (points: V2[]): string => {
+  let res = '';
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    res += (i === 0 ? 'M ' : ' L ') + fmt(p[0]) + ' ' + fmt(p[1]);
+  }
+  return res + ' Z';
+};
+
+// Performance Optimization (⚡ Bolt):
+// Single-pass linear scan eliminates 4 temporary array heap allocations (.map())
+// and 4 spread operations per part during assembly generation and validation.
+const bounds = (p: AssemblyPart): { minX: number; maxX: number; minY: number; maxY: number } => {
+  const pts = p.outline;
+  let minX = pts[0][0], maxX = pts[0][0], minY = pts[0][1], maxY = pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    const pt = pts[i];
+    const x = pt[0], y = pt[1];
+    if (x < minX) minX = x;
+    else if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    else if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+};
 const positions = (length: number, width: number, t: number): number[] => {
   const margin = Math.max(2*t,width);
   if(length < 2*margin+width) throw new Error('A peça é pequena para a largura dos encaixes. Reduza a espiga ou aumente o modelo.');
