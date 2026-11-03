@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { readAssemblyFromSvg, createAssemblyGroup } from '../../utils/laserAssembly';
-import { readSvgGeometry, pointInContour, contourArea } from '../../utils/svgGeometry';
+import { readSvgGeometry, pointInContour, contourArea, getContourBBox } from '../../utils/svgGeometry';
 
 export type LaserMaterialFinish = 'mdf-cru' | 'mdf-branco' | 'acrilico-cristal' | 'compensado-pinus' | 'mdf-preto';
 
@@ -734,9 +734,19 @@ export function build3DFromSvg(
     }
 
     const areas = new Map(closedCuts.map(c => [c, contourArea(c)]));
+    // Performance optimization (⚡ Bolt):
+    // Precalculate AABB bounding boxes to prune non-overlapping polygons with O(1) checks
+    // before running O(P) point-in-polygon ray casting across cut contours.
+    const bboxes = new Map(closedCuts.map(c => [c, getContourBBox(c)]));
     const containers = new Map(closedCuts.map(c => [
       c,
-      closedCuts.filter(other => other !== c && (areas.get(other) || 0) > (areas.get(c) || 0) && pointInContour(c.points[0], other))
+      closedCuts.filter(other => {
+        if (other === c || (areas.get(other) || 0) <= (areas.get(c) || 0)) return false;
+        const box = bboxes.get(other)!;
+        const p = c.points[0];
+        if (p.x < box.minX || p.x > box.maxX || p.y < box.minY || p.y > box.maxY) return false;
+        return pointInContour(p, other);
+      })
     ]));
 
     const subGroup = new THREE.Group();

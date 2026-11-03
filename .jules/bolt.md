@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - Spatial Containment Bounding Box Pruning in 3D SVG Extrusion
+**Learning:** When extruding SVG vector models to 3D in `LaserModel3D.ts` (`build3DFromSvg`), building contour parent-child and hole relationships executed $O(N^2 \cdot P)$ ray-casting containment iterations across all contour points without AABB pre-filtering.
+**Action:** Precalculate Axis-Aligned Bounding Boxes (`getContourBBox`) for all closed cut contours once, checking $O(1)$ coordinate ranges prior to invoking `pointInContour` to prune non-overlapping polygons.
