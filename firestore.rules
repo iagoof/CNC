@@ -305,26 +305,32 @@ service cloud.firestore {
 
     // FINANCIAL SETTINGS COLLECTION
     match /financial_settings/{settingsId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (isOwner(existing()) || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidFinancialSettings(incoming()) &&
-        incoming().id == settingsId &&
+        incoming().id == settingsId && incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidFinancialSettings(incoming()) &&
-        incoming().id == existing().id &&
+        (isOwner(existing()) || isAdmin()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
       allow delete: if false;
     }
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow get, list: if isVerified();
+      allow get: if isVerified() && (isOwner(existing()) || isAdmin());
+      allow list: if isVerified() && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        incoming().id == productId &&
+        incoming().id == productId && incoming().ownerId == request.auth.uid &&
+        productId.matches('^' + request.auth.uid + '_[a-f0-9]{64}$') &&
         incoming().createdAt == request.time && incoming().updatedAt == request.time;
       allow update: if isVerified() && isValidProductId(productId) && isValidProduct(incoming()) &&
-        incoming().id == existing().id &&
+        (isOwner(existing()) || isAdmin()) &&
+        incoming().id == existing().id && incoming().ownerId == existing().ownerId &&
+        incoming().sku == existing().sku &&
         incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time;
-      allow delete: if isVerified() && isValidProductId(productId);
+      allow delete: if isVerified() && isValidProductId(productId) && (isOwner(existing()) || isAdmin());
     }
 
     // SALES ORDERS COLLECTION
