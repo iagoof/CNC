@@ -247,8 +247,9 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
           {onDeleteQuote && activeQuote && (
             <button
               disabled={!!deletingQuoteId || activeQuote.status === 'Convertido em Pedido'}
+              aria-label={`Excluir orçamento ${activeQuote.quoteNumber}`}
               onClick={() => void handleDeleteQuoteConfirmed(activeQuote)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
               title="Excluir Orçamento"
             >
               <Trash2 className="w-4 h-4" />
@@ -311,11 +312,12 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     {onDeleteQuote && (
                       <button
                         disabled={!!deletingQuoteId || q.status === 'Convertido em Pedido'}
+                        aria-label={`Excluir orçamento ${q.quoteNumber}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           void handleDeleteQuoteConfirmed(q);
                         }}
-                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition"
+                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                         title="Excluir Orçamento"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -420,7 +422,9 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                     />
                     <button
                       onClick={() => handleRemoveItem(item.id)}
-                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
+                      aria-label={`Remover item ${item.description || index + 1}`}
+                      title="Remover peça"
+                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
