@@ -315,8 +315,9 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                           e.stopPropagation();
                           void handleDeleteQuoteConfirmed(q);
                         }}
-                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition"
-                        title="Excluir Orçamento"
+                        aria-label={`Excluir orçamento ${q.quoteNumber}`}
+                        className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                        title={`Excluir orçamento ${q.quoteNumber}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -339,54 +340,59 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nome do Cliente</label>
+                <label htmlFor="quote-customer-name" className="text-[11px] font-semibold text-slate-600 block mb-1">Nome do Cliente</label>
                 <input
+                  id="quote-customer-name"
                   type="text"
                   value={customerName}
                   onChange={e => setCustomerName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">WhatsApp / Telefone</label>
+                <label htmlFor="quote-customer-phone" className="text-[11px] font-semibold text-slate-600 block mb-1">WhatsApp / Telefone</label>
                 <input
+                  id="quote-customer-phone"
                   type="text"
                   value={customerPhone}
                   onChange={e => setCustomerPhone(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Validade da Proposta</label>
+                <label htmlFor="quote-valid-until" className="text-[11px] font-semibold text-slate-600 block mb-1">Validade da Proposta</label>
                 <input
+                  id="quote-valid-until"
                   type="date"
                   value={validUntil}
                   onChange={e => setValidUntil(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Observações Técnicas / Entrega</label>
+                <label htmlFor="quote-notes" className="text-[11px] font-semibold text-slate-600 block mb-1">Observações Técnicas / Entrega</label>
                 <input
+                  id="quote-notes"
                   type="text"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Margem de Lucro Desejada (%)</label>
+                <label htmlFor="quote-desired-margin" className="text-[11px] font-semibold text-slate-600 block mb-1">Margem de Lucro Desejada (%)</label>
                 <input
+                  id="quote-desired-margin"
                   type="number"
                   value={desiredMargin}
                   onChange={e => setDesiredMargin(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono font-bold text-amber-700"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 font-mono font-bold text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 />
               </div>
             </div>
@@ -412,15 +418,18 @@ Podemos aprovar o corte para entrarmos na fila de produção?`;
                   <div className="flex items-center justify-between gap-2">
                     <input
                       type="text"
+                      aria-label="Descrição da peça"
                       value={item.description}
                       onChange={e => {
                         setItems(prev => prev.map((entry, idx) => idx === index ? { ...entry, description: e.target.value } : entry));
                       }}
-                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold"
+                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                     />
                     <button
                       onClick={() => handleRemoveItem(item.id)}
-                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer"
+                      aria-label={`Remover peça ${item.description || index + 1}`}
+                      title="Remover peça do orçamento"
+                      className="text-slate-400 hover:text-red-500 p-1 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
