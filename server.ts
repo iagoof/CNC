@@ -32,7 +32,34 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T
 
 export function createCncApp() {
   const app = express();
+  // Security: Disable x-powered-by header to prevent fingerprinting
+  app.disable('x-powered-by');
+
+  // Security: Apply defensive baseline HTTP security headers
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    next();
+  });
+
   app.use(express.json({ limit: '20mb' }));
+
+  // Security: Per-IP rate limiting and concurrency guard for AI endpoints to prevent DoS & quota exhaustion
+  const aiRateMap = new Map<string, { count: number; expires: number }>();
+  app.use('/api/ai', (req, res, next) => {
+    const now = Date.now();
+    for (const [key, val] of aiRateMap) if (val.expires <= now) aiRateMap.delete(key);
+    const ip = req.ip || 'unknown';
+    const usage = aiRateMap.get(ip) || { count: 0, expires: now + 60000 };
+    if (usage.count >= 20) {
+      res.set('Retry-After', '60').status(429).json({ error: 'Muitas requisições de IA. Aguarde um minuto e tente novamente.' });
+      return;
+    }
+    usage.count++;
+    aiRateMap.set(ip, usage);
+    next();
+  });
+
   registerAssemblyAiRoutes(app);
 
   /**

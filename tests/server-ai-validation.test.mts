@@ -72,3 +72,33 @@ test('diagnose-gcode recusa gcode ausente ou gigante', async () => {
     assert.equal(hugeRes.status, 400);
   });
 });
+
+test('o servidor desativa x-powered-by e define cabeçalhos defensivos de segurança', async () => {
+  await withServer(async baseUrl => {
+    const res = await fetch(`${baseUrl}/api/health`);
+    assert.equal(res.headers.get('x-powered-by'), null);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
+  });
+});
+
+test('limita taxa de requisições nos endpoints /api/ai após exceder cota', async () => {
+  await withServer(async baseUrl => {
+    let limited = false;
+    for (let i = 0; i < 25; i++) {
+      const res = await fetch(`${baseUrl}/api/ai/optimize-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: 'teste' })
+      });
+      if (res.status === 429) {
+        limited = true;
+        assert.equal(res.headers.get('retry-after'), '60');
+        const data = await res.json();
+        assert.match(data.error, /Muitas requisições de IA/i);
+        break;
+      }
+    }
+    assert.equal(limited, true, 'Deveria ter disparado rate limit HTTP 429');
+  });
+});
