@@ -32,6 +32,18 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T
 
 export function createCncApp() {
   const app = express();
+  // Disable fingerprinting header to prevent reconnaissance
+  app.disable('x-powered-by');
+
+  // Baseline defense-in-depth security headers
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-XSS-Protection', '0');
+    next();
+  });
+
   app.use(express.json({ limit: '20mb' }));
   registerAssemblyAiRoutes(app);
 
