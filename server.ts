@@ -32,13 +32,43 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T
 
 export function createCncApp() {
   const app = express();
+  app.disable('x-powered-by');
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
   app.use(express.json({ limit: '20mb' }));
   registerAssemblyAiRoutes(app);
+
+  // Rate and concurrency limiter for resource-intensive AI endpoints
+  let activeAi = 0;
+  const aiRate = new Map<string, { count: number; expires: number }>();
+  const aiRateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const now = Date.now();
+    for (const [k, v] of aiRate) if (v.expires <= now) aiRate.delete(k);
+    const ip = req.ip || 'unknown', usage = aiRate.get(ip) || { count: 0, expires: now + 60000 };
+    if (activeAi >= 4 || usage.count >= 8) {
+      res.set('Retry-After', '60').status(429).json({ error: 'Há várias gerações de IA em andamento. Aguarde um minuto e tente novamente.' });
+      return;
+    }
+    usage.count++;
+    aiRate.set(ip, usage);
+    activeAi++;
+    let released = false;
+    const release = () => { if (!released) { released = true; activeAi = Math.max(0, activeAi - 1); } };
+    res.on('finish', release);
+    res.on('close', release);
+    next();
+  };
 
   /**
    * Endpoint de Geração de Desenhos Vetoriais CNC CAD/CAM com IA (gemini-3.8-flash)
    */
-  app.post('/api/ai/generate-cad-vector', async (req, res) => {
+  app.post('/api/ai/generate-cad-vector', aiRateLimiter, async (req, res) => {
     // Input validation & sanitization to prevent prompt injection and DoS
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt || prompt.length > 4000) {
@@ -134,7 +164,7 @@ Compensação de Kerf: ${kerf}mm`
   /**
    * Endpoint de Otimização e Enriquecimento Técnico de Prompts CAD com IA (gemini-3.8-flash)
    */
-  app.post('/api/ai/optimize-prompt', async (req, res) => {
+  app.post('/api/ai/optimize-prompt', aiRateLimiter, async (req, res) => {
     // Input validation & sanitization to prevent prompt injection and DoS
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt || prompt.length > 4000) {
@@ -187,7 +217,7 @@ Especifique:
   /**
    * Endpoint de Diagnóstico Inteligente de G-code CAM com IA (gemini-3.8-flash)
    */
-  app.post('/api/ai/diagnose-gcode', async (req, res) => {
+  app.post('/api/ai/diagnose-gcode', aiRateLimiter, async (req, res) => {
     // Input validation & sanitization to prevent prompt injection and DoS
     const gcode = typeof req.body?.gcode === 'string' ? req.body.gcode.trim() : '';
     if (!gcode || gcode.length > 1000000) {

@@ -72,3 +72,35 @@ test('diagnose-gcode recusa gcode ausente ou gigante', async () => {
     assert.equal(hugeRes.status, 400);
   });
 });
+
+test('respostas HTTP incluem cabeçalhos de segurança essenciais e omitem x-powered-by', async () => {
+  await withServer(async baseUrl => {
+    const res = await fetch(`${baseUrl}/api/health`);
+    assert.equal(res.headers.get('x-powered-by'), null);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(res.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
+  });
+});
+
+test('endpoints de IA aplicam limitação de taxa (rate limit) retornando 429 e Retry-After', async () => {
+  await withServer(async baseUrl => {
+    let limited = false;
+    for (let i = 0; i < 10; i++) {
+      const res = await fetch(`${baseUrl}/api/ai/optimize-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: ' ' })
+      });
+      if (res.status === 429) {
+        assert.equal(res.headers.get('retry-after'), '60');
+        const data = await res.json();
+        assert.match(data.error, /Há várias gerações de IA em andamento/i);
+        limited = true;
+        break;
+      }
+    }
+    assert.equal(limited, true, 'Deveria ter atingido rate limiting (429) após 8 requisições');
+  });
+});
