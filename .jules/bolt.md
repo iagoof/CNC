@@ -14,3 +14,7 @@
 ## 2026-10-24 - Contour Area and Length Calculation Array Allocation Overhead
 **Learning:** Calling `contour.points.slice(1).reduce(...)` inside vector metric calculations and kerf compensation loops allocates an $N-1$ size array and closure per contour on every metric calculation and $O(N^2)$ times inside kerf nesting filters.
 **Action:** Replace `slice(1).reduce(...)` in `contourLength`, `contourArea`, and `signedArea` with direct `for` loops, and precalculate contour `areas` into a Map during kerf compensation.
+
+## 2026-10-25 - Squared Euclidean Distance in Raster Trace Mask Extraction
+**Learning:** In pixel mask extraction (`binaryMaskFromRgba`), calling `Math.hypot` inside the pixel loop (up to 262,144 iterations for a 512x512 image) incurs significant square-root and function invocation overhead.
+**Action:** Unpack background RGB channels as local constants and compare squared Euclidean distance against squared threshold ($dr^2 + dg^2 + db^2 > \text{threshold}^2$) to eliminate square root calculations in hot image loops.
