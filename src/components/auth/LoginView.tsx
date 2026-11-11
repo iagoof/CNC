@@ -226,14 +226,16 @@ export const LoginView: React.FC = () => {
         </div>
 
         {/* Mode Selector Tabs */}
-        <div className="grid grid-cols-2 p-1 bg-slate-950/80 border border-slate-800/80 rounded-xl mb-4">
+        <div role="tablist" aria-label="Modo de autenticação" className="grid grid-cols-2 p-1 bg-slate-950/80 border border-slate-800/80 rounded-xl mb-4">
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'login'}
             onClick={() => {
               setMode('login');
               setErrorMessage(null);
             }}
-            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
               mode === 'login'
                 ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
                 : 'text-slate-400 hover:text-slate-200'
@@ -244,11 +246,13 @@ export const LoginView: React.FC = () => {
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
             onClick={() => {
               setMode('register');
               setErrorMessage(null);
             }}
-            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
               mode === 'register'
                 ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
                 : 'text-slate-400 hover:text-slate-200'
@@ -263,7 +267,7 @@ export const LoginView: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-3.5">
           {mode === 'register' && (
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+              <label htmlFor="login-name" className="block text-[11px] font-semibold text-slate-300 mb-1 cursor-pointer">
                 Nome do Operador ou Empresa
               </label>
               <div className="relative">
@@ -271,20 +275,21 @@ export const LoginView: React.FC = () => {
                   <User className="w-3.5 h-3.5" />
                 </div>
                 <input
+                  id="login-name"
                   type="text"
                   required
                   autoComplete="name"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="Ex: Carlos Silva (Operação Laser)"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+            <label htmlFor="login-email" className="block text-[11px] font-semibold text-slate-300 mb-1 cursor-pointer">
               E-mail de Acesso
             </label>
             <div className="relative">
@@ -292,19 +297,20 @@ export const LoginView: React.FC = () => {
                 <Mail className="w-3.5 h-3.5" />
               </div>
               <input
+                id="login-email"
                 type="email"
                 required
                 autoComplete="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="operador@oficina.com.br"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+            <label htmlFor="login-password" className="block text-[11px] font-semibold text-slate-300 mb-1 cursor-pointer">
               Senha
             </label>
             <div className="relative">
@@ -312,18 +318,20 @@ export const LoginView: React.FC = () => {
                 <Lock className="w-3.5 h-3.5" />
               </div>
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 required
                 autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 cursor-pointer"
+                aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded"
               >
                 {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
@@ -332,7 +340,7 @@ export const LoginView: React.FC = () => {
 
           {mode === 'register' && (
             <div>
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+              <label htmlFor="login-confirm-password" className="block text-[11px] font-semibold text-slate-300 mb-1 cursor-pointer">
                 Confirmar Senha
               </label>
               <div className="relative">
@@ -340,13 +348,14 @@ export const LoginView: React.FC = () => {
                   <Lock className="w-3.5 h-3.5" />
                 </div>
                 <input
+                  id="login-confirm-password"
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   placeholder="Repita sua senha"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-colors"
                 />
               </div>
             </div>
