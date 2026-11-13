@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { readAssemblyFromSvg, createAssemblyGroup } from '../../utils/laserAssembly';
-import { readSvgGeometry, pointInContour, contourArea } from '../../utils/svgGeometry';
+import { readSvgGeometry, pointInContour, contourArea, getContourBBox } from '../../utils/svgGeometry';
 
 export type LaserMaterialFinish = 'mdf-cru' | 'mdf-branco' | 'acrilico-cristal' | 'compensado-pinus' | 'mdf-preto';
 
@@ -734,10 +734,30 @@ export function build3DFromSvg(
     }
 
     const areas = new Map(closedCuts.map(c => [c, contourArea(c)]));
-    const containers = new Map(closedCuts.map(c => [
-      c,
-      closedCuts.filter(other => other !== c && (areas.get(other) || 0) > (areas.get(c) || 0) && pointInContour(c.points[0], other))
-    ]));
+    // Performance optimization (⚡ Bolt):
+    // Precalculate Axis-Aligned Bounding Boxes (AABB) once per contour and perform O(1) range checks
+    // to prune non-overlapping contours before ray casting with pointInContour in O(N^2) loops.
+    const bboxes = new Map(closedCuts.map(c => [c, getContourBBox(c)]));
+    const containers = new Map<typeof closedCuts[number], typeof closedCuts>();
+
+    for (let i = 0; i < closedCuts.length; i++) {
+      const c = closedCuts[i];
+      const p = c.points[0];
+      const areaC = areas.get(c) || 0;
+      const matched: typeof closedCuts = [];
+
+      for (let j = 0; j < closedCuts.length; j++) {
+        if (i === j) continue;
+        const other = closedCuts[j];
+        if ((areas.get(other) || 0) <= areaC) continue;
+        const box = bboxes.get(other)!;
+        if (p.x < box.minX || p.x > box.maxX || p.y < box.minY || p.y > box.maxY) continue;
+        if (pointInContour(p, other)) {
+          matched.push(other);
+        }
+      }
+      containers.set(c, matched);
+    }
 
     const subGroup = new THREE.Group();
     const generatedMeshes: { mesh: THREE.Mesh; name: string; bbox: THREE.Box3; size: THREE.Vector3 }[] = [];
