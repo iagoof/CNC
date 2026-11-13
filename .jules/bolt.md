@@ -18,3 +18,7 @@
 ## 2026-10-25 - Squared Euclidean Distance in Raster Trace Mask Extraction
 **Learning:** In pixel mask extraction (`binaryMaskFromRgba`), calling `Math.hypot` inside the pixel loop (up to 262,144 iterations for a 512x512 image) incurs significant square-root and function invocation overhead.
 **Action:** Unpack background RGB channels as local constants and compare squared Euclidean distance against squared threshold ($dr^2 + dg^2 + db^2 > \text{threshold}^2$) to eliminate square root calculations in hot image loops.
+
+## 2026-10-25 - DOMParser Double-Validation Bottleneck in Laser Assembly Extraction
+**Learning:** `readAssemblyFromSvg` re-validates and reconstructs CAD assemblies by running two separate `DOMParser.parseFromString` passes (input SVG + canonical SVG) plus full DOM queries and geometric comparisons. When called repeatedly in React render loops, 3D preview updates, and export handlers for the same SVG, this introduces 20-40ms blocking lag per call.
+**Action:** Memoize successful `readAssemblyFromSvg` results using a bounded Map cache (max 100 entries) with LRU eviction, avoiding repeated XML DOM deserialization while preserving full validation on cache misses and changes.
