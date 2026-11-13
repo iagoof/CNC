@@ -171,7 +171,9 @@ export function generateGcodeFromGeometry(geometry: CncGeometry, options: GcodeO
         const depth = engraving ? Math.min(engraveDepthMm, depthMm) : Math.min(depthMm, pass * stepDownMm);
         code.push(`G01 Z${(-depth).toFixed(4)} F${Math.min(feed, 300).toFixed(2)}`);
       } else code.push(`M03 S${Math.round(engraving ? engravePower : powerOrRpm)}`);
-      for (const p of contour.points.slice(1)) code.push(`G01 ${xy(p)} F${feed.toFixed(2)}`);
+      // Performance Optimization (⚡ Bolt):
+      // Indexed loop avoids contour.points.slice(1) array allocation per contour pass.
+      for (let i = 1; i < contour.points.length; i++) code.push(`G01 ${xy(contour.points[i])} F${feed.toFixed(2)}`);
       if (machineType === 'Router') code.push(`G00 Z${safeZMm.toFixed(4)}`);
       else code.push('M05');
     }
