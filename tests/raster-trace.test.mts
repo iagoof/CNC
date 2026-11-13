@@ -31,3 +31,26 @@ test('usa transparência ou contraste com o fundo', () => {
 test('rejeita imagem sem silhueta', () => {
   assert.throws(() => traceBinaryMask(new Uint8Array(16), 4, 4), /silhueta/);
 });
+
+test('binaryMaskFromRgba detecta limiar exato de contraste euclidiano', () => {
+  // Test image 4x4 with uniform black background (0, 0, 0)
+  const rgba = new Uint8Array(4 * 4 * 4);
+  for (let i = 0; i < 16; i++) {
+    rgba[i * 4 + 3] = 255; // opaque
+  }
+  // Pixel at (1, 1): distance = sqrt(30^2 + 40^2 + 0^2) = 50. Not > 50, should remain 0.
+  const idxBelow = (1 * 4 + 1) * 4;
+  rgba[idxBelow] = 30;
+  rgba[idxBelow + 1] = 40;
+  rgba[idxBelow + 2] = 0;
+
+  // Pixel at (2, 2): distance = sqrt(31^2 + 40^2 + 0^2) = sqrt(961 + 1600) = sqrt(2561) > 50, should be 1.
+  const idxAbove = (2 * 4 + 2) * 4;
+  rgba[idxAbove] = 31;
+  rgba[idxAbove + 1] = 40;
+  rgba[idxAbove + 2] = 0;
+
+  const mask = binaryMaskFromRgba(rgba, 4, 4);
+  assert.equal(mask[1 * 4 + 1], 0);
+  assert.equal(mask[2 * 4 + 2], 1);
+});
