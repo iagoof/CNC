@@ -273,11 +273,14 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
     scene.add(modelResult.group);
     modelGroupRef.current = modelResult.parts.length ? modelResult.group : null;
     if (modelResult.parts.length) {
-      const size = new THREE.Box3().setFromObject(modelResult.group).getSize(new THREE.Vector3());
+      const box = new THREE.Box3().setFromObject(modelResult.group);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
       const radius = Math.max(size.x, size.y, size.z, 2);
-      controls.target.set(0, 0, 0);
-      camera.position.set(radius * 0.3, radius * 0.3, radius * 1.6);
-      controls.minDistance = radius * 0.1; controls.maxDistance = radius * 6;
+      controls.target.copy(center);
+      camera.position.set(center.x + radius * 0.85, center.y + radius * 0.85, center.z + radius * 1.15);
+      controls.minDistance = radius * 0.1; controls.maxDistance = radius * 8;
+      grid.position.y = box.min.y - 0.02;
     }
 
     // Store base positions for explode slider

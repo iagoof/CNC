@@ -53,9 +53,12 @@ function generateLaserAssembly(input) {
     }), minRX = Math.min(...rawStar.map((pt) => pt[0])), maxRX = Math.max(...rawStar.map((pt) => pt[0])), minRY = Math.min(...rawStar.map((pt) => pt[1])), maxRY = Math.max(...rawStar.map((pt) => pt[1])), starOutline = rawStar.map(([rx, ry]) => [
       (rx - minRX) / (maxRX - minRX) * W,
       (ry - minRY) / (maxRY - minRY) * D
+    ]), insetScale = Math.max(0.72, 1 - 4.6 * t / Math.min(W, D)), innerStar = starOutline.map(([sx, sy]) => [
+      W / 2 + (sx - W / 2) * insetScale,
+      D / 2 + (sy - D / 2) * insetScale
     ]), base = addPart("base", "Base em estrela", starOutline.map((a) => [...a]), [-W / 2, 0, -D / 2], [1, 0, 0], [0, 0, 1], [0, -1, 0]), starLid = p.lid ? addPart("top", "Tampa em estrela com encaixes", starOutline.map((a) => [...a]), [-W / 2, H + t, -D / 2], [1, 0, 0], [0, 0, 1], [0, 1, 0]) : null;
     for (let k = 0; k < 10; k++) {
-      let vA = starOutline[k], vB = starOutline[(k + 1) % 10], dx = vB[0] - vA[0], dy = vB[1] - vA[1], edgeLen = Math.hypot(dx, dy), ux = dx / edgeLen, uy = dy / edgeLen, nx = -uy, ny = ux, sMid = k % 2 === 0 ? 0.56 : 0.44, inset = 2.4 * t, mx = vA[0] + dx * sMid + nx * inset, my = vA[1] + dy * sMid + ny * inset, wallLen = Math.max(2 * t + 4, Math.min(edgeLen * 0.46, edgeLen - 4.4 * t)), twStar = Math.min(tw, Math.max(2 * t, Math.floor((wallLen - 2 * t) * 100) / 100)), px = mx - ux * (wallLen / 2), py = my - uy * (wallLen / 2), wall = addPart(
+      let vPrev = innerStar[(k + 9) % 10], vA = innerStar[k], vB = innerStar[(k + 1) % 10], vNext = innerStar[(k + 2) % 10], dx = vB[0] - vA[0], dy = vB[1] - vA[1], edgeLen = Math.hypot(dx, dy), ux = dx / edgeLen, uy = dy / edgeLen, nx = -uy, ny = ux, prevDx = vPrev[0] - vA[0], prevDy = vPrev[1] - vA[1], prevLen = Math.hypot(prevDx, prevDy), cosA = Math.max(-0.98, Math.min(0.98, ux * (prevDx / prevLen) + uy * (prevDy / prevLen))), halfAngleA = Math.acos(cosA) / 2, trimA = t / 2 / Math.tan(halfAngleA) + t / 2 * Math.tan(Math.PI / 2 - halfAngleA) * 0.08 + 0.25, nextDx = vNext[0] - vB[0], nextDy = vNext[1] - vB[1], nextLen = Math.hypot(nextDx, nextDy), cosB = Math.max(-0.98, Math.min(0.98, -ux * (nextDx / nextLen) - uy * (nextDy / nextLen))), halfAngleB = Math.acos(cosB) / 2, trimB = t / 2 / Math.tan(halfAngleB) + t / 2 * Math.tan(Math.PI / 2 - halfAngleB) * 0.08 + 0.25, wallLen = Math.max(2 * t + 2, edgeLen - trimA - trimB), px = vA[0] + ux * trimA, py = vA[1] + uy * trimA, mx = px + ux * (wallLen / 2), my = py + uy * (wallLen / 2), twStar = Math.min(tw, Math.max(2 * t, Math.floor((wallLen - 2 * t) * 100) / 100)), wall = addPart(
         `side-${k + 1}`,
         `Lateral ${k + 1}`,
         rect(wallLen, H),

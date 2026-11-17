@@ -95,21 +95,37 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
       ((rx - minRX) / (maxRX - minRX)) * W,
       ((ry - minRY) / (maxRY - minRY)) * D
     ]);
+    // Polígono estelar interno onde as 10 paredes se alinham continuamente formando a estrela fechada
+    const insetScale = Math.max(0.72, 1 - (4.6 * t) / Math.min(W, D));
+    const innerStar: V2[] = starOutline.map(([sx, sy]) => [
+      W / 2 + (sx - W / 2) * insetScale,
+      D / 2 + (sy - D / 2) * insetScale
+    ]);
     const base = addPart('base', 'Base em estrela', starOutline.map(a => [...a] as V2), [-W / 2, 0, -D / 2], [1, 0, 0], [0, 0, 1], [0, -1, 0]);
     const starLid = p.lid
       ? addPart('top', 'Tampa em estrela com encaixes', starOutline.map(a => [...a] as V2), [-W / 2, H + t, -D / 2], [1, 0, 0], [0, 0, 1], [0, 1, 0])
       : null;
     for (let k = 0; k < 10; k++) {
-      const vA = starOutline[k], vB = starOutline[(k + 1) % 10];
+      const vPrev = innerStar[(k + 9) % 10], vA = innerStar[k], vB = innerStar[(k + 1) % 10], vNext = innerStar[(k + 2) % 10];
       const dx = vB[0] - vA[0], dy = vB[1] - vA[1], edgeLen = Math.hypot(dx, dy);
       const ux = dx / edgeLen, uy = dy / edgeLen;
       const nx = -uy, ny = ux; // Normal interna apontando para o interior da estrela
-      const sMid = k % 2 === 0 ? 0.56 : 0.44;
-      const inset = 2.4 * t;
-      const mx = vA[0] + dx * sMid + nx * inset, my = vA[1] + dy * sMid + ny * inset;
-      const wallLen = Math.max(2 * t + 4, Math.min(edgeLen * 0.46, edgeLen - 4.4 * t));
+
+      // Ângulos nos vértices vA e vB para recuo exato sem colisão 3D entre paredes adjacentes
+      const prevDx = vPrev[0] - vA[0], prevDy = vPrev[1] - vA[1], prevLen = Math.hypot(prevDx, prevDy);
+      const cosA = Math.max(-0.98, Math.min(0.98, (ux * (prevDx / prevLen) + uy * (prevDy / prevLen))));
+      const halfAngleA = Math.acos(cosA) / 2;
+      const trimA = (t / 2) / Math.tan(halfAngleA) + (t / 2) * Math.tan(Math.PI / 2 - halfAngleA) * 0.08 + 0.25;
+
+      const nextDx = vNext[0] - vB[0], nextDy = vNext[1] - vB[1], nextLen = Math.hypot(nextDx, nextDy);
+      const cosB = Math.max(-0.98, Math.min(0.98, (-ux * (nextDx / nextLen) - uy * (nextDy / nextLen))));
+      const halfAngleB = Math.acos(cosB) / 2;
+      const trimB = (t / 2) / Math.tan(halfAngleB) + (t / 2) * Math.tan(Math.PI / 2 - halfAngleB) * 0.08 + 0.25;
+
+      const wallLen = Math.max(2 * t + 2, edgeLen - trimA - trimB);
+      const px = vA[0] + ux * trimA, py = vA[1] + uy * trimA;
+      const mx = px + ux * (wallLen / 2), my = py + uy * (wallLen / 2);
       const twStar = Math.min(tw, Math.max(2 * t, Math.floor((wallLen - 2 * t) * 100) / 100));
-      const px = mx - ux * (wallLen / 2), py = my - uy * (wallLen / 2);
       const wall = addPart(
         `side-${k + 1}`,
         `Lateral ${k + 1}`,
