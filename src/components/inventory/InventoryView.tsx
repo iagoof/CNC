@@ -22,7 +22,6 @@ interface InventoryViewProps {
 export const InventoryView: React.FC<InventoryViewProps> = ({
   inventory,
   onUpdateStock,
-  onOpenOpModal,
   onCreateProduct,
   onCreateProductionOrder
 }) => {
@@ -57,6 +56,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [newUnitPrice, setNewUnitPrice] = useState<number>(0);
   const [newCostPrice, setNewCostPrice] = useState<number>(0);
   const [newLaserTimeSec, setNewLaserTimeSec] = useState<number>(0);
+  const [newWidthMm, setNewWidthMm] = useState<number>(120);
+  const [newDepthMm, setNewDepthMm] = useState<number>(120);
+  const [newHeightMm, setNewHeightMm] = useState<number>(40);
 
   const filteredItems = inventory.filter(item => {
     const matchesSearch =
@@ -78,30 +80,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     try {
       if (!onCreateProduct) throw new Error('Cadastro de produtos indisponível.');
 
-    const created: ProductInventory = {
-      sku: newSku.trim(),
-      name: newName.trim(),
-      category: newCategory,
-      physicalStock: Number(newPhysical),
-      committedStock: 0,
-      minStock: Number(newMinStock),
-      idealStock: Number(newIdealStock),
-      inProductionStock: 0,
-      minBatchToProduce: 1,
-      batchMultiple: 1,
-      unitPrice: Number(newUnitPrice),
-      costPrice: Number(newCostPrice),
-      materialId: '',
-      estimatedLaserTimeSeconds: Number(newLaserTimeSec),
-      dimensions_mm: { width: 0, height: 0, depth: 0 }
-    };
+      const created: ProductInventory = {
+        sku: newSku.trim(),
+        name: newName.trim(),
+        category: newCategory,
+        physicalStock: Number(newPhysical),
+        committedStock: 0,
+        minStock: Number(newMinStock),
+        idealStock: Number(newIdealStock),
+        inProductionStock: 0,
+        minBatchToProduce: 1,
+        batchMultiple: 1,
+        unitPrice: Number(newUnitPrice),
+        costPrice: Number(newCostPrice),
+        materialId: '',
+        estimatedLaserTimeSeconds: Number(newLaserTimeSec),
+        dimensions_mm: {
+          width: Math.max(0, Number(newWidthMm) || 0),
+          depth: Math.max(0, Number(newDepthMm) || 0),
+          height: Math.max(0, Number(newHeightMm) || 0)
+        }
+      };
 
-    if (onCreateProduct) {
       await onCreateProduct(created);
-    }
-    setIsModalOpen(false);
-    setToastMessage(`Novo produto ${created.sku} cadastrado com sucesso!`);
-    setTimeout(() => setToastMessage(null), 3000);
+      setIsModalOpen(false);
+      setToastMessage(`Novo produto ${created.sku} cadastrado com sucesso!`);
+      setTimeout(() => setToastMessage(null), 3000);
     } catch (error) { setProductError(error instanceof Error ? error.message : 'Não foi possível cadastrar o produto.'); }
     finally { productSaving.current = false; setIsSavingProduct(false); }
   };
@@ -123,19 +127,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     if (onCreateProductionOrder) {
       opBusy.current.add(item.sku); setStockError('');
       try {
-      if (!opRequests.current.has(item.sku)) opRequests.current.set(item.sku, `op-${crypto.randomUUID()}`);
-      await onCreateProductionOrder({
-        id: opRequests.current.get(item.sku),
-        sku: item.sku,
-        productName: item.name,
-        quantityRequested: qty,
-        quantityIdealCalculated: qty,
-        priority: item.physicalStock < item.committedStock ? 'Urgente' : 'Alta',
-        laserTimeEstimatedMin: (item.estimatedLaserTimeSeconds * qty) / 60
-      });
-      opRequests.current.delete(item.sku);
-      setToastMessage(`OP disparada no Kanban para ${qty} un. de ${item.sku}!`);
-      setTimeout(() => setToastMessage(null), 3500);
+        if (!opRequests.current.has(item.sku)) opRequests.current.set(item.sku, `op-${crypto.randomUUID()}`);
+        await onCreateProductionOrder({
+          id: opRequests.current.get(item.sku),
+          sku: item.sku,
+          productName: item.name,
+          quantityRequested: qty,
+          quantityIdealCalculated: qty,
+          priority: item.physicalStock < item.committedStock ? 'Urgente' : 'Alta',
+          laserTimeEstimatedMin: (item.estimatedLaserTimeSeconds * qty) / 60
+        });
+        opRequests.current.delete(item.sku);
+        setToastMessage(`OP disparada no Kanban para ${qty} un. de ${item.sku}!`);
+        setTimeout(() => setToastMessage(null), 3500);
       } catch (error) { setStockError(error instanceof Error ? error.message : 'Não foi possível criar a OP.'); }
       finally { opBusy.current.delete(item.sku); }
     }
@@ -238,87 +242,87 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         <td className="py-3.5 px-4">
                           <div className="space-y-0.5">
                             <span className="font-mono font-bold text-amber-700 block text-[11px]">
-                            {item.sku}
+                              {item.sku}
+                            </span>
+                            <span className="font-semibold text-slate-900 block text-xs">{item.name}</span>
+                            <span className="text-[10px] text-slate-400">{item.category} • Preço: R$ {item.unitPrice.toFixed(2)}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3 font-mono font-bold text-slate-800 text-sm">
+                          {item.physicalStock}
+                        </td>
+
+                        <td className="py-3.5 px-3 font-mono font-semibold text-amber-600">
+                          {item.committedStock}
+                        </td>
+
+                        <td className="py-3.5 px-3 font-mono font-extrabold text-sm">
+                          <span className={isDeficit ? 'text-rose-600' : 'text-emerald-600'}>
+                            {available}
                           </span>
-                          <span className="font-semibold text-slate-900 block text-xs">{item.name}</span>
-                          <span className="text-[10px] text-slate-400">{item.category} • Preço: R$ {item.unitPrice.toFixed(2)}</span>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3.5 px-3 font-mono font-bold text-slate-800 text-sm">
-                        {item.physicalStock}
-                      </td>
+                        <td className="py-3.5 px-3 font-mono text-slate-500 text-[11px]">
+                          {item.minStock} / {item.idealStock}
+                        </td>
 
-                      <td className="py-3.5 px-3 font-mono font-semibold text-amber-600">
-                        {item.committedStock}
-                      </td>
+                        <td className="py-3.5 px-3 font-mono text-indigo-600 font-semibold">
+                          {item.inProductionStock > 0 ? `${item.inProductionStock} un.` : '--'}
+                        </td>
 
-                      <td className="py-3.5 px-3 font-mono font-extrabold text-sm">
-                        <span className={isDeficit ? 'text-rose-600' : 'text-emerald-600'}>
-                          {available}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-3 font-mono text-slate-500 text-[11px]">
-                        {item.minStock} / {item.idealStock}
-                      </td>
-
-                      <td className="py-3.5 px-3 font-mono text-indigo-600 font-semibold">
-                        {item.inProductionStock > 0 ? `${item.inProductionStock} un.` : '--'}
-                      </td>
-
-                      <td className="py-3.5 px-3">
-                        {isDeficit ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                            Déficit
-                          </span>
-                        ) : isBelowMin ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            Abaixo do Mín.
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Equilibrado
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {(isDeficit || isBelowMin) && (
-                            <button
-                              onClick={() => handleQuickCreateOp(item)}
-                              className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
-                              title="Gerar Ordem de Produção Ideal"
-                            >
-                              <Wrench className="w-3 h-3" />
-                              <span>Gerar OP</span>
-                            </button>
+                        <td className="py-3.5 px-3">
+                          {isDeficit ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              Déficit
+                            </span>
+                          ) : isBelowMin ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Abaixo do Mín.
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Equilibrado
+                            </span>
                           )}
-                          <button
-                            disabled={adjustingSkus.has(item.sku) || item.physicalStock === 0}
-                            onClick={() => void handleStockAdjustment(item.sku, -1)}
-                            aria-label={`Dar baixa no estoque do SKU ${item.sku}`}
-                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                            title="Dar Baixa (-1)"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            disabled={adjustingSkus.has(item.sku)}
-                            onClick={() => void handleStockAdjustment(item.sku, 1)}
-                            aria-label={`Entrada manual de estoque do SKU ${item.sku}`}
-                            className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-                            title="Entrada Manual (+1)"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {(isDeficit || isBelowMin) && (
+                              <button
+                                onClick={() => handleQuickCreateOp(item)}
+                                className="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
+                                title="Gerar Ordem de Produção Ideal"
+                              >
+                                <Wrench className="w-3 h-3" />
+                                <span>Gerar OP</span>
+                              </button>
+                            )}
+                            <button
+                              disabled={adjustingSkus.has(item.sku) || item.physicalStock === 0}
+                              onClick={() => void handleStockAdjustment(item.sku, -1)}
+                              aria-label={`Dar baixa no estoque do SKU ${item.sku}`}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                              title="Dar Baixa (-1)"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              disabled={adjustingSkus.has(item.sku)}
+                              onClick={() => void handleStockAdjustment(item.sku, 1)}
+                              aria-label={`Entrada manual de estoque do SKU ${item.sku}`}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                              title="Entrada Manual (+1)"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -449,11 +453,47 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="inventory-new-width" className="text-[10px] font-semibold text-slate-600 block mb-1">Largura (mm)</label>
+                  <input
+                    id="inventory-new-width"
+                    type="number"
+                    min="0"
+                    value={newWidthMm}
+                    onChange={e => setNewWidthMm(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="inventory-new-depth" className="text-[10px] font-semibold text-slate-600 block mb-1">Profundidade (mm)</label>
+                  <input
+                    id="inventory-new-depth"
+                    type="number"
+                    min="0"
+                    value={newDepthMm}
+                    onChange={e => setNewDepthMm(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="inventory-new-height" className="text-[10px] font-semibold text-slate-600 block mb-1">Altura (mm)</label>
+                  <input
+                    id="inventory-new-height"
+                    type="number"
+                    min="0"
+                    value={newHeightMm}
+                    onChange={e => setNewHeightMm(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-900 font-mono"
+                  />
+                </div>
+              </div>
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   disabled={isSavingProduct}
-                onClick={() => setIsModalOpen(false)}
+                  onClick={() => setIsModalOpen(false)}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold cursor-pointer"
                 >
                   Cancelar

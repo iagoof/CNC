@@ -364,10 +364,10 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
     }
   };
 
-  // AI Prompt Enhancer: transforms simple user ideas into rigorous CAD/CAM prompts using gemini-3.8-flash
+  // AI Prompt Enhancer: transforms simple user ideas into rigorous CAD/CAM prompts using NVIDIA NIM Kimi K3.1 Pro
   const handleEnhancePrompt = async () => {
     setIsProcessing(true);
-    setProcessingStep('Acrescentando parâmetros técnicos com IA (gemini-3.8-flash)...');
+    setProcessingStep('Acrescentando parâmetros técnicos com IA (Kimi K3.1 Pro · NVIDIA NIM)...');
     try {
       const enhanced = await optimizeCncPrompt(
         promptText,
@@ -375,7 +375,7 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
         selectedMachine.type === 'Router' ? 'router' : 'laser'
       );
       setPromptText(enhanced);
-      triggerToast('Prompt refinado com precisão industrial pelo modelo gemini-3.8-flash!');
+      triggerToast('Prompt refinado com precisão industrial pelo modelo Kimi K3.1 Pro (NVIDIA NIM)!');
     } catch {
       setPromptText(prev => `${prev.trim()} — Espessura ${selectedMaterial.thickness_mm}mm, tolerância kerf ${kerfCompensation}mm, juntas finger-joint denteadas para corte laser/router.`);
     } finally {
@@ -431,7 +431,7 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
         finalSvg = ensureSvgMetadataBlock(preprocessed.cleanedSvg, thickness, kerfCompensation);
         generatedTitle = `Vetorizado: ${uploadedFileName.replace(/\.[^/.]+$/, '')}`;
       } else {
-        setProcessingStep('2/3 Gerando modelo vetorial com IA (gemini-3.8-flash)...');
+        setProcessingStep('2/3 Gerando modelo vetorial com IA (Kimi K3.1 Pro · NVIDIA NIM)...');
         const result = await generateCncVector(
           promptText,
           includeEngraving ? 'cut_engrave' : 'cut_only',
@@ -452,7 +452,7 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
         calculatedWidth = result.widthMm;
         calculatedHeight = result.heightMm;
 
-        artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation, 'gemini-3.8-flash');
+        artifactMetadata = result.metadata || createStandardMetadataBlock(artifactThickness, kerfCompensation, 'moonshotai/kimi-k3.1-pro');
       }
 
       setProcessingStep('3/3 Calculando métricas de corte, kerf e G-code...');
@@ -1091,7 +1091,7 @@ const FreeVectorStudio: React.FC<DesignStudioAiViewProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 fill-white" />
-                      <span>{inputMode === 'upload' ? 'Traçar silhueta' : 'Gerar com IA (gemini-3.8-flash)'}</span>
+                      <span>{inputMode === 'upload' ? 'Traçar silhueta' : 'Gerar com IA (Kimi K3.1 Pro)'}</span>
                     </>
                   )}
                 </button>

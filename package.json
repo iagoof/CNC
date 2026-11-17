@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "tsx server.ts",
-    "build": "vite build",
+    "build": "vite build && node scripts/build-vercel-api.mjs",
     "build:hosting": "npm run build && node scripts/build-hosting.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

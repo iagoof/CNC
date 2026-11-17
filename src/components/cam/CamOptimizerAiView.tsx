@@ -284,12 +284,12 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (data.diagnostic) {
-          const geminiPoints = [
-            `Diagnóstico de IA (gemini-3.8-flash) • Risco: ${data.diagnostic.riskLevel || 'baixo'} • Tempo estimado: ${data.diagnostic.estimatedTimeFormatted || 'N/A'}`,
+          const aiPoints = [
+            `Diagnóstico de IA (${data.modelUsed || 'moonshotai/kimi-k3.1-pro'}) • Risco: ${data.diagnostic.riskLevel || 'baixo'} • Tempo estimado: ${data.diagnostic.estimatedTimeFormatted || 'N/A'}`,
             ...(data.diagnostic.insights || []),
             ...(data.diagnostic.recommendations ? data.diagnostic.recommendations.map((r: string) => `Dica IA: ${r}`) : [])
           ];
-          aiInsights = [...geminiPoints, ...localInsights];
+          aiInsights = [...aiPoints, ...localInsights];
           aiStatus = data.diagnostic.status === 'warning' || localInsights.length ? 'warning' : 'clear';
         }
       }
@@ -357,12 +357,12 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
             {isAnalyzingAi ? (
               <>
                 <RotateCw className="w-4 h-4 animate-spin" />
-                <span>Analisando IA (gemini-3.8-flash)...</span>
+                <span>Analisando IA (Kimi K3.1 Pro)...</span>
               </>
             ) : (
               <>
                 <FileCheck className="w-4 h-4" />
-                <span>Verificar com IA (gemini-3.8-flash)</span>
+                <span>Verificar com IA (Kimi K3.1 Pro)</span>
               </>
             )}
           </button>
@@ -490,12 +490,30 @@ export const CamOptimizerAiView: React.FC<CamOptimizerAiViewProps> = ({
 
           {/* G-Code Editor & Viewer */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-slate-700" />
                 Editor de Código G (Trajetória CNC)
               </h3>
-              <span className="text-[10px] text-slate-400 font-mono">Arquivo original, sem conversão</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = selectedMachineType === 'router'
+                      ? `; Programa CNC Router 3 Eixos (G21/G90)\nG21\nG90\nG00 Z5.000\nM03 S18000\nG00 X10.000 Y10.000\nG01 Z-3.000 F600\nG01 X110.000 Y10.000 F1800\nG01 X110.000 Y90.000 F1800\nG01 X10.000 Y90.000 F1800\nG01 X10.000 Y10.000 F1800\nG00 Z5.000\nM05\nG00 X0.000 Y0.000\nM30`
+                      : `; Programa CNC Laser CO2 (G21/G90)\nG21\nG90\nM05\nG00 X10.000 Y10.000\nM03 S650\nG01 X110.000 Y10.000 F1500\nG01 X110.000 Y90.000 F1500\nG01 X10.000 Y90.000 F1500\nG01 X10.000 Y10.000 F1500\nM05\nG00 X35.000 Y35.000\nM03 S650\nG01 X85.000 Y35.000 F1500\nG01 X85.000 Y65.000 F1500\nG01 X35.000 Y65.000 F1500\nG01 X35.000 Y35.000 F1500\nM05\nG00 X0.000 Y0.000\nM30`;
+                    setRawGcode(sample);
+                    setAnalysisResult(null);
+                    setDiagnosticError(null);
+                    setPlaybackProgress(100);
+                    setIsPlaying(false);
+                  }}
+                  className="px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-[10px] font-bold text-amber-800 transition cursor-pointer"
+                >
+                  Carregar exemplo G21/G90
+                </button>
+                <span className="text-[10px] text-slate-400 font-mono">Arquivo original, sem conversão</span>
+              </div>
             </div>
 
             <textarea

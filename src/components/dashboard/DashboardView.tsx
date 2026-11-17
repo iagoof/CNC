@@ -27,6 +27,7 @@ interface DashboardViewProps {
   machines: Machine[];
   inventory: ProductInventory[];
   onNavigateTab: (tabId: string) => void;
+  onUpdateOrder?: (order: SalesOrder) => Promise<void>;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -36,7 +37,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   taxes,
   machines,
   inventory,
-  onNavigateTab
+  onNavigateTab,
+  onUpdateOrder
 }) => {
   const now = new Date();
   const currentDay = now.getDate();
@@ -282,13 +284,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </p>
                   </div>
 
-                  <div className="text-right">
+                  <div className="text-right space-y-1">
                     <span className="text-sm font-extrabold text-slate-900 font-mono block">
                       R$ {order.total.toFixed(2)}
                     </span>
                     <span className="text-[10px] text-slate-500 block">
                       Status: <strong className="text-slate-700">{order.fulfillmentStatus}</strong>
                     </span>
+                    {onUpdateOrder && order.paymentStatus !== 'Pago' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void onUpdateOrder({ ...order, paymentStatus: 'Pago', paidAt: new Date().toISOString() });
+                        }}
+                        className="mt-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition cursor-pointer"
+                      >
+                        Confirmar Pagamento
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

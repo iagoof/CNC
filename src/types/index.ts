@@ -109,6 +109,9 @@ export interface ProductionOrder {
   scannedQuantity: number;
   assignedTo?: string;
   notes?: string;
+  inventoryProductId?: string;
+  inventoryReservedQuantity?: number;
+  inventoryMode?: 'custom' | 'inventory';
 }
 
 export interface OrderItem {

@@ -7,8 +7,8 @@ import {useFirebase} from '../../services/firebase/FirebaseContext';
 import {generateLaserAssembly,readAssemblyFromSvg,assemblyPartSvg,generateFitCoupon,type AssemblyParams,type LaserAssembly} from '../../utils/laserAssembly';
 import {ASSEMBLY_PRESETS,DEFAULT_ASSEMBLY_PARAMS,parseAssemblyPrompt,describeAssembly} from '../../services/assemblyService';
 import {sanitizeSvg} from '../../utils/sanitizeSvg';
-import {applyKerfToSvg,calculateSvgMetrics,convertSvgToDxf,serializeSceneGroupToStl} from '../../utils/cncExporters';
-import type {Material,Machine} from '../../types';
+import {applyKerfToSvg,calculateSvgMetrics,convertSvgToDxf,generateGcodeFromSvg,serializeSceneGroupToStl} from '../../utils/cncExporters';
+import type {Material,Machine,ProductionOrder} from '../../types';
 import type {NestingTransfer} from '../../utils/nestingEngine';
 import type {GeneratedVectorArtifact} from './DesignStudioAiView';
 import {createStandardMetadataBlock} from '../../services/geminiCncService';
@@ -19,6 +19,9 @@ type Draft=AssemblyDraft;
 interface Props {
  materials?:Material[]; machines?:Machine[]; initialArtifact?:{id:string;title:string;svgString:string;thickness_mm:number}|null;
  onSendTo3D?:(artifact:GeneratedVectorArtifact)=>void; onSendToNesting?:(part:NestingTransfer)=>void;
+ onSendToCam?:(gcode:string,machineType:'laser'|'router')=>void;
+ onSendToQuote?:(item:{description:string;materialId:string;cutLength_mm:number;engraveArea_cm2:number;machineId:string;quantity:number;width_mm:number;height_mm:number})=>void;
+ onSendToProduction?:(order:Partial<ProductionOrder>)=>Promise<void>;
 }
 const button='rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:border-amber-400 disabled:opacity-40';
 const field='w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -91,7 +94,7 @@ function AssemblyPreview({svg,explode,selected,cameraView}:{svg:string;explode:n
  return <div className="relative"><div ref={mount} data-testid="assembly-3d" className="h-[440px] w-full rounded-xl overflow-hidden border border-slate-200"/>{error&&<p role="alert" className="absolute inset-4 h-fit rounded-lg bg-white p-4 text-red-700">{error} Use a chapa 2D para revisar os contornos.</p>}</div>;
 }
 
-export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact,onSendTo3D,onSendToNesting}:Props){
+export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact,onSendTo3D,onSendToNesting,onSendToCam,onSendToQuote,onSendToProduction}:Props){
  const {user,isAuthenticated,projects,syncProjectMutation}=useFirebase();
  const key=`cnc-laser-workspace-v1:${user?.uid||'guest'}`;
  const [params,setParams]=useLocalStorageState<AssemblyParams>(key+':params',DEFAULT_ASSEMBLY_PARAMS);
@@ -169,6 +172,51 @@ export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact
   const parts=kit?.parts.map(part=>{const nominal=assemblyPartSvg(kit,part),svgContent=compensated?applyKerfToSvg(nominal,kit.params.kerf):nominal,m=calculateSvgMetrics(svgContent);return {name:`${a.title} · ${part.name}`,width:m.widthMm,height:m.heightMm,cutLength_mm:m.totalCutLengthMm,svgContent,quantity:1};});
   onSendToNesting({name:a.title,width:a.width_mm,height:a.height_mm,cutLength_mm:a.cutLength_mm,svgContent:a.svgString,quantity:1,parts});
  };
+ const sendQuote=()=>{
+  if(!onSendToQuote)return;
+  const a=artifact();
+  const selMat=material||materials.find(m=>Math.abs(m.thickness_mm-a.thickness_mm)<0.5)||materials[0];
+  const selMach=machines[0];
+  if(!selMat||!selMach)throw new Error('Cadastre ao menos um material e uma máquina para enviar ao orçamento.');
+  onSendToQuote({description:`${a.title} (${a.width_mm.toFixed(0)}×${a.height_mm.toFixed(0)} mm em ${selMat.name})`,materialId:selMat.id,cutLength_mm:a.cutLength_mm,engraveArea_cm2:a.engraveArea_cm2,machineId:selMach.id,quantity:1,width_mm:a.width_mm,height_mm:a.height_mm});
+ };
+ const sendCam=()=>{
+  if(!onSendToCam)return;
+  const a=artifact();
+  const selMat=material||materials[0];
+  const selMach=machines[0];
+  const speeds=selMat?.speedsByMachine.find(s=>s.machineId===selMach?.id);
+  const gcode=generateGcodeFromSvg(exportSvg(),{
+   machineType:selMach?.type||'CO2',
+   feedRate_mms:speeds?.cutSpeed_mms||20,
+   powerOrRpm:selMach?.type==='Router'?18000:(speeds?.cutPower_pct||70)*10,
+   engraveFeedRate_mms:speeds?.engraveSpeed_mms||250,
+   engravePower:(speeds?.engravePower_pct||20)*10,
+   depthMm:a.thickness_mm,
+   stepDownMm:1.5,safeZMm:5,
+   maxXmm:selMach?.workAreaX_mm||900,maxYmm:selMach?.workAreaY_mm||600
+  });
+  onSendToCam(gcode,selMach?.type==='Router'?'router':'laser');
+ };
+ const sendProduction=async()=>{
+  if(!onSendToProduction)return;
+  setError('');
+  try{
+   const a=artifact();
+   const selMat=material||materials[0];
+   const selMach=machines[0];
+   await onSendToProduction({
+    id:`op-${crypto.randomUUID()}`,
+    sku:`CUSTOM-${crypto.randomUUID()}`,
+    productName:a.title,
+    quantityRequested:1,
+    materialName:selMat?.name||`Chapa ${a.thickness_mm} mm`,
+    laserTimeEstimatedMin:Math.max(1,Math.ceil(a.cutLength_mm/(20*60))),
+    machineId:selMach?.id||'',
+    priority:'Alta'
+   });
+  }catch(e){setError(e instanceof Error?e.message:String(e));}
+ };
  const save=async()=>{
   setError('');if(!isAuthenticated||!user){setError('Entre na sua conta para salvar na nuvem. O rascunho permanece neste navegador.');return;}
   setSaving(true);try{const a=artifact();await syncProjectMutation({id:a.id,name:a.title,ownerId:user.uid,svgContent:a.svgString,widthMm:a.width_mm,heightMm:a.height_mm,cutLengthMm:a.cutLength_mm,engraveAreaCm2:a.engraveArea_cm2,recommendedThicknessMm:a.thickness_mm,materialCategory:material?.category||'MDF',source:'local_vector'});setNotice('Projeto salvo na nuvem.');}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setSaving(false);}
@@ -191,7 +239,7 @@ export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact
   {generation.status==='done'&&!generation.applied&&<div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">O resultado da IA está pronto. Seu desenho atual foi preservado. <button className={button+' ml-2'} onClick={()=>run(()=>applyAssemblyAiResult(key))}>Usar resultado da IA</button></div>}
   <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
    <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 h-fit">
-    <div><h2 className="font-semibold">1. Descreva sua montagem</h2><label className="mt-3 block text-xs font-medium" htmlFor="assembly-prompt">Pedido do modelo</label><textarea id="assembly-prompt" maxLength={4000} className={field+' mt-1 min-h-28'} value={prompt} onChange={e=>setPrompt(e.target.value)}/><p className="mt-2 text-xs text-slate-500">Medidas: largura × profundidade × altura. Ex.: casa 180 × 120 × 110 mm com janelas redondas, MDF 3 mm.</p><button disabled={generating||!prompt.trim()} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 font-semibold text-white hover:bg-amber-600 disabled:opacity-50" onClick={()=>{setError('');setNotice('');void startAssemblyAiGeneration(key,prompt,params).catch(()=>setError('Não foi possível iniciar a geração. Verifique o armazenamento do navegador.'));}}>{generating?'Gerando com IA…':'Gerar com IA'}</button><p className="mt-2 text-xs text-slate-500">Gemini interpreta o pedido; o CAD confere espigas, rasgos e aberturas. Famílias: caixa, casa de um andar e organizador.</p><button disabled={generating} className={button+' mt-2 w-full'} onClick={()=>run(()=>install(generateLaserAssembly(parseAssemblyPrompt(prompt,params))))}>Gerar localmente</button><p className="mt-1 text-xs text-slate-500">Modelos e interpretação local de medidas, sem consumir IA.</p></div>
+    <div><h2 className="font-semibold">1. Descreva sua montagem</h2><label className="mt-3 block text-xs font-medium" htmlFor="assembly-prompt">Pedido do modelo</label><textarea id="assembly-prompt" maxLength={4000} className={field+' mt-1 min-h-28'} value={prompt} onChange={e=>setPrompt(e.target.value)}/><p className="mt-2 text-xs text-slate-500">Medidas: largura × profundidade × altura. Ex.: casa 180 × 120 × 110 mm com janelas redondas, MDF 3 mm.</p><button disabled={generating||!prompt.trim()} className="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 font-semibold text-white hover:bg-amber-600 disabled:opacity-50" onClick={()=>{setError('');setNotice('');void startAssemblyAiGeneration(key,prompt,params).catch(()=>setError('Não foi possível iniciar a geração. Verifique o armazenamento do navegador.'));}}>{generating?'Gerando com IA…':'Gerar com IA'}</button><p className="mt-2 text-xs text-slate-500">Kimi K3.1 Pro (NVIDIA NIM) interpreta o pedido; o CAD confere espigas, rasgos e aberturas. Famílias: caixa, casa de um andar e organizador.</p><button disabled={generating} className={button+' mt-2 w-full'} onClick={()=>run(()=>install(generateLaserAssembly(parseAssemblyPrompt(prompt,params))))}>Gerar localmente</button><p className="mt-1 text-xs text-slate-500">Modelos e interpretação local de medidas, sem consumir IA.</p></div>
     {draft.generation&&<div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950"><h2 className="font-semibold">Desenho por IA · {draft.generation.model}</h2><p className="mt-1">{draft.generation.explanation}</p>{draft.generation.assumptions.length>0&&<details className="mt-2"><summary className="cursor-pointer">Medidas e suposições da IA</summary><ul className="mt-2 list-disc pl-4 space-y-1">{draft.generation.assumptions.map((item,i)=><li key={i}>{item}</li>)}</ul></details>}</div>}
     <div className="border-t pt-4"><h2 className="font-semibold">2. Ajuste para o material</h2>
      {materials.length>0&&<label className="mt-3 block text-xs">Material cadastrado<select aria-label="Material cadastrado" className={field+' mt-1'} value={materialId} onChange={e=>{setMaterialId(e.target.value);const m=materials.find(m=>m.id===e.target.value);if(m)setParams(p=>({...p,thickness:m.thickness_mm,tabWidth:Math.max(p.tabWidth,2*m.thickness_mm)}));}}><option value="">Espessura manual</option>{materials.map(m=><option key={m.id} value={m.id}>{m.name} · {m.thickness_mm} mm</option>)}</select></label>}
@@ -213,7 +261,7 @@ export function LaserAssemblyWorkspace({materials=[],machines=[],initialArtifact
       {view==='assembly'?<div key="assembly"><AssemblyPreview svg={draft.svg} explode={explode} selected={selected} cameraView={cameraView}/><div className="mt-3 flex flex-wrap gap-2">{(['iso','front','side','top'] as const).map((v,i)=><button className={button} key={v} onClick={()=>setCameraView(previous=>`${v}:${Number(previous.split(':')[1]||0)+1}`)}>{['Perspectiva','Frente','Lateral','Topo'][i]}</button>)}</div><label className="mt-3 flex items-center gap-3 text-sm">Vista explodida<input aria-label="Vista explodida" type="range" min="0" max="1" step="0.01" value={explode} onChange={e=>setExplode(Number(e.target.value))} className="flex-1 accent-amber-500"/><span>{Math.round(explode*100)}%</span></label></div>:<div key="sheet"><div data-testid="assembly-sheet" className="h-[440px] overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-5"><div style={{width:`${zoom*100}%`,height:`${zoom*100}%`}} className="[&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{__html:sanitizeSvg(draft.svg)}}/></div><div className="mt-3 flex items-center gap-3"><button aria-label="Diminuir zoom" className={button} onClick={()=>setZoom(Math.max(0.5,zoom-0.25))}>−</button><span className="text-xs">{Math.round(zoom*100)}%</span><button aria-label="Aumentar zoom" className={button} onClick={()=>setZoom(Math.min(3,zoom+0.25))}>+</button><span className="text-xs text-slate-500">Vermelho: corte nominal, incluindo todos os rasgos.</span></div></div>}
       {kit&&<div><h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Peças da montagem · selecione para destacar no 3D</h3><div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={()=>setSelected('')}>Todas</button>{kit.parts.map(p=><button key={p.id} className={button+(selected===p.id?' border-amber-500 bg-amber-50':'')} onClick={()=>setSelected(p.id)}>{p.name} <span className="text-xs text-slate-400">{p.holes.length} rasgos</span></button>)}</div></div>}
      </div>
-     <div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="font-semibold">3. Preparar o corte</h2><p className="mt-2 text-xs leading-relaxed text-slate-600">{draft.description}</p>{metricResult.error&&<p role="alert" className="mt-2 text-red-700">{metricResult.error}</p>}<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={compensated} onChange={e=>setCompensated(e.target.checked)}/>Compensar kerf no SVG, DXF e nesting ({kit?.params.kerf??params.kerf} mm)</label><p className="mt-1 text-xs text-slate-500">Ao usar o arquivo compensado, desative outra compensação no software da máquina.</p><div className="mt-4 flex flex-wrap gap-2"><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(exportSvg(),'svg','image/svg+xml'))}>Baixar SVG de corte</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(draft.svg,'svg','image/svg+xml'))}>Baixar projeto editável</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(convertSvgToDxf(exportSvg()),'dxf','application/dxf'))}>Baixar DXF</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>{const m=createLaserMaterials('mdf-cru',false),model=buildGeometricAssembly(draft.svg,kit?.params.thickness||params.thickness,undefined,m);try{download(serializeSceneGroupToStl(model.group,10),'stl','model/stl');}finally{model.group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});[m.faceMaterial,m.edgeMaterial,m.kerfMaterial].forEach(mat=>mat.dispose());}})}>Baixar montagem STL</button><button disabled={saving||!metrics||!!dirty||draftInvalid} className={button} onClick={save}>{saving?'Salvando…':'Salvar na nuvem'}</button>{onSendToNesting&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(sendNesting)}>Organizar peças no nesting</button>}{onSendTo3D&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>onSendTo3D(artifact()))}>Abrir no Estúdio 3D CAD</button>}{previous.svg&&<button className={button} onClick={()=>run(()=>{const before=draft,restored=readAssemblyFromSvg(previous.svg);setDraft(previous);setPrevious(before);if(restored)setParams(restored.params);setSelected('');setExplode(0);})}>Desfazer geração</button>}</div><p className="mt-4 text-xs text-slate-500">{metrics&&`Percurso nominal: ${(metrics.totalCutLengthMm/1000).toFixed(2)} m. `}STL serve para conferir a montagem. Para a laser, use SVG ou DXF. Faça uma amostra de encaixe antes do lote.</p></div>
+     <div className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="font-semibold">3. Preparar o corte</h2><p className="mt-2 text-xs leading-relaxed text-slate-600">{draft.description}</p>{metricResult.error&&<p role="alert" className="mt-2 text-red-700">{metricResult.error}</p>}<label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={compensated} onChange={e=>setCompensated(e.target.checked)}/>Compensar kerf no SVG, DXF e nesting ({kit?.params.kerf??params.kerf} mm)</label><p className="mt-1 text-xs text-slate-500">Ao usar o arquivo compensado, desative outra compensação no software da máquina.</p><div className="mt-4 flex flex-wrap gap-2"><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(exportSvg(),'svg','image/svg+xml'))}>Baixar SVG de corte</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(draft.svg,'svg','image/svg+xml'))}>Baixar projeto editável</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>download(convertSvgToDxf(exportSvg()),'dxf','application/dxf'))}>Baixar DXF</button><button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>{const m=createLaserMaterials('mdf-cru',false),model=buildGeometricAssembly(draft.svg,kit?.params.thickness||params.thickness,undefined,m);try{download(serializeSceneGroupToStl(model.group,10),'stl','model/stl');}finally{model.group.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});[m.faceMaterial,m.edgeMaterial,m.kerfMaterial].forEach(mat=>mat.dispose());}})}>Baixar montagem STL</button><button disabled={saving||!metrics||!!dirty||draftInvalid} className={button} onClick={save}>{saving?'Salvando…':'Salvar na nuvem'}</button>{onSendToNesting&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(sendNesting)}>Organizar peças no nesting</button>}{onSendToCam&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(sendCam)}>Enviar G-code ao CAM</button>}{onSendToQuote&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(sendQuote)}>Gerar orçamento</button>}{onSendToProduction&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>{void sendProduction();}}>Lançar OP no Kanban</button>}{onSendTo3D&&<button disabled={!metrics||!!dirty||draftInvalid} className={button} onClick={()=>run(()=>onSendTo3D(artifact()))}>Abrir no Estúdio 3D CAD</button>}{previous.svg&&<button className={button} onClick={()=>run(()=>{const before=draft,restored=readAssemblyFromSvg(previous.svg);setDraft(previous);setPrevious(before);if(restored)setParams(restored.params);setSelected('');setExplode(0);})}>Desfazer geração</button>}</div><p className="mt-4 text-xs text-slate-500">{metrics&&`Percurso nominal: ${(metrics.totalCutLengthMm/1000).toFixed(2)} m. `}STL serve para conferir a montagem. Para a laser, use SVG ou DXF. Faça uma amostra de encaixe antes do lote.</p></div>
      {kit&&<details className="rounded-2xl border border-slate-200 bg-white p-5" open><summary className="cursor-pointer font-semibold">Sequência de montagem e conferência</summary><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600"><li>Corte uma amostra com a espessura e a folga escolhidas. Ajuste a folga se estiver apertada ou solta.</li><li>Encaixe as espigas inferiores do fundo e das laterais nos rasgos da base.</li><li>{kit.params.model==='shelf'?'Encaixe as prateleiras nas laterais e no fundo antes de fechar a segunda lateral.':'Encaixe a frente entre as laterais e confira os pares de espigas e rasgos.'}</li><li>{kit.params.model==='house'?'Encaixe as duas águas do telhado nos rasgos correspondentes das empenas. A cumeeira tem folga para evitar colisão.':kit.params.lid?'Finalize encaixando a tampa removível.':'Confira o esquadro e a estabilidade do conjunto.'}</li></ol><p className="mt-3 text-xs text-slate-500">A folga, a rigidez e a necessidade de cola dependem do material medido e da calibração da máquina.</p></details>}
     </>}
    </section>

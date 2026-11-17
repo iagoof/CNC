@@ -198,12 +198,47 @@ export class HealthChecker {
   }
 
   private async checkAiGatewaySubsystem(): Promise<SubsystemHealth> {
+    const t0 = performance.now();
+    try {
+      if (typeof fetch === 'function') {
+        const res = await fetch('/api/health?verify=1', {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+        const latencyMs = Number((performance.now() - t0).toFixed(2));
+        if (res.ok) {
+          const data = await res.json();
+          const ai = data?.ai;
+          if (ai?.configured && ai?.verified) {
+            return {
+              name: 'Gateway de IA (NVIDIA NIM · Kimi K3.1 Pro)',
+              status: 'HEALTHY',
+              latencyMs: ai.latencyMs ?? latencyMs,
+              lastChecked: new Date().toISOString(),
+              details: `Provedor ${String(ai.provider || 'nvidia').toUpperCase()} verificado e ativo • Modelo: ${ai.activeModel || ai.model} • Key ID: ${ai.keyId || 'configurado'} (${ai.latencyMs ?? latencyMs}ms)`,
+              metrics: { latencyMs: ai.latencyMs ?? latencyMs }
+            };
+          }
+          if (ai?.configured) {
+            return {
+              name: 'Gateway de IA (NVIDIA NIM · Kimi K3.1 Pro)',
+              status: 'DEGRADED',
+              latencyMs,
+              lastChecked: new Date().toISOString(),
+              details: `Credencial configurada (${ai.model}), mas verificação ao vivo falhou: ${ai.error || 'indisponível'}.`
+            };
+          }
+        }
+      }
+    } catch {
+      // ignore fetch error when running without backend server
+    }
     return {
-      name: 'Integração de IA',
+      name: 'Gateway de IA (NVIDIA NIM · Kimi K3.1 Pro)',
       status: 'DEGRADED',
-      latencyMs: 0,
+      latencyMs: Number((performance.now() - t0).toFixed(2)),
       lastChecked: new Date().toISOString(),
-      details: 'Sem teste de endpoint autenticado nesta sessão. Estado do serviço externo não verificado.'
+      details: 'Sem resposta do endpoint /api/health nesta sessão. Estado do serviço externo não verificado.'
     };
   }
 

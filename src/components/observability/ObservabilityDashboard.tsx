@@ -46,7 +46,7 @@ export const ObservabilityDashboard: React.FC = () => {
           <div className="flex items-start justify-between gap-3">
             <h2 className="font-semibold">{item.name}</h2>
             <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${item.status === 'HEALTHY' ? 'bg-emerald-50 text-emerald-800' : item.status === 'DEGRADED' ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800'}`}>
-              {key === 'aiGateway' ? 'Não verificado' : item.status === 'HEALTHY' ? 'Teste local passou' : 'Requer atenção'}
+              {item.status === 'HEALTHY' ? (key === 'aiGateway' ? 'IA Verificada' : 'Teste local passou') : key === 'aiGateway' ? 'Não verificado' : 'Requer atenção'}
             </span>
           </div>
           <p className="mt-2 text-sm text-slate-600">{item.details}</p>

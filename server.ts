@@ -1,34 +1,20 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { registerAssemblyAiRoutes } from './server/assemblyAi';
+import {
+  callNvidiaNimChat,
+  isAiConfigured,
+  NVIDIA_KEY_ID,
+  NVIDIA_PRIMARY_MODEL,
+  type NimContentPart
+} from './server/nvidiaNim';
 
-dotenv.config({path:['.env.local','.env'],quiet:true});
+dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const GEMINI_FREE_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-
-// Instância do SDK oficial do Google GenAI
-// Create only on request so local tools also work without an AI credential.
-const getAi = () => new GoogleGenAI();
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs = 60000): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Tempo limite excedido na chamada da IA Gemini.')), timeoutMs);
-      })
-    ]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}
 
 export function createCncApp() {
   const app = express();
@@ -46,10 +32,9 @@ export function createCncApp() {
   registerAssemblyAiRoutes(app);
 
   /**
-   * Endpoint de Geração de Desenhos Vetoriais CNC CAD/CAM com IA (gemini-3.8-flash)
+   * Endpoint de Geração de Desenhos Vetoriais CNC CAD/CAM com IA (NVIDIA NIM / moonshotai/kimi-k3.1-pro)
    */
   app.post('/api/ai/generate-cad-vector', async (req, res) => {
-    // Input validation & sanitization to prevent prompt injection and DoS
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt || prompt.length > 4000) {
       res.status(400).json({ error: 'Prompt de desenho não fornecido ou muito longo (máximo 4000 caracteres).' });
@@ -67,53 +52,55 @@ export function createCncApp() {
 
     const style = typeof req.body?.style === 'string' ? req.body.style.slice(0, 64).replace(/[^\w\s-]/g, '') : 'cut_engrave';
     const targetMachine = typeof req.body?.targetMachine === 'string' ? req.body.targetMachine.slice(0, 64).replace(/[^\w\s-]/g, '') : 'laser';
+    const imageUrl = typeof req.body?.imageUrl === 'string' && req.body.imageUrl.startsWith('data:image/') && req.body.imageUrl.length <= 8_000_000
+      ? req.body.imageUrl
+      : undefined;
 
     try {
       const systemInstruction = `Você é o Engenheiro Chefe de CAD/CAM e Vetorização Industrial para máquinas de Corte Laser e Router CNC.
 Sua missão é gerar APENAS um código SVG técnico estritamente dimensional para revisão antes do corte.
 
 REGRAS DE CONSTRUÇÃO INDUSTRIAL CNC:
-1. O SVG deve ter viewBox="0 0 ${width} ${height}" width="${width}mm" height="${height}mm" data-thickness-mm="${thickness}".
+1. O SVG deve ter xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}mm" height="${height}mm" data-thickness-mm="${thickness}".
 2. CAMADA DE CORTE PASSANTE (Perímetros e furos vazados):
    - DEVE usar SEMPRE: stroke="#FF0000" stroke-width="0.8" fill="none" data-layer="cut"
-   - Todos os contornos de corte DEVEM ser FECHADOS (fecham com 'Z' ou são rect/circle/ellipse).
+   - Todos os contornos de corte DEVEM ser FECHADOS (fecham com 'Z' ou são rect/circle/ellipse/polygon).
+   - Deixe margem mínima de 2mm até as bordas do viewBox (coordenadas entre 2 e ${width - 2} no eixo X, e entre 2 e ${height - 2} no eixo Y).
    - NUNCA crie contornos de corte que se cruzem ou que tenham arestas duplicadas sobrepostas.
 3. CAMADA DE GRAVAÇÃO VETORIAL (Detalhes técnicos, textos ou texturas):
-   - DEVE usar SEMPRE: stroke="#0000FF" stroke-width="0.5" fill="none" data-layer="engrave"
-   - Não use corte quando for gravação.
+   - ${style === 'cut_only' ? 'NÃO inclua camada de gravação (apenas corte #FF0000).' : 'DEVE usar SEMPRE: stroke="#0000FF" stroke-width="0.5" fill="none" data-layer="engrave"'}
 4. METADADOS TÉCNICOS:
    - Inclua no início do SVG a tag <metadata id="cnc-metadata"> com materialThickness_mm="${thickness}" e defaultKerf_mm="${kerf}".
 5. RESPOSTA:
    - Para kits e pedidos de montagem, forneça TODAS as peças separadas na chapa com folga entre elas, identificadas por data-part. Nunca substitua o conjunto por um único painel.
-   - Responda EXCLUSIVAMENTE com o código SVG completo. Comece com <svg e termine com </svg>.`;
+   - Responda EXCLUSIVAMENTE com o código SVG completo. Comece com <svg e termine com </svg>, sem explicações fora do SVG.`;
 
-      const response = await withTimeout(
-        getAi().models.generateContent({
-          model: GEMINI_FREE_MODEL,
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Gere o arquivo SVG paramétrico para fabricação CNC da seguinte peça:
+      const userText = `Gere o arquivo SVG paramétrico para fabricação CNC da seguinte peça:
 Descrição: "${prompt}"
 Estilo: ${style}
 Máquina: ${targetMachine}
 Dimensões externas desejadas: ${width}mm x ${height}mm
 Espessura da chapa: ${thickness}mm
-Compensação de Kerf: ${kerf}mm`
-                }
-              ]
-            }
-          ],
-          config: {
-            systemInstruction,
-            temperature: 0.15,
-            maxOutputTokens: 8192
-          }
-        }),
-        60000
-      );
+Compensação de Kerf: ${kerf}mm`;
+
+      const userContent: string | NimContentPart[] = imageUrl
+        ? [
+            { type: 'text', text: userText },
+            { type: 'image_url', image_url: { url: imageUrl } }
+          ]
+        : userText;
+
+      const response = await callNvidiaNimChat({
+        model: NVIDIA_PRIMARY_MODEL,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userContent }
+        ],
+        maxTokens: 6144,
+        temperature: 0.15,
+        reasoningEffort: 'low',
+        timeoutMs: 55000
+      });
 
       const responseText = response.text || '';
       const svgMatch = responseText.match(/<svg[\s\S]*?<\/svg>/i);
@@ -123,7 +110,8 @@ Compensação de Kerf: ${kerf}mm`
 
       res.json({
         success: true,
-        modelUsed: GEMINI_FREE_MODEL,
+        provider: response.provider,
+        modelUsed: response.model,
         svgContent: svgMatch[0],
         title: prompt.slice(0, 36).trim(),
         widthMm: width,
@@ -132,20 +120,19 @@ Compensação de Kerf: ${kerf}mm`
         timestamp: new Date().toISOString()
       });
     } catch (error: any) {
-      console.warn('Falha na API Gemini CAD Vector:', {status:error?.status});
+      console.warn('Falha na API NVIDIA NIM CAD Vector:', { status: error?.status, message: error?.message });
       res.status(503).json({
         error: 'Serviço da IA indisponível no momento. Tente novamente.',
-        modelUsed: GEMINI_FREE_MODEL,
+        modelUsed: NVIDIA_PRIMARY_MODEL,
         useFallback: true
       });
     }
   });
 
   /**
-   * Endpoint de Otimização e Enriquecimento Técnico de Prompts CAD com IA (gemini-3.8-flash)
+   * Endpoint de Otimização e Enriquecimento Técnico de Prompts CAD com IA (NVIDIA NIM / moonshotai/kimi-k3.1-pro)
    */
   app.post('/api/ai/optimize-prompt', async (req, res) => {
-    // Input validation & sanitization to prevent prompt injection and DoS
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt || prompt.length > 4000) {
       res.status(400).json({ error: 'Prompt não fornecido ou muito longo (máximo 4000 caracteres).' });
@@ -160,45 +147,44 @@ Compensação de Kerf: ${kerf}mm`
       const systemInstruction = `Você é um especialista em preparação de arquivos CAD para corte laser e fresadoras CNC.
 Enriqueça a descrição informal do usuário transformando-a em um prompt técnico de engenharia de precisão em Português do Brasil.
 Especifique:
-- Tolerância geométrica e encaixes mecânicos (ex: dentes finger joint, espiga e rasgo mortise).
-- Espessura do material (${thickness}mm) e compensação de kerf.
-- Separação estrita de camadas: corte passante em vermelho #FF0000 e gravação em azul #0000FF.
-- Forneça apenas o texto aprimorado final, claro e conciso (máximo 3 linhas).`;
+- Tolerância geométrica e encaixes mecânicos quando aplicável (ex: dentes finger joint, espiga e rasgo mortise).
+- Espessura do material (${thickness}mm) e compensação de kerf (0.15mm).
+- Separação estrita de camadas: corte passante fechado em vermelho #FF0000 e gravação em azul #0000FF.
+- Forneça APENAS o texto aprimorado final em Português do Brasil, claro e conciso (máximo 3 frases, sem aspas externas e sem markdown).`;
 
-      const response = await withTimeout(
-        getAi().models.generateContent({
-          model: GEMINI_FREE_MODEL,
-          contents: `Melhore este prompt para fabricação CNC: "${prompt}"`,
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-            maxOutputTokens: 300
-          }
-        }),
-        30000
-      );
+      const response = await callNvidiaNimChat({
+        model: NVIDIA_PRIMARY_MODEL,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `Melhore este prompt para fabricação CNC (${machine}, chapa ${thickness}mm): "${prompt}"` }
+        ],
+        maxTokens: 350,
+        temperature: 0.2,
+        reasoningEffort: 'low',
+        timeoutMs: 25000
+      });
 
-      const optimized = (response.text || '').trim();
+      const optimized = (response.text || '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
       res.json({
         success: true,
         optimizedPrompt: optimized || prompt,
-        modelUsed: GEMINI_FREE_MODEL
+        provider: response.provider,
+        modelUsed: response.model
       });
     } catch (error: any) {
-      console.warn('Fallback da otimização de prompt ativado:', {status:error?.status});
+      console.warn('Fallback da otimização de prompt ativado:', { status: error?.status });
       res.json({
         success: true,
         optimizedPrompt: `${prompt}, contorno fechado em corte passante (#FF0000) e gravação de detalhes (#0000FF), espessura ${thickness}mm com encaixes tolerados para máquina ${machine}.`,
-        modelUsed: `${GEMINI_FREE_MODEL} (modo tolerante)`
+        modelUsed: `${NVIDIA_PRIMARY_MODEL} (modo local)`
       });
     }
   });
 
   /**
-   * Endpoint de Diagnóstico Inteligente de G-code CAM com IA (gemini-3.8-flash)
+   * Endpoint de Diagnóstico Inteligente de G-code CAM com IA (NVIDIA NIM / moonshotai/kimi-k3.1-pro)
    */
   app.post('/api/ai/diagnose-gcode', async (req, res) => {
-    // Input validation & sanitization to prevent prompt injection and DoS
     const gcode = typeof req.body?.gcode === 'string' ? req.body.gcode.trim() : '';
     if (!gcode || gcode.length > 1000000) {
       res.status(400).json({ error: 'Código G-code não fornecido ou excede o limite máximo (1MB).' });
@@ -206,72 +192,56 @@ Especifique:
     }
 
     const machineType = typeof req.body?.machineType === 'string' ? req.body.machineType.slice(0, 64).replace(/[^\w\s-]/g, '') : 'laser';
-    const sampleGcode = gcode.slice(0, 4000);
+    const sampleGcode = gcode.slice(0, 6000);
 
     try {
       const systemInstruction = `Você é um engenheiro de aplicação CAM industrial de CNC Laser e Router.
-Analise a amostra de G-code fornecida e retorne um diagnóstico técnico estruturado em JSON com os seguintes campos:
+Analise a amostra de G-code fornecida e retorne um diagnóstico técnico estruturado em JSON válido em Português do Brasil com os seguintes campos:
 {
   "status": "clear" | "warning",
-  "motionCount": número aproximado de comandos de movimentação,
-  "estimatedTimeFormatted": tempo estimado legível (ex: "4m 20s"),
+  "motionCount": número aproximado de comandos de movimentação (G00/G01/G02/G03),
+  "estimatedTimeFormatted": tempo estimado legível (ex: "3m 45s"),
   "riskLevel": "baixo" | "médio" | "alto",
-  "insights": [ "array de pontos de atenção, verificações de coordenadas G21/G90, avanços F e comandos de laser/spindle" ],
-  "recommendations": [ "recomendações técnicas diretas para o operador" ]
+  "insights": [ "array de pontos de atenção encontrados no código: coordenadas G21/G90, desligamento M05, avanços F, potência/rotação S e alturas Z" ],
+  "recommendations": [ "recomendações técnicas diretas para o operador antes de iniciar a usinagem/corte" ]
 }
-Responda APENAS o JSON válido.`;
+Responda APENAS o JSON válido, sem markdown.`;
 
-      const response = await withTimeout(
-        getAi().models.generateContent({
-          model: GEMINI_FREE_MODEL,
-          contents: `Analise este G-code para máquina ${machineType}:\n\n${sampleGcode}`,
-          config: {
-            systemInstruction,
-            temperature: 0.1,
-            responseMimeType: 'application/json'
-          }
-        }),
-        30000
-      );
+      const response = await callNvidiaNimChat({
+        model: NVIDIA_PRIMARY_MODEL,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `Analise este G-code para máquina ${machineType}:\n\n${sampleGcode}` }
+        ],
+        maxTokens: 1024,
+        temperature: 0.1,
+        reasoningEffort: 'low',
+        timeoutMs: 30000,
+        jsonMode: true
+      });
 
-      let parsedResult;
-      try {
-        parsedResult = JSON.parse(response.text || '{}');
-      } catch {
-        parsedResult = {
-          status: 'clear',
-          motionCount: 50,
-          estimatedTimeFormatted: 'Cálculo local',
-          riskLevel: 'baixo',
-          insights: [response.text || 'Análise concluída.'],
-          recommendations: ['Confira as coordenadas de zero peça antes de iniciar.']
-        };
-      }
-
+      const parsedResult = JSON.parse(response.text || '{}');
       res.json({
         success: true,
-        diagnostic: parsedResult,
-        modelUsed: GEMINI_FREE_MODEL
+        aiVerified: true,
+        provider: response.provider,
+        diagnostic: {
+          status: parsedResult.status === 'warning' ? 'warning' : 'clear',
+          motionCount: Number(parsedResult.motionCount) || (gcode.match(/\bG0?[0123]\b/gi) || []).length,
+          estimatedTimeFormatted: parsedResult.estimatedTimeFormatted || 'Calculado pela IA',
+          riskLevel: parsedResult.riskLevel || 'baixo',
+          insights: Array.isArray(parsedResult.insights) ? parsedResult.insights : [],
+          recommendations: Array.isArray(parsedResult.recommendations) ? parsedResult.recommendations : []
+        },
+        modelUsed: response.model
       });
     } catch (error: any) {
-      console.warn('Fallback do diagnóstico G-code ativado:', error?.message);
-      res.json({
-        success: true,
-        diagnostic: {
-          status: 'clear',
-          motionCount: Math.max(12, (gcode.match(/\bG[0123]\b/gi) || []).length),
-          estimatedTimeFormatted: 'Cálculo CAM',
-          riskLevel: 'baixo',
-          insights: [
-            'Programa verificado pelo analisador de conformidade estrutural CAM.',
-            'G21 (milímetros) e G90 (absoluto) validados para o sistema de coordenadas.'
-          ],
-          recommendations: [
-            'Confira a fixação mecânica do material e o ponto de origem (X0 Y0 Z0).',
-            'Execute um teste de aproximação a seco antes do disparo contínuo.'
-          ]
-        },
-        modelUsed: `${GEMINI_FREE_MODEL} (modo tolerante)`
+      console.warn('Diagnóstico de IA G-code indisponível:', error?.message);
+      res.status(503).json({
+        success: false,
+        aiVerified: false,
+        error: 'A análise remota de IA não pôde ser concluída neste momento. Consulte a verificação sintática local.',
+        modelUsed: NVIDIA_PRIMARY_MODEL
       });
     }
   });
@@ -305,7 +275,11 @@ async function startServer() {
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`[Servidor CNC] Rodando na porta ${port}. Credencial de IA ${process.env.GEMINI_API_KEY||process.env.GOOGLE_API_KEY?'configurada':'ausente'}.`);
+    console.log(
+      `[Servidor CNC] Rodando na porta ${port}. IA NVIDIA NIM (${NVIDIA_PRIMARY_MODEL}, Key ID ${NVIDIA_KEY_ID}): ${
+        isAiConfigured() ? 'configurada e ativa' : 'ausente'
+      }.`
+    );
   });
 }
 

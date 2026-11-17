@@ -5,7 +5,7 @@ export interface AssemblyAiPlan {
   params: AssemblyParams;
 }
 export interface AssemblyAiResult {
-  success: true; source: 'ai'; provider: 'gemini'; modelUsed: string; generatedAt: string; plan: AssemblyAiPlan;
+  success: true; source: 'ai'; provider: 'nvidia' | 'gemini'; modelUsed: string; generatedAt: string; plan: AssemblyAiPlan;
 }
 
 const number=(min:number,max:number)=>({type:'number',minimum:min,maximum:max});
@@ -34,8 +34,9 @@ export function validateAssemblyDefaults(value:unknown):AssemblyParams {
   if(!isRecord(value))throw new Error('Informe parâmetros válidos para a montagem.');
   const numeric=['width','depth','height','thickness','tabWidth','clearance','kerf','shelves'];
   if(!numeric.every(k=>typeof value[k]==='number'&&Number.isFinite(value[k]))||typeof value.lid!=='boolean')throw new Error('Informe medidas numéricas e parâmetros completos.');
+  const normalizedShelves = value.model !== 'shelf' && value.shelves === 0 ? 2 : value.shelves;
   // Copy only the known properties. Untrusted extra keys never enter metadata or prompts.
-  const params:AssemblyParams={model:value.model,width:value.width,depth:value.depth,height:value.height,thickness:value.thickness,tabWidth:value.tabWidth,clearance:value.clearance,kerf:value.kerf,lid:value.lid,shelves:value.shelves};
+  const params:AssemblyParams={model:value.model,width:value.width,depth:value.depth,height:value.height,thickness:value.thickness,tabWidth:value.tabWidth,clearance:value.clearance,kerf:value.kerf,lid:value.lid,shelves:normalizedShelves};
   if(value.openings!==undefined){
     if(!Array.isArray(value.openings)||value.openings.length>16)throw new Error('Informe até 16 aberturas.');
     params.openings=value.openings.map(o=>{

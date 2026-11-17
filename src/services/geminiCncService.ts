@@ -63,7 +63,7 @@ export interface GeneratedCncVector {
 export function createStandardMetadataBlock(
   thicknessMm = 3.0,
   kerfMm = 0.15,
-  modelName = 'gemini-3.8-flash'
+  modelName = 'moonshotai/kimi-k3.1-pro'
 ): CncMetadataBlock {
   return {
     materialThickness_mm: thicknessMm,
@@ -831,14 +831,14 @@ export async function generateCncVector(
 
         return {
           title: data.title || prompt.slice(0, 36).trim(),
-          description: `Projeto gerado por IA (${data.modelUsed || 'gemini-3.8-flash'}). Pré-processamento Paper.js: ${preprocessed.details}.`,
+          description: `Projeto gerado por IA (${data.modelUsed || 'moonshotai/kimi-k3.1-pro'}). Pré-processamento Paper.js: ${preprocessed.details}.`,
           widthMm: metrics.widthMm || width,
           heightMm: metrics.heightMm || height,
           svgContent: finalSvg,
           recommendedMaterial: `MDF Cru ou Acrílico Cast ${thicknessMm}mm`,
           recommendedThicknessMm: thicknessMm,
           materialThickness_mm: thicknessMm,
-          metadata: createStandardMetadataBlock(thicknessMm, kerfMm, data.modelUsed || 'gemini-3.8-flash'),
+          metadata: createStandardMetadataBlock(thicknessMm, kerfMm, data.modelUsed || 'moonshotai/kimi-k3.1-pro'),
           cutLengthMm: metrics.totalCutLengthMm,
           engraveAreaCm2: metrics.engraveAreaCm2,
           estimatedLaserTimeSec: Math.round(metrics.totalCutLengthMm / 25) + 14,

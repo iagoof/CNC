@@ -7,15 +7,22 @@ import { printDocument } from '../../utils/printDocument';
 interface FiscalShippingViewProps {
   orders: SalesOrder[];
   company: CompanyProfile;
+  onUpdateOrder?: (order: SalesOrder) => Promise<void>;
 }
 
-export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, company }) => {
+export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, company, onUpdateOrder }) => {
   const [selectedOrderId, setSelectedOrderId] = useState(orders[0]?.id || '');
   const [activeTab, setActiveTab] = useState<'summary' | 'label'>('summary');
   const [feedback, setFeedback] = useState('');
   const [actionError, setActionError] = useState('');
   const [printing, setPrinting] = useState(false);
+  const [updatingOrder, setUpdatingOrder] = useState(false);
   const activeOrder = orders.find(order => order.id === selectedOrderId) || orders[0];
+  const [trackingDraft, setTrackingDraft] = useState(activeOrder?.trackingCode || '');
+  React.useEffect(() => {
+    setTrackingDraft(activeOrder?.trackingCode || '');
+  }, [activeOrder?.id, activeOrder?.trackingCode]);
+
   const documents = useMemo(() => {
     if (!activeOrder) return { summary: '', label: '', zpl: '', error: '', zplError: '' };
     try {
@@ -90,6 +97,99 @@ export const FiscalShippingView: React.FC<FiscalShippingViewProps> = ({ orders, 
             {activeOrder.invoiceKey && <p className="break-all">Chave informada no pedido: {activeOrder.invoiceKey}. Autorização não verificada.</p>}
           </div>
         </details>
+        {onUpdateOrder && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4 text-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Atualização Comercial e Logística</h2>
+                <p className="text-slate-500">Confirme recebimento, etapa de expedição e código de rastreio para código de barras ZPL.</p>
+              </div>
+              {activeOrder.paymentStatus !== 'Pago' ? (
+                <button
+                  type="button"
+                  disabled={updatingOrder}
+                  onClick={async () => {
+                    clearFeedback();
+                    setUpdatingOrder(true);
+                    try {
+                      await onUpdateOrder({ ...activeOrder, paymentStatus: 'Pago', paidAt: new Date().toISOString() });
+                      setFeedback('Pagamento confirmado no pedido.');
+                    } catch (e) {
+                      setActionError(e instanceof Error ? e.message : 'Falha ao confirmar pagamento.');
+                    } finally {
+                      setUpdatingOrder(false);
+                    }
+                  }}
+                  className="rounded-lg bg-emerald-600 hover:bg-emerald-700 px-3 py-2 font-bold text-white transition cursor-pointer disabled:opacity-50"
+                >
+                  Confirmar Pagamento (R$ {activeOrder.total.toFixed(2)})
+                </button>
+              ) : (
+                <span className="rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 font-bold text-emerald-700">
+                  Pago em {activeOrder.paidAt ? new Date(activeOrder.paidAt).toLocaleDateString('pt-BR') : 'data registrada'}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+              <label className="block font-medium text-slate-700">
+                Status de Expedição
+                <select
+                  disabled={updatingOrder}
+                  value={activeOrder.fulfillmentStatus}
+                  onChange={async e => {
+                    clearFeedback();
+                    setUpdatingOrder(true);
+                    try {
+                      await onUpdateOrder({ ...activeOrder, fulfillmentStatus: e.target.value as SalesOrder['fulfillmentStatus'] });
+                      setFeedback('Status de expedição atualizado.');
+                    } catch (err) {
+                      setActionError(err instanceof Error ? err.message : 'Falha ao atualizar expedição.');
+                    } finally {
+                      setUpdatingOrder(false);
+                    }
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 p-2 font-semibold"
+                >
+                  {(['Pendente', 'Em Produção', 'Separado', 'Nota Emitida', 'Enviado', 'Entregue'] as const).map(st => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block font-medium text-slate-700 sm:col-span-2">
+                Código de Rastreamento (gera código de barras Code 128 na etiqueta ZPL)
+                <div className="mt-1 flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={24}
+                    placeholder="Ex: BR998877665MG"
+                    value={trackingDraft}
+                    onChange={e => setTrackingDraft(e.target.value.toUpperCase())}
+                    className="flex-1 rounded-lg border border-slate-300 bg-slate-50 p-2 font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={updatingOrder}
+                    onClick={async () => {
+                      clearFeedback();
+                      setUpdatingOrder(true);
+                      try {
+                        await onUpdateOrder({ ...activeOrder, trackingCode: trackingDraft.trim() || undefined });
+                        setFeedback('Código de rastreamento salvo no pedido.');
+                      } catch (err) {
+                        setActionError(err instanceof Error ? err.message : 'Falha ao salvar rastreamento.');
+                      } finally {
+                        setUpdatingOrder(false);
+                      }
+                    }}
+                    className="rounded-lg bg-amber-500 hover:bg-amber-600 px-3 py-2 font-bold text-white cursor-pointer disabled:opacity-50"
+                  >
+                    Salvar Rastreio
+                  </button>
+                </div>
+              </label>
+            </div>
+          </section>
+        )}
         {(documents.error || actionError) && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{documents.error || actionError}</p>}
         {feedback && <p role="status" className="text-sm text-emerald-700">{feedback}</p>}
         {!documents.error && <>

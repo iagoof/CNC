@@ -1,7 +1,17 @@
 import type { NestingTransfer } from './utils/nestingEngine';
 import { APP_RELEASE } from './version';
 import React, { useState, useEffect, useRef } from 'react';
-import { INITIAL_COMPANY, INITIAL_FIXED_COSTS, INITIAL_TAXES } from './data/initialData';
+import {
+  INITIAL_COMPANY,
+  INITIAL_FIXED_COSTS,
+  INITIAL_TAXES,
+  INITIAL_MACHINES,
+  INITIAL_MATERIALS,
+  INITIAL_PRODUCTS,
+  INITIAL_PRODUCTION_ORDERS,
+  INITIAL_SALES_ORDERS,
+  INITIAL_QUOTES
+} from './data/initialData';
 import {
   CompanyProfile,
   UF,
@@ -60,8 +70,6 @@ export default function App() {
     syncCompanySettingsMutation,
     financialSettings,
     syncFinancialSettingsMutation,
-    syncOrderMutation,
-    deleteOrderMutation,
     syncQuoteMutation,
     deleteQuoteMutation,
     syncMaterialMutation,
@@ -69,18 +77,16 @@ export default function App() {
     products: remoteProducts,
     syncProductMutation,
     adjustStockMutation,
-    deleteProductMutation,
     salesOrders: remoteSalesOrders,
+    syncSalesOrderMutation,
     createCatalogOrderMutation,
     convertQuoteMutation,
-    deleteSalesOrderMutation,
     machines: remoteMachines,
     syncMachineMutation,
     deleteMachineMutation
   } = useFirebase();
 
-  const storageKey = (key: string) => `shared_cnc_store:${key}`;
-  // Account-scoped local recovery cache.
+  const storageKey = (key: string) => `shared_cnc_store_v2:${key}`;
   const VALID_TABS = [
     'dashboard', 'studio-ai', 'studio', 'cam-ai', 'nesting',
     'pricing', 'quotes', 'production', 'inventory', 'catalog',
@@ -112,6 +118,7 @@ export default function App() {
     }
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
   const [actionError, setActionError] = useState<string | null>(null);
   const [newQuoteToken, setNewQuoteToken] = useState(0);
   const [quoteDraftTransfer, setQuoteDraftTransfer] = useState<{ accountId: string; item: QuoteItem } | null>(null);
@@ -119,52 +126,22 @@ export default function App() {
   const [camTransfer, setCamTransfer] = useState<CamTransferData | null>(null);
   const [studioModel, setStudioModel] = useState<string>('caixa-fingerjoint');
   const [studioTransfer, setStudioTransfer] = useState<{ accountId: string; artifact: GeneratedVectorArtifact } | null>(null);
-  const emptyCompany: CompanyProfile = {
-    name: '',
-    tradeName: '',
-    cnpj: '',
-    ie: '',
-    uf: 'MG',
-    city: '',
-    address: '',
-    cep: '',
-    phone: '',
-    email: '',
-    whatsappMessageTemplate: 'Olá {cliente}! Seu orçamento #{numero} para corte e usinagem CNC ficou em {valor}. Prazo estimado de produção: {prazo} dias úteis.'
-  };
-  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), emptyCompany);
-  const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), []);
-  const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), []);
-  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), []);
-  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 0);
-  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), []);
-  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), []);
-  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), []);
-  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), []);
-  const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), []);
 
-  // Remove only the unchanged demo financial defaults left by older local versions.
-  useEffect(() => {
-    const demoFields: (keyof CompanyProfile)[] = ['name', 'tradeName', 'cnpj', 'ie', 'city', 'address', 'cep', 'phone', 'email'];
-    if (demoFields.every(field => company[field] === INITIAL_COMPANY[field])) setCompany(emptyCompany);
-    if (JSON.stringify(fixedCosts) === JSON.stringify(INITIAL_FIXED_COSTS)) {
-      setFixedCosts([]);
-      if (monthlyRevenueTarget === 35000) setMonthlyRevenueTarget(0);
-    }
-    if (JSON.stringify(taxes) === JSON.stringify(INITIAL_TAXES)) setTaxes([]);
-  }, [company, fixedCosts, monthlyRevenueTarget, taxes, setCompany, setFixedCosts, setMonthlyRevenueTarget, setTaxes]);
+  const [company, setCompany] = useLocalStorageState<CompanyProfile>(storageKey('cnc_company'), INITIAL_COMPANY);
+  const [machines, setMachines] = useLocalStorageState<Machine[]>(storageKey('cnc_machines'), INITIAL_MACHINES);
+  const [materials, setMaterials] = useLocalStorageState<Material[]>(storageKey('cnc_materials'), INITIAL_MATERIALS);
+  const [fixedCosts, setFixedCosts] = useLocalStorageState<FixedCost[]>(storageKey('cnc_fixed_costs'), INITIAL_FIXED_COSTS);
+  const [monthlyRevenueTarget, setMonthlyRevenueTarget] = useLocalStorageState<number>(storageKey('cnc_revenue_target'), 35000);
+  const [taxes, setTaxes] = useLocalStorageState<TaxConfig[]>(storageKey('cnc_taxes'), INITIAL_TAXES);
+  const [inventory, setInventory] = useLocalStorageState<ProductInventory[]>(storageKey('cnc_inventory'), INITIAL_PRODUCTS);
+  const [productionOrders, setProductionOrders] = useLocalStorageState<ProductionOrder[]>(storageKey('cnc_production_orders'), INITIAL_PRODUCTION_ORDERS);
+  const [salesOrders, setSalesOrders] = useLocalStorageState<SalesOrder[]>(storageKey('cnc_sales_orders'), INITIAL_SALES_ORDERS);
+  const [quotes, setQuotes] = useLocalStorageState<Quote[]>(storageKey('cnc_quotes'), INITIAL_QUOTES);
 
-  // Sincronização em tempo real com Firestore quando autenticado
+  // Sincronização em tempo real com a camada de persistência (Local Transactional Store / Cloud Firestore)
   useEffect(() => {
-    if (!user) {
-      setProductionOrders([]);
-      setMaterials([]);
-      setQuotes([]);
-      setInventory([]);
-      setSalesOrders([]);
-      setMachines([]);
-      return;
-    }
+    if (!user) return;
+
     const unsubOrders = subscribeToOrders(user.uid, remoteOrders => {
       if (remoteOrders) {
         setProductionOrders(remoteOrders);
@@ -188,7 +165,7 @@ export default function App() {
     };
   }, [user]);
 
-  // Sincroniza produtos, pedidos de venda e máquinas vindos do Firestore
+  // Sincroniza produtos, pedidos de venda e máquinas vindos do store
   useEffect(() => {
     if (user && remoteProducts !== null) {
       setInventory(remoteProducts);
@@ -207,7 +184,7 @@ export default function App() {
     }
   }, [user, remoteMachines]);
 
-  // Sincroniza configurações da empresa vindas da nuvem Firestore
+  // Sincroniza configurações da empresa
   useEffect(() => {
     if (user && companySettings) {
       setCompany(prev => ({
@@ -233,7 +210,7 @@ export default function App() {
     setMonthlyRevenueTarget(financialSettings.monthlyRevenueTarget || 0);
   }, [user, financialSettings, setFixedCosts, setTaxes, setMonthlyRevenueTarget]);
 
-  // Handlers com persistência em nuvem Firestore
+  // Handlers com persistência transacional
   const handleSaveCompany = async (updated: CompanyProfile) => {
     if (!user) throw new Error('Entre na sua conta para salvar o perfil da oficina.');
     await syncCompanySettingsMutation({
@@ -263,15 +240,12 @@ export default function App() {
     await deleteQuoteMutation(quoteId);
   };
 
-  // Stored part for transfer between Studio and Nesting
   const [nestingTransferPart, setNestingTransferPart] = useState<NestingTransfer | null>(null);
 
-  // Handlers for Stock updates
   const handleUpdateStock = async (sku: string, delta: number) => {
     await adjustStockMutation(sku, delta);
   };
 
-  // Handlers for Production Orders (Kanban & Bipagem) com Sincronização Cloud
   const handleUpdateOrderStatus = async (orderId: string, newStatus: ProductionOrder['status']) => {
     try {
       if (!user) throw new Error('Entre na sua conta para alterar a produção.');
@@ -312,7 +286,6 @@ export default function App() {
     setActiveTab('production');
   };
 
-  // Handlers for Sales Orders (Store & Marketplaces)
   const handlePlaceOrder = async (orderData: Partial<SalesOrder>) => {
     if (!user) throw new Error('Entre na sua conta para registrar pedidos.');
     if (!orderData.items?.length || orderData.items.some(i => !Number.isSafeInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) { setActionError('Revise os itens do pedido.'); return false; }
@@ -341,12 +314,10 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    // Confirm the atomic remote transaction; snapshots update order and stock.
     await createCatalogOrderMutation(fullOrder);
     return true;
   };
 
-  // Quotes handlers com Sincronização Cloud
   const handleSaveQuote = async (quote: Quote) => {
     await syncQuoteMutation(quote);
     setQuotes(prev => {
@@ -356,7 +327,6 @@ export default function App() {
     });
   };
 
-  // The conversion is validated before any local or remote mutation.
   const handleConvertQuoteToOrder = async (quote: Quote) => {
     if (conversionInProgress.current.has(quote.id)) throw new Error('A conversão deste orçamento já está em andamento.');
     conversionInProgress.current.add(quote.id);
@@ -369,10 +339,42 @@ export default function App() {
     } finally { conversionInProgress.current.delete(quote.id); }
   };
 
-  // Transfer from Design Studio to Nesting
   const handleSendToNesting = (part: NestingTransfer) => {
     setNestingTransferPart({ ...part, transferId: crypto.randomUUID(), accountId: user?.uid || 'guest' });
     setActiveTab('nesting');
+  };
+
+  const handleSendToCam = (gcode: string, machineType: 'laser' | 'router') => {
+    setCamTransfer({ gcode, machineType: machineType === 'router' ? 'Router' : 'CO2', fileName: 'Projeto do Design Studio', cutLength_mm: 0 });
+    setActiveTab('cam-ai');
+  };
+
+  const handleSendToQuote = (item: {
+    description: string;
+    materialId: string;
+    cutLength_mm: number;
+    engraveArea_cm2: number;
+    machineId: string;
+    quantity: number;
+    width_mm: number;
+    height_mm: number;
+  }) => {
+    const newQuoteItem: QuoteItem = {
+      id: entityId('qi'),
+      description: item.description,
+      materialId: item.materialId,
+      cutLength_mm: item.cutLength_mm,
+      engraveArea_cm2: item.engraveArea_cm2,
+      machineId: item.machineId,
+      quantity: item.quantity,
+      additionalCost: 0,
+      customKerf_mm: 0.15,
+      width_mm: item.width_mm,
+      height_mm: item.height_mm
+    };
+    setQuoteDraftTransfer({ accountId: user?.uid || 'guest', item: newQuoteItem });
+    setNewQuoteToken(value => value + 1);
+    setActiveTab('quotes');
   };
 
   const handleCreateProduct = async (newProduct: ProductInventory) => {
@@ -388,18 +390,18 @@ export default function App() {
 
   const tabTitles: Record<string, { title: string; subtitle: string }> = {
     dashboard: { title: 'Painel Geral da Oficina', subtitle: 'Gestão, ritmo e metas da oficina' },
-    'studio-ai': { title: 'Estúdio Vetorial', subtitle: 'Kits com encaixes, montagem 3D e vetores para corte laser' },
+    'studio-ai': { title: 'Estúdio Vetorial', subtitle: 'Kits com encaixes, montagem 3D e vetores para corte laser com IA NVIDIA NIM' },
     studio: { title: 'Estúdio CAD 3D & Montagem', subtitle: 'Montagem das peças de corte, espigas e rasgos, folga e vista explodida' },
-    'cam-ai': { title: 'Diagnóstico CAM & G-Code', subtitle: 'Inspeção local do programa e prévia 2D de movimentos lineares' },
+    'cam-ai': { title: 'Diagnóstico CAM & G-Code', subtitle: 'Inspeção de programa com IA (Kimi K3.1 Pro) e prévia 2D de movimentos lineares' },
     nesting: { title: 'Nesting de Chapas (MaxRects Client-Side)', subtitle: 'Aproveitamento de matéria-prima, retalhos e exportação DXF/SVG' },
     pricing: { title: 'Formação de Preço (Mark-up Divisor)', subtitle: 'Cálculo de custos diretos, margem segura e trava antifraude' },
     quotes: { title: 'Gerador de Orçamentos', subtitle: 'Propostas comerciais com envio e mensagem para WhatsApp' },
     production: { title: 'Chão de Fábrica & Kanban CNC', subtitle: 'Fluxo visual de ordens, bipagem de código de barras e tempos de máquina' },
     inventory: { title: 'Controle de Estoque por SKU', subtitle: 'Saldo Físico, Comprometido, Disponível e Ponto de Pedido' },
-    catalog: { title: 'Catálogo & Pedidos', subtitle: 'Produtos e registro de pedidos com pagamento pendente' },
-    fiscal: { title: 'Documentos & Expedição', subtitle: 'Resumo dos pedidos e identificação interna em ZPL' },
-    observability: { title: 'Diagnóstico Local', subtitle: 'Verificações do navegador, logs e métricas desta sessão' },
-    settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, custos fixos e CEMIG (MG)' }
+    catalog: { title: 'Catálogo & Pedidos', subtitle: 'Produtos e registro de pedidos com reserva de estoque' },
+    fiscal: { title: 'Documentos & Expedição', subtitle: 'Resumo dos pedidos, confirmação de pagamento e identificação interna em ZPL' },
+    observability: { title: 'Diagnóstico Local & Gateway IA', subtitle: 'Verificações do navegador, gateway NVIDIA NIM, logs e métricas desta sessão' },
+    settings: { title: 'Cadastros Técnicos & Tarifas', subtitle: 'Parâmetros de máquinas, chapas, velocidades, custos fixos e CEMIG (MG)' }
   };
 
   const technicalReady = materials.length > 0 && machines.length > 0;
@@ -429,22 +431,18 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900 font-sans">
-      {/* Left Sidebar Fixed Navigation */}
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         company={company}
       />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50">
-        {/* Clean, Modern Top Header Bar */}
         <header className="h-14 bg-white border-b border-slate-200/80 px-6 flex items-center justify-between shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.03)] z-20 print:hidden">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-bold text-slate-800 tracking-tight">
               {tabTitles[activeTab]?.title || 'CNC APP'}
             </h2>
-
           </div>
 
           <div className="flex items-center gap-3">
@@ -457,14 +455,14 @@ export default function App() {
               <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-slate-200 bg-white p-4 shadow-lg space-y-3 text-xs text-slate-600">
                 <h3 className="font-semibold text-slate-900">Informações da oficina</h3>
                 <dl className="space-y-3">
-                  <div className="flex justify-between gap-3"><dt>Firestore</dt><dd>{isAuthenticated ? 'Conta conectada' : 'Conta não conectada'}</dd></div>
+                  <div className="flex justify-between gap-3"><dt>Persistência</dt><dd>{isAuthenticated ? 'Oficina Ativa' : 'Conta não conectada'}</dd></div>
+                  <div className="flex justify-between gap-3"><dt>IA Conectada</dt><dd>NVIDIA NIM (Kimi K3.1 Pro)</dd></div>
                   <div className="flex justify-between gap-3"><dt>Máquinas cadastradas</dt><dd>{machines.length}</dd></div>
                   <div className="flex justify-between gap-3"><dt>Energia ({company.uf})</dt><dd>{TARIFA_ENERGIA_POR_UF[company.uf].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/kWh</dd></div>
                 </dl>
               </div>
             </details>
 
-            {/* Quick Action button */}
             <button
               onClick={() => { setNewQuoteToken(n => n + 1); setActiveTab('quotes'); }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
@@ -475,7 +473,6 @@ export default function App() {
         </header>
 
         {actionError && <div role="alert" className="flex items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-800"><span>{actionError}</span><button onClick={() => setActionError(null)} className="underline">Fechar</button></div>}
-        {/* Main App Body View Router */}
         <main className="flex-1 overflow-hidden relative bg-slate-50">
           {requiresTechnicalSetup && !technicalReady && <div className="mx-auto max-w-lg p-8 text-center"><h1 className="text-lg font-bold">Configure sua oficina</h1><p className="my-4 text-sm text-slate-600">Cadastre ao menos um material e uma máquina para criar projetos e calcular preços.</p><button className="rounded-lg bg-amber-500 px-4 py-2 text-sm text-white" onClick={() => setActiveTab('settings')}>Abrir cadastros técnicos</button></div>}
           {activeTab === 'dashboard' && (
@@ -487,6 +484,7 @@ export default function App() {
               machines={machines}
               inventory={inventory}
               onNavigateTab={setActiveTab}
+              onUpdateOrder={syncSalesOrderMutation}
             />
           )}
 
@@ -500,28 +498,8 @@ export default function App() {
                 setActiveTab('studio');
               }}
               onSendToNesting={handleSendToNesting}
-              onSendToCam={(gcode, machineType) => {
-                setCamTransfer({ gcode, machineType: machineType === 'router' ? 'Router' : 'CO2', fileName: 'Projeto do Design Studio', cutLength_mm: 0 });
-                setActiveTab('cam-ai');
-              }}
-              onSendToQuote={item => {
-                const newQuoteItem: QuoteItem = {
-                  id: entityId('qi'),
-                  description: item.description,
-                  materialId: item.materialId,
-                  cutLength_mm: item.cutLength_mm,
-                  engraveArea_cm2: item.engraveArea_cm2,
-                  machineId: item.machineId,
-                  quantity: item.quantity,
-                  additionalCost: 0,
-                  customKerf_mm: 0.15,
-                  width_mm: item.width_mm,
-                  height_mm: item.height_mm
-                };
-                setQuoteDraftTransfer({ accountId: user?.uid || 'guest', item: newQuoteItem });
-                setNewQuoteToken(value => value + 1);
-                setActiveTab('quotes');
-              }}
+              onSendToCam={handleSendToCam}
+              onSendToQuote={handleSendToQuote}
               onSendToProduction={handleCreateProductionOrder}
             />
           )}
@@ -533,6 +511,9 @@ export default function App() {
               initialModel={studioModel}
               initialArtifact={studioTransfer?.accountId === (user?.uid || 'guest') ? studioTransfer.artifact : null}
               onSendToNesting={handleSendToNesting}
+              onSendToCam={handleSendToCam}
+              onSendToQuote={handleSendToQuote}
+              onSendToProduction={handleCreateProductionOrder}
             />
           )}
 
@@ -611,6 +592,7 @@ export default function App() {
             <FiscalShippingView
               orders={salesOrders}
               company={company}
+              onUpdateOrder={syncSalesOrderMutation}
             />
           )}
 

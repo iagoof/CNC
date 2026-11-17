@@ -59,9 +59,9 @@ export async function startAssemblyAiGeneration(key:string,prompt:string,default
     const response=await (deps.fetch||fetch)('/api/ai/generate-assembly',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,defaults:{...defaults,shelves:defaults.shelves??2}}),signal:AbortSignal.timeout(65000)});
     const body=await response.json().catch(()=>null);
     if(!response.ok||body?.source!=='ai'||body?.success!==true)throw new Error(body?.error||'Não foi possível obter o desenho da IA. Tente novamente.');
-    if(body.provider!=='gemini'||typeof body.modelUsed!=='string'||!body.modelUsed||typeof body.generatedAt!=='string')throw new Error('A resposta não identifica o modelo de IA utilizado.');
+    if((body.provider!=='nvidia'&&body.provider!=='gemini')||typeof body.modelUsed!=='string'||!body.modelUsed||typeof body.generatedAt!=='string')throw new Error('A resposta não identifica o modelo de IA utilizado.');
     const {plan}=validateAssemblyPlan(body.plan);
-    const result:AssemblyAiResult={success:true,source:'ai',provider:'gemini',modelUsed:body.modelUsed,generatedAt:body.generatedAt,plan};
+    const result:AssemblyAiResult={success:true,source:'ai',provider:body.provider,modelUsed:body.modelUsed,generatedAt:body.generatedAt,plan};
     const job:JobState={status:'done',id,prompt,result,applied:false};
     // Retain the pending result when a different drawing was loaded during the request.
     try{storage.setItem(key+':ai-result',JSON.stringify(job));}catch{/* Result remains available in memory. */}

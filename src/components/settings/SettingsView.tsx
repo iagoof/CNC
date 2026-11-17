@@ -163,9 +163,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const newMach: Machine = {
       id: 'mach-' + crypto.randomUUID(),
       name: machineDraft.name.trim(), model: '', type: machineDraft.type,
-      laserPowerW: 0, workAreaX_mm: width, workAreaY_mm: height,
-      purchasePrice, depreciationYears: 0, monthlyWorkHours: 0,
-      energyConsumptionKwh: 0, monthlyMaintenanceCosts: 0, tubeSpareCost: 0
+      laserPowerW: machineDraft.type === 'Router' ? 3000 : 100, workAreaX_mm: width, workAreaY_mm: height,
+      purchasePrice, depreciationYears: 5, monthlyWorkHours: 160,
+      energyConsumptionKwh: machineDraft.type === 'Router' ? 4.0 : 2.2, monthlyMaintenanceCosts: 200, tubeSpareCost: 1500
     };
     setCreationError(null); setCreating(true);
     try { await onCreateMachine(newMach); setCreationMode(null); setMachineDraft({ name: '', type: 'CO2', width: '', height: '', purchasePrice: '' }); }
@@ -203,8 +203,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       id: 'mat-' + crypto.randomUUID(),
       name: materialDraft.name.trim(), category: materialDraft.category,
       thickness_mm: thickness, sheetWidth_mm: width, sheetLength_mm: length,
-      unitCost, shippingCost: 0, lossPercentage: 0, density_kg_m3: 0,
-      speedsByMachine: []
+      unitCost, shippingCost: 0, lossPercentage: 5, density_kg_m3: 750,
+      speedsByMachine: machines.map(mach => ({
+        machineId: mach.id,
+        cutSpeed_mms: mach.type === 'Router' ? 40 : Math.max(8, Math.round(60 / thickness)),
+        cutPower_pct: 75,
+        engraveSpeed_mms: mach.type === 'Router' ? 80 : 280,
+        engravePower_pct: 20,
+        lineInterval_mm: mach.type === 'Router' ? 0.2 : 0.08
+      }))
     };
     setCreationError(null); setCreating(true);
     try { await onCreateMaterial(newMat); setCreationMode(null); setMaterialDraft({ name: '', category: 'MDF', thickness: '', width: '', length: '', unitCost: '' }); }
@@ -656,6 +663,116 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         />
                       </div>
                     </div>
+
+                    {/* Velocidades por Máquina */}
+                    {machines.length > 0 && (
+                      <details className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                        <summary className="cursor-pointer font-semibold text-slate-700">
+                          Parâmetros de Corte e Gravação por Máquina ({mat.speedsByMachine.length}/{machines.length})
+                        </summary>
+                        <div className="mt-3 space-y-2.5">
+                          {machines.map(mach => {
+                            const existingSpeed = mat.speedsByMachine.find(s => s.machineId === mach.id);
+                            const updateMachineSpeed = (field: 'cutSpeed_mms' | 'cutPower_pct' | 'engraveSpeed_mms' | 'engravePower_pct' | 'lineInterval_mm', val: number) => {
+                              const base = existingSpeed || {
+                                machineId: mach.id,
+                                cutSpeed_mms: mach.type === 'Router' ? 40 : 20,
+                                cutPower_pct: 75,
+                                engraveSpeed_mms: mach.type === 'Router' ? 80 : 280,
+                                engravePower_pct: 20,
+                                lineInterval_mm: mach.type === 'Router' ? 0.2 : 0.08
+                              };
+                              const updatedEntry = { ...base, [field]: val };
+                              const nextSpeeds = existingSpeed
+                                ? mat.speedsByMachine.map(s => (s.machineId === mach.id ? updatedEntry : s))
+                                : [...mat.speedsByMachine, updatedEntry];
+                              setMaterialEdits(previous => ({
+                                ...previous,
+                                [mat.id]: { ...mat, speedsByMachine: nextSpeeds }
+                              }));
+                            };
+                            return (
+                              <div key={mach.id} className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-800">{mach.name} ({mach.type})</span>
+                                  {!existingSpeed && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateMachineSpeed('cutSpeed_mms', mach.type === 'Router' ? 40 : 20)}
+                                      className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 hover:bg-amber-200"
+                                    >
+                                      Habilitar velocidades padrão
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Vel. Corte (mm/s)</label>
+                                    <input
+                                      type="number"
+                                      min="0.1"
+                                      step="any"
+                                      value={existingSpeed?.cutSpeed_mms ?? ''}
+                                      placeholder="20"
+                                      onChange={e => updateMachineSpeed('cutSpeed_mms', Number(e.target.value))}
+                                      className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Potência Corte (%)</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="100"
+                                      value={existingSpeed?.cutPower_pct ?? ''}
+                                      placeholder="75"
+                                      onChange={e => updateMachineSpeed('cutPower_pct', Number(e.target.value))}
+                                      className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Vel. Gravação (mm/s)</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      step="any"
+                                      value={existingSpeed?.engraveSpeed_mms ?? ''}
+                                      placeholder="280"
+                                      onChange={e => updateMachineSpeed('engraveSpeed_mms', Number(e.target.value))}
+                                      className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Pot. Gravação (%)</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="100"
+                                      value={existingSpeed?.engravePower_pct ?? ''}
+                                      placeholder="20"
+                                      onChange={e => updateMachineSpeed('engravePower_pct', Number(e.target.value))}
+                                      className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Intervalo Scan (mm)</label>
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      value={existingSpeed?.lineInterval_mm ?? ''}
+                                      placeholder="0.08"
+                                      onChange={e => updateMachineSpeed('lineInterval_mm', Number(e.target.value))}
+                                      className="w-full rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    )}
                     {materialEdits[mat.id] && <div className="flex items-center gap-2 border-t border-slate-100 pt-3">
                       <span className="mr-auto text-amber-700">Alterações não salvas</span>
                       <button type="button" disabled={!!savingId} onClick={() => setMaterialEdits(previous => { const next = { ...previous }; delete next[mat.id]; return next; })} className="rounded-lg border px-3 py-1.5 disabled:opacity-50">Cancelar</button>

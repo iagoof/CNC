@@ -27,7 +27,7 @@ export const INITIAL_MACHINES: Machine[] = [
     purchasePrice: 38500,
     depreciationYears: 5,
     monthlyWorkHours: 160,
-    energyConsumptionKwh: 2.4, // Tubo + Chiller CW-5200 + Exaustor
+    energyConsumptionKwh: 2.4,
     monthlyMaintenanceCosts: 280,
     tubeSpareCost: 4200,
     notes: "Máquina primária para cortes finos em MDF, acrílico e compensado com alta velocidade."
@@ -36,14 +36,14 @@ export const INITIAL_MACHINES: Machine[] = [
     id: "mach-2",
     name: "CNC Router Industrial 3 Eixos (1325)",
     model: "Spindle 3.0kW HSD / Inversor Delta / DSP A11",
-    type: "Router", // CNC Router usinagem
+    type: "Router",
     laserPowerW: 3000,
     workAreaX_mm: 1300,
     workAreaY_mm: 2500,
     purchasePrice: 62000,
     depreciationYears: 5,
     monthlyWorkHours: 160,
-    energyConsumptionKwh: 4.2, // Spindle 3kW + Bomba de vácuo + Coletor de pó 2.2kW
+    energyConsumptionKwh: 4.2,
     monthlyMaintenanceCosts: 450,
     tubeSpareCost: 1500,
     notes: "Usinagem pesada de chapas inteiras de MDF 15mm/18mm, ACM, compensado naval e madeira maciça."
@@ -80,7 +80,8 @@ export const INITIAL_MATERIALS: Material[] = [
     density_kg_m3: 750,
     speedsByMachine: [
       { machineId: "mach-1", cutSpeed_mms: 25, cutPower_pct: 65, engraveSpeed_mms: 300, engravePower_pct: 18, lineInterval_mm: 0.08 },
-      { machineId: "mach-2", cutSpeed_mms: 45, cutPower_pct: 70, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 }
+      { machineId: "mach-2", cutSpeed_mms: 45, cutPower_pct: 70, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 },
+      { machineId: "mach-3", cutSpeed_mms: 15, cutPower_pct: 80, engraveSpeed_mms: 500, engravePower_pct: 30, lineInterval_mm: 0.05 }
     ]
   },
   {
@@ -96,7 +97,8 @@ export const INITIAL_MATERIALS: Material[] = [
     density_kg_m3: 760,
     speedsByMachine: [
       { machineId: "mach-1", cutSpeed_mms: 22, cutPower_pct: 70, engraveSpeed_mms: 280, engravePower_pct: 20, lineInterval_mm: 0.08 },
-      { machineId: "mach-2", cutSpeed_mms: 40, cutPower_pct: 75, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 }
+      { machineId: "mach-2", cutSpeed_mms: 40, cutPower_pct: 75, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 },
+      { machineId: "mach-3", cutSpeed_mms: 14, cutPower_pct: 85, engraveSpeed_mms: 480, engravePower_pct: 35, lineInterval_mm: 0.05 }
     ]
   },
   {
@@ -112,7 +114,8 @@ export const INITIAL_MATERIALS: Material[] = [
     density_kg_m3: 1190,
     speedsByMachine: [
       { machineId: "mach-1", cutSpeed_mms: 12, cutPower_pct: 80, engraveSpeed_mms: 350, engravePower_pct: 15, lineInterval_mm: 0.06 },
-      { machineId: "mach-2", cutSpeed_mms: 20, cutPower_pct: 60, engraveSpeed_mms: 60, engravePower_pct: 50, lineInterval_mm: 0.15 }
+      { machineId: "mach-2", cutSpeed_mms: 20, cutPower_pct: 60, engraveSpeed_mms: 60, engravePower_pct: 50, lineInterval_mm: 0.15 },
+      { machineId: "mach-3", cutSpeed_mms: 10, cutPower_pct: 90, engraveSpeed_mms: 450, engravePower_pct: 40, lineInterval_mm: 0.05 }
     ]
   },
   {
@@ -128,7 +131,8 @@ export const INITIAL_MATERIALS: Material[] = [
     density_kg_m3: 740,
     speedsByMachine: [
       { machineId: "mach-1", cutSpeed_mms: 10, cutPower_pct: 85, engraveSpeed_mms: 280, engravePower_pct: 24, lineInterval_mm: 0.10 },
-      { machineId: "mach-2", cutSpeed_mms: 35, cutPower_pct: 85, engraveSpeed_mms: 80, engravePower_pct: 45, lineInterval_mm: 0.20 }
+      { machineId: "mach-2", cutSpeed_mms: 35, cutPower_pct: 85, engraveSpeed_mms: 80, engravePower_pct: 45, lineInterval_mm: 0.20 },
+      { machineId: "mach-3", cutSpeed_mms: 8, cutPower_pct: 95, engraveSpeed_mms: 400, engravePower_pct: 45, lineInterval_mm: 0.06 }
     ]
   },
   {
@@ -144,7 +148,8 @@ export const INITIAL_MATERIALS: Material[] = [
     density_kg_m3: 560,
     speedsByMachine: [
       { machineId: "mach-1", cutSpeed_mms: 18, cutPower_pct: 75, engraveSpeed_mms: 260, engravePower_pct: 20, lineInterval_mm: 0.08 },
-      { machineId: "mach-2", cutSpeed_mms: 40, cutPower_pct: 80, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 }
+      { machineId: "mach-2", cutSpeed_mms: 40, cutPower_pct: 80, engraveSpeed_mms: 80, engravePower_pct: 40, lineInterval_mm: 0.20 },
+      { machineId: "mach-3", cutSpeed_mms: 12, cutPower_pct: 85, engraveSpeed_mms: 420, engravePower_pct: 35, lineInterval_mm: 0.06 }
     ]
   }
 ];
@@ -207,7 +212,7 @@ export const INITIAL_PRODUCTS: ProductInventory[] = [
     committedStock: 14,
     minStock: 10,
     idealStock: 25,
-    inProductionStock: 10,
+    inProductionStock: 25,
     minBatchToProduce: 5,
     batchMultiple: 5,
     unitPrice: 89.00,
@@ -241,7 +246,7 @@ export const INITIAL_PRODUCTS: ProductInventory[] = [
     committedStock: 7,
     minStock: 10,
     idealStock: 25,
-    inProductionStock: 0,
+    inProductionStock: 10,
     minBatchToProduce: 5,
     batchMultiple: 5,
     unitPrice: 49.90,
@@ -261,8 +266,8 @@ export const INITIAL_PRODUCTION_ORDERS: ProductionOrder[] = [
     quantityRequested: 20,
     quantityIdealCalculated: 20,
     status: "Cortando na Laser",
-    createdAt: "2026-10-18T08:30:00Z",
-    dueDate: "2026-10-22T17:00:00Z",
+    createdAt: "2026-11-15T08:30:00Z",
+    dueDate: "2026-11-20T17:00:00Z",
     priority: "Alta",
     machineId: "mach-1",
     materialName: "MDF Cru 3,0 mm",
@@ -279,8 +284,8 @@ export const INITIAL_PRODUCTION_ORDERS: ProductionOrder[] = [
     quantityRequested: 25,
     quantityIdealCalculated: 25,
     status: "Aguardando Corte",
-    createdAt: "2026-10-19T10:15:00Z",
-    dueDate: "2026-10-23T18:00:00Z",
+    createdAt: "2026-11-16T10:15:00Z",
+    dueDate: "2026-11-21T18:00:00Z",
     priority: "Urgente",
     machineId: "mach-1",
     materialName: "Acrílico Cristal Cast 3,0 mm",
@@ -297,8 +302,8 @@ export const INITIAL_PRODUCTION_ORDERS: ProductionOrder[] = [
     quantityRequested: 15,
     quantityIdealCalculated: 15,
     status: "Acabamento/Pintura",
-    createdAt: "2026-10-17T14:00:00Z",
-    dueDate: "2026-10-21T16:00:00Z",
+    createdAt: "2026-11-14T14:00:00Z",
+    dueDate: "2026-11-19T16:00:00Z",
     priority: "Normal",
     machineId: "mach-2",
     materialName: "Compensado Naval Pinus 4,0 mm",
@@ -315,8 +320,8 @@ export const INITIAL_PRODUCTION_ORDERS: ProductionOrder[] = [
     quantityRequested: 10,
     quantityIdealCalculated: 10,
     status: "Montagem",
-    createdAt: "2026-10-19T11:20:00Z",
-    dueDate: "2026-10-22T12:00:00Z",
+    createdAt: "2026-11-16T11:20:00Z",
+    dueDate: "2026-11-20T12:00:00Z",
     priority: "Normal",
     machineId: "mach-1",
     materialName: "MDF Branco Tx 1 Face 3,0 mm",
@@ -333,8 +338,8 @@ export const INITIAL_PRODUCTION_ORDERS: ProductionOrder[] = [
     quantityRequested: 30,
     quantityIdealCalculated: 30,
     status: "Pronto/Embalado",
-    createdAt: "2026-10-16T09:00:00Z",
-    dueDate: "2026-10-20T18:00:00Z",
+    createdAt: "2026-11-12T09:00:00Z",
+    dueDate: "2026-11-16T18:00:00Z",
     priority: "Baixa",
     machineId: "mach-1",
     materialName: "MDF Cru 3,0 mm",
@@ -364,11 +369,11 @@ export const INITIAL_SALES_ORDERS: SalesOrder[] = [
     total: 275.50,
     paymentMethod: "Marketplace",
     paymentStatus: "Pago",
-    paidAt: "2026-10-20T14:22:00Z",
+    paidAt: new Date().toISOString(),
     fulfillmentStatus: "Nota Emitida",
-    invoiceKey: "31261041980123000185550010000004821008761234",
+    invoiceKey: "31261141980123000185550010000004821008761234",
     trackingCode: "ML-MG-89218731-X",
-    createdAt: "2026-10-20T14:15:00Z"
+    createdAt: new Date(Date.now() - 2 * 86400000).toISOString()
   },
   {
     id: "ped-102",
@@ -382,15 +387,15 @@ export const INITIAL_SALES_ORDERS: SalesOrder[] = [
       { sku: "SKU-TR-003", productName: "Troféu Premium Acrílico Cristal 3mm", quantity: 5, unitPrice: 89.00, totalPrice: 445.00, laserTimeSeconds: 1700 }
     ],
     subtotal: 445.00,
-    shippingCost: 0, // Retirada no balcão JF
+    shippingCost: 0,
     discount: 25.00,
     total: 420.00,
     paymentMethod: "Pix Asaas",
     paymentStatus: "Pago",
-    paidAt: "2026-10-21T09:40:00Z",
+    paidAt: new Date().toISOString(),
     fulfillmentStatus: "Em Produção",
-    invoiceKey: "31261041980123000185550010000004831008765432",
-    createdAt: "2026-10-21T09:35:00Z"
+    invoiceKey: "31261141980123000185550010000004831008765432",
+    createdAt: new Date(Date.now() - 86400000).toISOString()
   },
   {
     id: "ped-103",
@@ -410,11 +415,11 @@ export const INITIAL_SALES_ORDERS: SalesOrder[] = [
     total: 449.80,
     paymentMethod: "Pix Asaas",
     paymentStatus: "Pago",
-    paidAt: "2026-10-20T16:10:00Z",
+    paidAt: new Date().toISOString(),
     fulfillmentStatus: "Separado",
-    invoiceKey: "31261041980123000185550010000004841008769911",
+    invoiceKey: "31261141980123000185550010000004841008769911",
     trackingCode: "ME-JF-99128312-BR",
-    createdAt: "2026-10-20T15:50:00Z"
+    createdAt: new Date(Date.now() - 3 * 86400000).toISOString()
   },
   {
     id: "ped-104",
@@ -433,9 +438,9 @@ export const INITIAL_SALES_ORDERS: SalesOrder[] = [
     total: 133.70,
     paymentMethod: "Marketplace",
     paymentStatus: "Pago",
-    paidAt: "2026-10-21T01:10:00Z",
+    paidAt: new Date().toISOString(),
     fulfillmentStatus: "Pendente",
-    createdAt: "2026-10-21T01:05:00Z"
+    createdAt: new Date().toISOString()
   }
 ];
 
@@ -457,7 +462,9 @@ export const INITIAL_QUOTES: Quote[] = [
         machineId: "mach-1",
         quantity: 4,
         additionalCost: 35.00,
-        customKerf_mm: 0.15
+        customKerf_mm: 0.15,
+        width_mm: 600,
+        height_mm: 900
       },
       {
         id: "qi-2",
@@ -468,15 +475,17 @@ export const INITIAL_QUOTES: Quote[] = [
         machineId: "mach-1",
         quantity: 8,
         additionalCost: 12.00,
-        customKerf_mm: 0.15
+        customKerf_mm: 0.15,
+        width_mm: 120,
+        height_mm: 80
       }
     ],
-    validUntil: "2026-11-05",
+    validUntil: "2026-12-15",
     notes: "Retirada no galpão em Juiz de Fora / MG ou envio via transportadora. Prazo de produção: 4 dias úteis.",
     desiredProfitMarginPct: 35.0,
     extraTaxPct: 0,
     fixedExtraFee: 20.0,
-    createdAt: "2026-10-20",
+    createdAt: "2026-11-15",
     status: "Enviado"
   }
 ];
