@@ -18,7 +18,7 @@ export const ASSEMBLY_PLAN_SCHEMA = {
     params:{type:'object',additionalProperties:false,
       required:['model','width','depth','height','thickness','tabWidth','clearance','kerf','lid','shelves','openings'],
       properties:{
-        model:{type:'string',enum:['box','house','shelf']},width:number(30,1200),depth:number(30,1200),height:number(30,1200),
+        model:{type:'string',enum:['box','house','shelf','star']},width:number(30,1200),depth:number(30,1200),height:number(30,1200),
         thickness:number(1,25),tabWidth:number(2,100),clearance:number(0,1),kerf:number(0,1),lid:{type:'boolean'},shelves:{type:'integer',minimum:1,maximum:8},
         openings:{type:'array',maxItems:16,items:{type:'object',additionalProperties:false,required:['part','shape','x','y','width','height'],properties:{
           part:{type:'string',enum:['front','back','left','right','base','top','roof-left','roof-right']},shape:{type:'string',enum:['rectangle','ellipse','circle']},

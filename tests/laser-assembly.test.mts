@@ -47,8 +47,8 @@ test('pedido interpreta três dimensões, espessura, folga e unidades',()=>{
  assert.throws(()=>parseAssemblyPrompt('dragão articulado'),/disponível/);
 });
 test('SVG contém todos os contornos de peça e rasgos, em medidas físicas',()=>{
- for(const model of ['box','house','shelf'] as const){
-  const kit=generateLaserAssembly({...params,model});
+ for(const model of ['box','house','shelf','star'] as const){
+  const kit=generateLaserAssembly({...params,model,width:model==='star'?160:params.width,depth:model==='star'?160:params.depth});
   const geometry=readSvgGeometry(kit.svg);
   assert.equal(geometry.contours.length,kit.parts.reduce((sum,p)=>sum+1+p.holes.length,0));
   assert.equal(geometry.widthMm,kit.sheetWidth);assert.equal(geometry.thicknessMm,3);
@@ -138,8 +138,8 @@ test('readAssemblyFromSvg memoização por cache e limite bounded',()=>{
 });
 test('volume dos sólidos corresponde à área de corte menos todos os furos',()=>{
  const area=(ring:[number,number][])=>Math.abs(ring.reduce((sum,p,i)=>sum+p[0]*ring[(i+1)%ring.length][1]-p[1]*ring[(i+1)%ring.length][0],0)/2);
- for(const model of ['box','house','shelf'] as const){
-  const kit=generateLaserAssembly({...params,model}),group=createAssemblyGroup(kit);
+ for(const model of ['box','house','shelf','star'] as const){
+  const kit=generateLaserAssembly({...params,model,width:160,depth:160}),group=createAssemblyGroup(kit);
   kit.parts.forEach((part,i)=>{
    const geometry=(group.children[i] as any).geometry,position=geometry.attributes.position;
    let volume=0;
@@ -163,8 +163,8 @@ test('painéis montados não penetram outros painéis fora dos rasgos',()=>{
   }
   return inside;
  };
- for(const model of ['box','house','shelf'] as const){
-  const kit=generateLaserAssembly({...params,model});
+ for(const model of ['box','house','shelf','star'] as const){
+  const kit=generateLaserAssembly({...params,model,width:160,depth:160});
   for(const part of kit.parts){
    const normal=[part.u[1]*part.v[2]-part.u[2]*part.v[1],part.u[2]*part.v[0]-part.u[0]*part.v[2],part.u[0]*part.v[1]-part.u[1]*part.v[0]];
    const sample=part.outline.flatMap((p,i)=>[p,[(p[0]+part.outline[(i+1)%part.outline.length][0])/2,(p[1]+part.outline[(i+1)%part.outline.length][1])/2] as [number,number]]);
@@ -181,6 +181,15 @@ test('painéis montados não penetram outros painéis fora dos rasgos',()=>{
    }
   }
  }
+});
+test('caixa em formato de estrela gera base estelar, tampa estelar e 10 laterais com encaixes pareados',()=>{
+ const p=parseAssemblyPrompt('Crie uma caixa em formato de uma estrela',DEFAULT_ASSEMBLY_PARAMS);
+ assert.equal(p.model,'star');
+ assert.equal(p.lid,true);
+ const kit=generateLaserAssembly(p);
+ assert.equal(kit.parts.length,12);
+ assert.equal(kit.joints.length,20);
+ assert.deepEqual(validateAssembly(kit),[]);
 });
 test('quantidade de prateleiras do pedido altera peças e encaixes',()=>{
  const p=parseAssemblyPrompt('organizador 180 x 120 x 180 mm com quatro prateleiras',DEFAULT_ASSEMBLY_PARAMS);

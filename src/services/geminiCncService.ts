@@ -1,19 +1,40 @@
 import { cleanAndUniteSvgPaths } from '../utils/paperVectorPreprocess';
 import { calculateSvgMetrics } from '../utils/cncExporters';
 import { DEFAULT_ASSEMBLY_PARAMS, generateAssemblyFromPrompt, describeAssembly } from './assemblyService';
+import { validateAssemblyPlan } from './assemblyAiPlan';
 
 const isAssemblyPrompt = (prompt: string) => /\b(casa|casinha|house|caixa|box|estojo|bau|baú|organizador|estante)\b|prateleira/i.test(prompt);
+
+function buildAssemblyVectorResult(
+  kit: ReturnType<typeof generateAssemblyFromPrompt>,
+  titleOverride?: string,
+  explanationOverride?: string,
+  modelUsed = 'parametric-assembly-v1'
+): GeneratedCncVector {
+  const cutLength = kit.parts.reduce((sum, part) => sum + [part.outline, ...part.holes].reduce((total, ring) =>
+    total + ring.reduce((n, point, i) => n + Math.hypot(point[0] - ring[(i + 1) % ring.length][0], point[1] - ring[(i + 1) % ring.length][1]), 0), 0), 0);
+  const baseDesc = describeAssembly(kit);
+  return {
+    title: titleOverride || kit.title,
+    description: explanationOverride ? `${explanationOverride} · ${baseDesc}` : baseDesc,
+    widthMm: kit.sheetWidth,
+    heightMm: kit.sheetHeight,
+    svgContent: kit.svg,
+    recommendedMaterial: `Chapa ${kit.params.thickness} mm`,
+    recommendedThicknessMm: kit.params.thickness,
+    materialThickness_mm: kit.params.thickness,
+    metadata: createStandardMetadataBlock(kit.params.thickness, kit.params.kerf, modelUsed),
+    cutLengthMm: cutLength,
+    engraveAreaCm2: 0,
+    estimatedLaserTimeSec: Math.max(15, Math.round(cutLength / 25)),
+    layers: [{ name: 'Peças e rasgos', type: 'cut', color: '#FF0000', cutLengthMm: cutLength }]
+  };
+}
 
 function generateEngineeredVector(prompt: string, width = 140, depth = 100, thickness = 3): GeneratedCncVector {
   const kit = generateAssemblyFromPrompt(prompt, { ...DEFAULT_ASSEMBLY_PARAMS, width, depth, thickness,
     tabWidth: Math.max(2 * thickness, Math.min(10, Math.min(width, depth) / 8)) });
-  const cutLength = kit.parts.reduce((sum, part) => sum + [part.outline, ...part.holes].reduce((total, ring) =>
-    total + ring.reduce((n, point, i) => n + Math.hypot(point[0] - ring[(i + 1) % ring.length][0], point[1] - ring[(i + 1) % ring.length][1]), 0), 0), 0);
-  return { title: kit.title, description: describeAssembly(kit), widthMm: kit.sheetWidth, heightMm: kit.sheetHeight,
-    svgContent: kit.svg, recommendedMaterial: `Chapa ${kit.params.thickness} mm`, recommendedThicknessMm: kit.params.thickness,
-    materialThickness_mm: kit.params.thickness, metadata: createStandardMetadataBlock(kit.params.thickness, kit.params.kerf, 'parametric-assembly-v1'),
-    cutLengthMm: cutLength, engraveAreaCm2: 0, estimatedLaserTimeSec: 0,
-    layers: [{ name: 'Peças e rasgos', type: 'cut', color: '#FF0000', cutLengthMm: cutLength }] };
+  return buildAssemblyVectorResult(kit);
 }
 
 export interface CncMetadataBlock {
@@ -798,7 +819,35 @@ export async function generateCncVector(
   thicknessMm = 3.0,
   kerfMm = 0.15
 ): Promise<GeneratedCncVector> {
-  if (isAssemblyPrompt(prompt)) return generateEngineeredVector(prompt, overrideWidth, overrideHeight, thicknessMm);
+  if (isAssemblyPrompt(prompt)) {
+    try {
+      const w = overrideWidth || 140;
+      const d = overrideHeight || 100;
+      const defaults = {
+        ...DEFAULT_ASSEMBLY_PARAMS,
+        width: w,
+        depth: d,
+        thickness: thicknessMm,
+        kerf: kerfMm,
+        tabWidth: Math.max(2 * thicknessMm, Math.min(10, Math.min(w, d) / 8))
+      };
+      const res = await fetch('/api/ai/generate-assembly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, defaults })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.plan) {
+          const { assembly, plan } = validateAssemblyPlan(data.plan);
+          return buildAssemblyVectorResult(assembly, plan.title, plan.explanation, data.modelUsed || 'moonshotai/kimi-k3.1-pro');
+        }
+      }
+    } catch {
+      // Fallback para o gerador paramétrico local caso a API não esteja disponível
+    }
+    return generateEngineeredVector(prompt, overrideWidth, overrideHeight, thicknessMm);
+  }
   const width = overrideWidth || 120;
   const height = overrideHeight || 120;
 

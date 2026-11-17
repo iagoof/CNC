@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type AssemblyModel = 'box' | 'house' | 'shelf';
+export type AssemblyModel = 'box' | 'house' | 'shelf' | 'star';
 export type V2 = [number, number];
 export type V3 = [number, number, number];
 export interface AssemblyOpening {
@@ -69,7 +69,7 @@ function ringDistance(a:V2[],b:V2[]):number {
 /** All contours use mm. Slots include clearance, while kerf is a separate export operation. */
 export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
   const p = {shelves:2,...input};
-  if(!['box','house','shelf'].includes(p.model)) throw new Error('Família de montagem não suportada.');
+  if(!['box','house','shelf','star'].includes(p.model)) throw new Error('Família de montagem não suportada.');
   if(!Object.entries(p).filter(([k])=>!['model','lid','openings'].includes(k)).every(([,v])=>typeof v==='number' && Number.isFinite(v))) throw new Error('Informe medidas finitas.');
   if(p.openings!==undefined&&(!Array.isArray(p.openings)||p.openings.length>16))throw new Error('Informe no máximo 16 aberturas.');
   const {width:W,depth:D,height:H,thickness:t,tabWidth:tw,clearance:c} = p;
@@ -79,10 +79,84 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
   if(c<0 || c>Math.min(1,t/4) || p.kerf<0 || p.kerf>Math.min(1,t/3)) throw new Error('Folga ou kerf incompatíveis com a espessura.');
   if(p.model==='shelf' && H/(p.shelves+1)<3*t+c) throw new Error('Aumente a altura ou reduza a quantidade de prateleiras para preservar o espaço entre os rasgos.');
   const parts: AssemblyPart[] = [], joints: AssemblyJoint[] = [];
-  const tabs = new Map<AssemblyPart,Map<number,number[]>>();
+  const tabs = new Map<AssemblyPart,Map<number,{at:number;width:number}[]>>();
   const addPart = (id:string,name:string,outline:V2[],origin:V3,u:V3,v:V3,explode:V3):AssemblyPart => {
     const part = {id,name,outline,holes:[],origin,u,v,explode}; parts.push(part); return part;
   };
+  if (p.model === 'star') {
+    const rawStar = Array.from({ length: 10 }, (_, i) => {
+      const angle = Math.PI / 2 + (i * Math.PI) / 5;
+      const r = i % 2 === 0 ? 1 : 0.54;
+      return [Math.cos(angle) * r, Math.sin(angle) * r] as V2;
+    });
+    const minRX = Math.min(...rawStar.map(pt => pt[0])), maxRX = Math.max(...rawStar.map(pt => pt[0]));
+    const minRY = Math.min(...rawStar.map(pt => pt[1])), maxRY = Math.max(...rawStar.map(pt => pt[1]));
+    const starOutline: V2[] = rawStar.map(([rx, ry]) => [
+      ((rx - minRX) / (maxRX - minRX)) * W,
+      ((ry - minRY) / (maxRY - minRY)) * D
+    ]);
+    const base = addPart('base', 'Base em estrela', starOutline.map(a => [...a] as V2), [-W / 2, 0, -D / 2], [1, 0, 0], [0, 0, 1], [0, -1, 0]);
+    const starLid = p.lid
+      ? addPart('top', 'Tampa em estrela com encaixes', starOutline.map(a => [...a] as V2), [-W / 2, H + t, -D / 2], [1, 0, 0], [0, 0, 1], [0, 1, 0])
+      : null;
+    for (let k = 0; k < 10; k++) {
+      const vA = starOutline[k], vB = starOutline[(k + 1) % 10];
+      const dx = vB[0] - vA[0], dy = vB[1] - vA[1], edgeLen = Math.hypot(dx, dy);
+      const ux = dx / edgeLen, uy = dy / edgeLen;
+      const nx = -uy, ny = ux; // Normal interna apontando para o interior da estrela
+      const sMid = k % 2 === 0 ? 0.56 : 0.44;
+      const inset = 2.4 * t;
+      const mx = vA[0] + dx * sMid + nx * inset, my = vA[1] + dy * sMid + ny * inset;
+      const wallLen = Math.max(2 * t + 4, Math.min(edgeLen * 0.46, edgeLen - 4.4 * t));
+      const twStar = Math.min(tw, Math.max(2 * t, Math.floor((wallLen - 2 * t) * 100) / 100));
+      const px = mx - ux * (wallLen / 2), py = my - uy * (wallLen / 2);
+      const wall = addPart(
+        `side-${k + 1}`,
+        `Lateral ${k + 1}`,
+        rect(wallLen, H),
+        [px - W / 2, t / 2, py - D / 2],
+        [ux, 0, uy],
+        [0, 1, 0],
+        [-nx, 0, -ny]
+      );
+      const at = wallLen / 2;
+      const hw = (twStar + c) / 2, ht = (t + c) / 2;
+      const makeSlotRing = (): V2[] => [
+        [mx - ux * hw - nx * ht, my - uy * hw - ny * ht],
+        [mx + ux * hw - nx * ht, my + uy * hw - ny * ht],
+        [mx + ux * hw + nx * ht, my + uy * hw + ny * ht],
+        [mx - ux * hw + nx * ht, my - uy * hw + ny * ht]
+      ];
+      const wallMap = new Map<number, { at: number; width: number }[]>();
+      wallMap.set(0, [{ at, width: twStar }]);
+      base.holes.push(makeSlotRing());
+      joints.push({
+        id: `J${joints.length + 1}`,
+        tabPart: wall.id,
+        socketPart: base.id,
+        tabCenter: world(wall, [at, -t / 2]),
+        socketCenter: world(base, [mx, my]),
+        tabWidth: twStar,
+        slotWidth: twStar + c,
+        slotThickness: t + c
+      });
+      if (starLid) {
+        wallMap.set(2, [{ at, width: twStar }]);
+        starLid.holes.push(makeSlotRing());
+        joints.push({
+          id: `J${joints.length + 1}`,
+          tabPart: wall.id,
+          socketPart: starLid.id,
+          tabCenter: world(wall, [wallLen - at, H + t / 2]),
+          socketCenter: world(starLid, [mx, my]),
+          tabWidth: twStar,
+          slotWidth: twStar + c,
+          slotThickness: t + c
+        });
+      }
+      tabs.set(wall, wallMap);
+    }
+  } else {
   const base = addPart('base','Base',rect(W,D),[-W/2,0,-D/2],[1,0,0],[0,0,1],[0,-1,0]);
   const A=W/2-2*t, B=D/2-2*t, F=W-5*t, S=D-2*t;
   const rise = W*0.32;
@@ -96,7 +170,7 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
   const connect = (tab:AssemblyPart,edge:number,at:number,socket:AssemblyPart,sx:number,sy:number,horizontal:boolean) => {
     const a=tab.outline[edge], b=tab.outline[(edge+1)%tab.outline.length];
     const len=Math.hypot(b[0]-a[0],b[1]-a[1]), ux=(b[0]-a[0])/len, uy=(b[1]-a[1])/len;
-    const map=tabs.get(tab)||new Map<number,number[]>(); map.set(edge,[...(map.get(edge)||[]),at]); tabs.set(tab,map);
+    const map=tabs.get(tab)||new Map<number,{at:number;width:number}[]>(); map.set(edge,[...(map.get(edge)||[]),{at,width:tw}]); tabs.set(tab,map);
     const center:V2=[a[0]+ux*at+uy*t/2,a[1]+uy*at-ux*t/2];
     const sw=horizontal ? tw+c : t+c, sh=horizontal ? t+c : tw+c;
     socket.holes.push([[sx-sw/2,sy-sh/2],[sx+sw/2,sy-sh/2],[sx+sw/2,sy+sh/2],[sx-sw/2,sy+sh/2]]);
@@ -156,11 +230,12 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
       for(const at of positions(F,tw,t)) connect(shelf,0,at,back,at,y-t/2,true);
     }
   }
+  }
   for(const opening of p.openings||[]) {
     if(!opening||!['rectangle','ellipse','circle'].includes(opening.shape)||!(['x','y','width','height'] as const).every(k=>typeof opening[k]==='number'&&Number.isFinite(opening[k])))throw new Error('Abertura inválida.');
     const part=parts.find(part=>part.id===opening.part);
     if(!part||opening.width<=0||opening.height<=0||opening.width>0.8||opening.height>0.8||opening.x<0||opening.x>1||opening.y<0||opening.y>1)throw new Error('Abertura fora de um painel disponível.');
-    const b=bounds(part),w=b.maxX-b.minX,h=part===front||part===back?H:b.maxY-b.minY;
+    const b=bounds(part),w=b.maxX-b.minX,h=part.id==='front'||part.id==='back'?H:b.maxY-b.minY;
     const cx=b.minX+opening.x*w,cy=b.minY+opening.y*h,ow=opening.width*w,oh=opening.height*h;
     if(Math.min(ow,oh)<2*t)throw new Error('Abertura pequena demais para a espessura da chapa.');
     const rw=opening.shape==='circle'?Math.min(ow,oh):ow,rh=opening.shape==='circle'?Math.min(ow,oh):oh;
@@ -176,14 +251,14 @@ export function generateLaserAssembly(input: AssemblyParams): LaserAssembly {
       const b=original[(edge+1)%original.length], len=Math.hypot(b[0]-a[0],b[1]-a[1]);
       const ux=(b[0]-a[0])/len, uy=(b[1]-a[1])/len;
       outline.push(a);
-      for(const at of (tabs.get(part)?.get(edge)||[]).sort((x,y)=>x-y)) {
+      for(const {at,width:tabW} of (tabs.get(part)?.get(edge)||[]).sort((x,y)=>x.at-y.at)) {
         const point=(d:number,out:number):V2=>[a[0]+ux*d+uy*out,a[1]+uy*d-ux*out];
-        outline.push(point(at-tw/2,0),point(at-tw/2,t),point(at+tw/2,t),point(at+tw/2,0));
+        outline.push(point(at-tabW/2,0),point(at-tabW/2,t),point(at+tabW/2,t),point(at+tabW/2,0));
       }
     });
     part.outline=outline;
   }
-  const title=p.model==='house' ? 'Casa com encaixes' : p.model==='shelf' ? 'Organizador com prateleiras' : p.lid ? 'Caixa com tampa e encaixes' : 'Caixa aberta com encaixes';
+  const title=p.model==='star' ? (p.lid ? 'Caixa em formato de estrela com tampa' : 'Caixa aberta em formato de estrela') : p.model==='house' ? 'Casa com encaixes' : p.model==='shelf' ? 'Organizador com prateleiras' : p.lid ? 'Caixa com tampa e encaixes' : 'Caixa aberta com encaixes';
   const kit:LaserAssembly={version:1,params:p,title,parts,joints,sheetWidth:0,sheetHeight:0,svg:''};
   const issues=validateAssembly(kit);
   if(issues.length) throw new Error(issues.join(' '));
